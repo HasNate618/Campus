@@ -1,9 +1,16 @@
 {
   "term_info": {
+    "2025W": { "label": "Winter 2025 (pilot)", "starts": "", "ends": "" },
     "2026F": { "label": "Fall 2026", "starts": "", "ends": "" },
     "2027W": { "label": "Winter 2027", "starts": "", "ends": "" }
   },
   "courses": [
+    {
+      "code": "SE 2250B", "name": "Software Construction", "term": "2025W",
+      "instructor": null, "units": 0.50, "class_nbr": null, "color": "#64748b",
+      "is_pilot": true,
+      "sessions": []
+    },
     {
       "code": "DATASCI 3000B", "name": "Intro to Machine Learning", "term": "2027W",
       "instructor": "Viswanathan", "units": 0.50, "class_nbr": "14341", "color": "#8b5cf6",

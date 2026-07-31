@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS courses (
     color                   TEXT,                        -- UI accent
     syllabus_path           TEXT,                        -- local markdown path
     notes                   TEXT,
+    is_pilot                INTEGER NOT NULL DEFAULT 0,  -- SE 2250B etc. sync fixtures
     is_active               INTEGER NOT NULL DEFAULT 1,
     created_at              TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at              TEXT NOT NULL DEFAULT (datetime('now'))
@@ -92,10 +93,31 @@ CREATE TABLE IF NOT EXISTS lectures (
     updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Brightspace content tree (modules / topics) — browse + sync diffs
+CREATE TABLE IF NOT EXISTS content_nodes (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    course_id       INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+    parent_id       INTEGER REFERENCES content_nodes(id) ON DELETE CASCADE,
+    brightspace_id  INTEGER NOT NULL,                    -- D2L content object id
+    node_type       TEXT NOT NULL CHECK (node_type IN ('module','topic')),
+    topic_type      TEXT CHECK (topic_type IN ('file','link','html','other')),
+    title           TEXT NOT NULL,
+    description     TEXT,
+    url             TEXT,                                -- link topics
+    due_at          TEXT,
+    is_hidden       INTEGER NOT NULL DEFAULT 0,
+    is_locked       INTEGER NOT NULL DEFAULT 0,
+    sort_order      INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (course_id, brightspace_id)
+);
+
 -- Files synced from Brightspace / recordings / notes (content-addressed)
 CREATE TABLE IF NOT EXISTS files (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     course_id   INTEGER REFERENCES courses(id) ON DELETE CASCADE,
+    content_node_id INTEGER REFERENCES content_nodes(id) ON DELETE SET NULL,
     path        TEXT NOT NULL UNIQUE,                    -- relative to course dir
     kind        TEXT NOT NULL DEFAULT 'other'
                 CHECK (kind IN ('slide','reading','handout','assignment','recording','transcript','note','other')),
@@ -106,6 +128,19 @@ CREATE TABLE IF NOT EXISTS files (
     synced_at   TEXT,
     processed   INTEGER NOT NULL DEFAULT 0,              -- 1 = markdown extracted/indexed
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- External work homes (Git remotes, OneDrive folders) — not file SoT
+CREATE TABLE IF NOT EXISTS work_links (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    course_id   INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+    kind        TEXT NOT NULL CHECK (kind IN ('git','onedrive','other')),
+    label       TEXT NOT NULL,
+    url         TEXT,                                    -- https remote or sharing link
+    path        TEXT,                                    -- optional local / rclone path
+    notes       TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- ── Announcements + news ───────────────────────────────────────────────
@@ -150,7 +185,7 @@ CREATE TABLE IF NOT EXISTS memory_facts (
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- ── Calendar events (ICS-exportable) ───────────────────────────────────
+-- ── Calendar events (in-app SoT; ICS export optional later) ─────────────
 CREATE TABLE IF NOT EXISTS events (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     course_id   INTEGER REFERENCES courses(id) ON DELETE CASCADE,
@@ -198,3 +233,7 @@ CREATE INDEX IF NOT EXISTS idx_assignments_due ON assignments(due_at);
 CREATE INDEX IF NOT EXISTS idx_lectures_course_date ON lectures(course_id, date);
 CREATE INDEX IF NOT EXISTS idx_memory_course ON memory_facts(course_id);
 CREATE INDEX IF NOT EXISTS idx_events_start ON events(starts_at);
+CREATE INDEX IF NOT EXISTS idx_content_nodes_course ON content_nodes(course_id, parent_id);
+CREATE INDEX IF NOT EXISTS idx_files_course ON files(course_id);
+CREATE INDEX IF NOT EXISTS idx_work_links_course ON work_links(course_id);
+CREATE INDEX IF NOT EXISTS idx_announcements_bs ON announcements(course_id, brightspace_id);

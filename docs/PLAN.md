@@ -1,5 +1,8 @@
 # School Harness — Architecture & Plan
 
+> **Superseded for product decisions.** Use [DESIGN.md](DESIGN.md), [HANDOFF.md](HANDOFF.md),
+> and [DATA_MODEL.md](DATA_MODEL.md). This file is retained as historical context only.
+
 Personal AI study/org harness for Western SE 3rd year (2026-27).
 Repo: private. Course content never committed to git.
 
