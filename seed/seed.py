@@ -25,20 +25,24 @@ def connect(db_path: str) -> sqlite3.Connection:
 
 
 def seed(conn: sqlite3.Connection, data: dict) -> dict:
-    stats = {"courses": 0, "sessions": 0}
+    stats = {"courses": 0, "sessions": 0, "pilots": 0}
     for c in data["courses"]:
-        cur = conn.execute(
-            """INSERT INTO courses (code, name, term, instructor, units, class_nbr, color)
-               VALUES (?, ?, ?, ?, ?, ?, ?)
+        is_pilot = 1 if c.get("is_pilot") else 0
+        conn.execute(
+            """INSERT INTO courses (code, name, term, instructor, units, class_nbr, color, is_pilot)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(code) DO UPDATE SET
                  name=excluded.name, term=excluded.term, instructor=excluded.instructor,
                  units=excluded.units, class_nbr=excluded.class_nbr, color=excluded.color,
+                 is_pilot=excluded.is_pilot,
                  updated_at=datetime('now')""",
             (c["code"], c["name"], c["term"], c.get("instructor"), c.get("units"),
-             c.get("class_nbr"), c.get("color")),
+             c.get("class_nbr"), c.get("color"), is_pilot),
         )
         course_id = conn.execute("SELECT id FROM courses WHERE code=?", (c["code"],)).fetchone()["id"]
         stats["courses"] += 1
+        if is_pilot:
+            stats["pilots"] += 1
 
         # Upsert sessions (delete + reinsert is simpler and deterministic for a seed)
         conn.execute("DELETE FROM course_sessions WHERE course_id=?", (course_id,))
@@ -69,7 +73,13 @@ def main() -> int:
     stats = seed(conn, data)
 
     # Print a weekly timetable summary to verify
-    print(f"Seeded {stats['courses']} courses, {stats['sessions']} sessions -> {args.db}")
+    print(f"Seeded {stats['courses']} courses ({stats['pilots']} pilot), "
+          f"{stats['sessions']} sessions -> {args.db}")
+    pilots = conn.execute(
+        "SELECT code, name, term FROM courses WHERE is_pilot=1 ORDER BY code"
+    ).fetchall()
+    if pilots:
+        print("Pilots:", ", ".join(f"{p['code']} ({p['term']})" for p in pilots))
     print()
     rows = conn.execute(
         """SELECT c.code, s.kind, s.day_of_week, s.start_time, s.end_time, s.room
