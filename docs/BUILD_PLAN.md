@@ -43,12 +43,13 @@ existing H1 sync engine + agent harness (both working on host).
    `web_read(url)` via trawl. Remove direct SearXNG handler.
 3. **Pagination**: `content_read_file` gains offset/limit; caps stay.
 4. **PDF extraction queue**:
-   - `extract_pdf` passes `engine=local` (config: extract_engine: local|cloud).
+   - Cloud engine by default (no engine param — pdf-extractor's default).
+     Local mode removed: it pegged host CPU and crashed the machine.
    - Extraction runs as a background job after sync (never in the sync
      critical path): serialized, one at a time, skip when the pdf-extractor
      worker is busy.
    - `auto_extract_pdfs: true` (config already exists).
-   - Backfill: queue the 5 pilot PDFs at low priority (free now — local).
+   - Pilot backfill: skipped (cloud = API credits on old content; user's call).
    - **Digest sees PDF content**: deltas carry a bounded excerpt of the
      extracted markdown (config `digest_pdf_excerpt_chars`, default 2000) —
      facts extraction reads real content, not just paths. Full text stays

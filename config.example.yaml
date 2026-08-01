@@ -18,10 +18,18 @@ bifrost_url: "http://127.0.0.1:18081/v1"
 bifrost_model: "opencode-go/deepseek-v4-flash"   # pick from: python -m sync models
 pdf_extractor_url: "http://127.0.0.1:8001"
 ntfy_url: "http://127.0.0.1:8085"
+trawl_url: "http://127.0.0.1:11236/mcp"
 
-# auto-extract PDFs to markdown after sync? Keep False until pdf-extractor
-# has a LOCAL mode — the pilot course is old content, don't burn API credits.
-auto_extract_pdfs: false
+# auto-extract PDFs to markdown after sync? Cloud engine by default
+# (pdf-extractor's default — no engine param). Set false if you don't want
+# API credits spent on old content.
+auto_extract_pdfs: true
+
+# how many chars of extracted markdown feed the digest's PDF deltas
+digest_pdf_excerpt_chars: 2000
+
+# term start dates — anchors class events for the calendar/chat context
+# term_dates: {2026F: "2026-09-01", 2027W: "2027-01-04"}
 
 # sync scope — H1: pilot only; flip to false when 2026F courses appear
 pilot_only: true
