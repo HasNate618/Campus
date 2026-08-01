@@ -1,6 +1,6 @@
 # Handoff — implementer on `home`
 
-You are the **coding/implementer agent**. Canonical project dir: **`~/school-harness`** on the homeserver (`ssh home`). Nate may also keep a mirror elsewhere; **build and deploy on `home`**.
+You are the **coding/implementer agent**. Canonical project dir: **`~/hippocampus`** on the homeserver (`ssh home`). Nate may also keep a mirror elsewhere; **build and deploy on `home`**.
 
 Architecture and product scope were set by a separate **planning agent**. Do not invent a second product. If you hit a fork that changes goals, data model, phase order, or non-goals — **stop and reconverge** (see below).
 
@@ -14,7 +14,7 @@ Older notes in `docs/PLAN.md` are historical; **DESIGN.md is canonical**.
 
 | What | Path / endpoint |
 |------|-----------------|
-| This repo | `~/school-harness` |
+| This repo | `~/hippocampus` |
 | Runtime course data (prod) | `/srv/homelab/school/` |
 | Local/dev DB & content | `data/`, `school/` (gitignored) |
 | D2L API **reference only** | `/var/lib/brightspace-mcp` — patterns for auth/client; **not** a runtime dependency |

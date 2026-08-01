@@ -1,0 +1,355 @@
+"""HippoCampus sync — deterministic Brightspace pull (H1 pilot).
+
+Usage:  python -m sync  [--code SE 2250B] [--dry-run]
+
+Pipeline per HANDOFF.md: enrollments → match pilot course → content
+tree → download files → dropbox → news → syllabus → upsert SQLite →
+pdf-extractor → AI digest → sync log + ntfy. All deterministic except
+auth (manual, Duo). Deltas only — sha256 change detection.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import re
+import sys
+import time
+from pathlib import Path
+
+import httpx
+
+from sync.config import Config
+from sync.d2l import D2LClient, D2LError
+from sync.db import DB
+from sync.token_store import TokenStore
+
+TOPIC_TYPE_MAP = {1: "file", 2: "link", 3: "link"}
+
+
+def _safe_name(s: str, max_len: int = 80) -> str:
+    s = re.sub(r'[<>:"/\\|?*]', "_", s).strip().strip(".")
+    return s[:max_len] or "untitled"
+
+
+def _norm_code(code: str) -> str:
+    return re.sub(r"\s+", "", code).upper()
+
+
+class SyncEngine:
+    def __init__(self, cfg: Config, db: DB, client: D2LClient):
+        self.cfg = cfg
+        self.db = db
+        self.client = client
+        self.stats = {"courses_processed": 0, "files_new": 0,
+                      "files_changed": 0, "announcements_new": 0,
+                      "facts_added": 0}
+        self.deltas: list[dict] = []  # for the AI digest
+
+    # ── enrollments ─────────────────────────────────────────────────────
+    def fetch_enrollments(self) -> list[dict]:
+        items: list[dict] = []
+        bookmark = None
+        while True:
+            path = self.client.lp("/enrollments/myenrollments/?orgUnitTypeId=3&isActive=true")
+            if bookmark:
+                path += f"&bookmark={bookmark}"
+            data = self.client.get(path)
+            items.extend(data.get("Items", []))
+            paging = data.get("PagingInfo") or {}
+            if paging.get("HasMoreItems") and paging.get("Bookmark"):
+                bookmark = paging["Bookmark"]
+            else:
+                break
+        return items
+
+    def match_course(self, enrollments: list[dict], code: str) -> dict | None:
+        target = _norm_code(code)
+        for e in enrollments:
+            ou = e.get("OrgUnit", {})
+            if _norm_code(ou.get("Code", "")) == target:
+                return ou
+        return None
+
+    # ── content tree ────────────────────────────────────────────────────
+    def sync_content(self, course_id: int, org_unit: int, course_dir: Path) -> None:
+        root = self.client.get(self.client.le(org_unit, "/content/root/"))
+        content_dir = course_dir / "content"
+        content_dir.mkdir(parents=True, exist_ok=True)
+
+        def walk(modules: list, parent_bs_id: int | None, path_parts: list[str],
+                 sort_base: int = 0) -> None:
+            for idx, item in enumerate(modules):
+                bs_id = item.get("Id")
+                node = {
+                    "brightspace_id": bs_id,
+                    "parent_brightspace_id": parent_bs_id,
+                    "title": item.get("Title", "untitled"),
+                    "description": (item.get("Description") or {}).get("Text"),
+                    "is_hidden": item.get("IsHidden", False),
+                    "is_locked": item.get("IsLocked", False),
+                    "sort_order": sort_base + idx,
+                }
+                if item.get("Type") == 0:  # module
+                    node["node_type"] = "module"
+                    node["due_at"] = item.get("ModuleDueDate")
+                    self.db.upsert_content_node(course_id, node)
+                    children = []
+                    try:
+                        children = self.client.get(
+                            self.client.le(org_unit, f"/content/modules/{bs_id}/structure/"))
+                    except D2LError:
+                        pass
+                    walk(children, bs_id, path_parts + [_safe_name(item.get("Title", ""))], 0)
+                else:  # topic
+                    ttype = item.get("TopicType", 0)
+                    node["node_type"] = "topic"
+                    node["topic_type"] = TOPIC_TYPE_MAP.get(ttype, "other")
+                    node["due_at"] = item.get("DueDate") or item.get("EndDate")
+                    if ttype in (2, 3):
+                        node["url"] = item.get("Url")
+                    self.db.upsert_content_node(course_id, node)
+                    if ttype == 1:  # file topic — download
+                        self._download_topic_file(course_id, org_unit, bs_id,
+                                                  item.get("Title", ""), content_dir, path_parts)
+
+        walk(root, None, [])
+
+    def _download_topic_file(self, course_id: int, org_unit: int, topic_id: int,
+                             title: str, content_dir: Path, path_parts: list[str]) -> None:
+        try:
+            resp = self.client.get_raw(self.client.le(org_unit, f"/content/topics/{topic_id}/file"))
+        except D2LError:
+            return
+        body = resp.content
+        if len(body) > self.cfg.max_file_size:
+            return
+        # filename from Content-Disposition, else topic title
+        disp = resp.headers.get("content-disposition", "")
+        m = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";]+)"?', disp)
+        filename = _safe_name(m.group(1)) if m else _safe_name(title) + ".bin"
+        subdir = content_dir.joinpath(*path_parts) if path_parts else content_dir
+        subdir.mkdir(parents=True, exist_ok=True)
+        rel = str((subdir / filename).relative_to(self.cfg.data_root))
+        sha = hashlib.sha256(body).hexdigest()
+        file_id, is_new = self.db.upsert_file(
+            course_id, rel, "slide" if filename.lower().endswith((".pdf", ".ppt", ".pptx")) else "other",
+            "brightspace", sha, len(body))
+        if is_new:
+            (subdir / filename).write_bytes(body)
+            self.stats["files_new"] += 1
+            self.deltas.append({"kind": "file_new", "path": rel})
+        else:
+            existing = self.db.conn.execute(
+                "SELECT sha256 FROM files WHERE id=?", (file_id,)).fetchone()
+            if existing and existing["sha256"] != sha:
+                (subdir / filename).write_bytes(body)
+                self.stats["files_changed"] += 1
+                self.deltas.append({"kind": "file_changed", "path": rel})
+
+    # ── dropbox (assignments) ───────────────────────────────────────────
+    def sync_dropbox(self, course_id: int, org_unit: int) -> None:
+        try:
+            folders = self.client.get(self.client.le(org_unit, "/dropbox/folders/"))
+        except D2LError:
+            return
+        for f in folders:
+            if f.get("IsCategory", False):
+                continue
+            self.db.upsert_assignment(course_id, {
+                "title": f.get("Name", "Assignment"),
+                "description": (f.get("Instructions") or {}).get("Text"),
+                "due_at": f.get("DueDate"),
+                "weight": None,
+                "brightspace_folder_id": f.get("Id"),
+                "url": f"{self.cfg.base_url}/d2l/lms/dropbox/user/folders/{f.get('Id')}/",
+            })
+
+    # ── news (announcements) ────────────────────────────────────────────
+    def sync_news(self, course_id: int, org_unit: int) -> None:
+        try:
+            items = self.client.get(self.client.le(org_unit, "/news/"))
+        except D2LError:
+            return
+        for n in items:
+            body = (n.get("Body") or {}).get("Text", "")
+            is_new = self.db.upsert_announcement(course_id, {
+                "brightspace_id": n.get("Id"),
+                "title": n.get("Title", "(announcement)"),
+                "body": body,
+                "author": (n.get("CreatedBy") or {}).get("DisplayName"),
+                "posted_at": n.get("StartDate"),
+                "is_pinned": n.get("IsPinned", False),
+            })
+            if is_new:
+                self.stats["announcements_new"] += 1
+                self.deltas.append({"kind": "announcement", "title": n.get("Title"),
+                                    "course_code": None})
+
+    # ── syllabus ────────────────────────────────────────────────────────
+    def sync_syllabus(self, course_id: int, org_unit: int, course_dir: Path) -> None:
+        try:
+            data = self.client.get(self.client.le(org_unit, "/syllabus/"))
+        except D2LError:
+            return
+        # data can be list of sections with Html, or plain JSON
+        parts = []
+        if isinstance(data, list):
+            for s in data:
+                html = s.get("Html") or s.get("Description") or ""
+                parts.append(f"## {s.get('Title', '')}\n\n{html}")
+        elif isinstance(data, dict) and data.get("Sections"):
+            for s in data["Sections"]:
+                parts.append(f"## {s.get('Title', '')}\n\n{s.get('Html', '')}")
+        if parts:
+            (course_dir / "syllabus.html").write_text("\n\n".join(parts))
+            self.db.audit("sync", "courses", course_id, "syllabus_saved")
+
+    # ── pdf-extractor + AI digest + log + ntfy ──────────────────────────
+    def process_new_files(self, course_id: int) -> None:
+        for f in self.db.unprocessed_files(course_id):
+            path = Path(self.cfg.data_root) / f["path"]
+            if not path.exists() or not path.name.lower().endswith(".pdf"):
+                self.db.mark_processed(f["id"])
+                continue
+            try:
+                r = httpx.post(f"{self.cfg.pdf_extractor_url}/process",
+                               json={"path": str(path)}, timeout=120)
+                if r.status_code == 200:
+                    md = path.with_suffix(".md")
+                    md.write_text(r.text if isinstance(r.text, str) else "")
+                    self.db.mark_processed(f["id"])
+                    self.deltas.append({"kind": "pdf_extracted", "path": str(md)})
+            except Exception:
+                pass  # extraction failure shouldn't kill the sync
+
+    def run(self, code: str | None = None, dry_run: bool = False) -> int:
+        run_id = self.db.start_sync()
+        try:
+            enrollments = self.fetch_enrollments()
+            courses = [self.db.get_course_by_code(code)] if code else self.db.get_pilot_courses()
+            if not courses:
+                print("No course matched. Pass --code SE 2250B or mark a course is_pilot=1")
+                return 2
+
+            for course in courses:
+                ou = self.match_course(enrollments, course["code"])
+                if not ou:
+                    print(f"  {course['code']}: NOT in enrollments (past term?) — skipping")
+                    continue
+                org_unit = ou["Id"]
+                if not course["brightspace_org_unit_id"]:
+                    self.db.link_org_unit(course["id"], org_unit)
+                    self.db.audit("sync", "courses", course["id"], "link_org_unit",
+                                  {"org_unit_id": org_unit})
+
+                course_dir = self.cfg.data_root / course["term"] / course["code"].replace(" ", "")
+                course_dir.mkdir(parents=True, exist_ok=True)
+                print(f"  {course['code']} (orgUnit {org_unit})")
+
+                if dry_run:
+                    continue
+                self.sync_content(course["id"], org_unit, course_dir)
+                self.sync_dropbox(course["id"], org_unit)
+                self.sync_news(course["id"], org_unit)
+                self.sync_syllabus(course["id"], org_unit, course_dir)
+                self.process_new_files(course["id"])
+                self.stats["courses_processed"] += 1
+
+            if not dry_run:
+                self.digest_and_log(run_id, courses)
+            self.db.finish_sync(run_id, "ok", **self.stats)
+            print(f"\nSync OK: {json.dumps(self.stats)}")
+            return 0
+        except Exception as e:
+            self.db.finish_sync(run_id, "failed", error=str(e))
+            print(f"Sync FAILED: {e}", file=sys.stderr)
+            return 1
+
+    def digest_and_log(self, run_id: int, courses) -> None:
+        """Bifrost AI pass: delta digest → memory_facts + markdown sync log + ntfy."""
+        if not self.deltas:
+            (self.cfg.data_root / "sync_logs").mkdir(parents=True, exist_ok=True)
+            log_path = self.cfg.data_root / "sync_logs" / f"{time.strftime('%Y-%m-%d')}.md"
+            log_path.write_text(f"# Sync {time.strftime('%Y-%m-%d %H:%M')}\n\nNothing new in any course.\n")
+            self.db.conn.execute("UPDATE sync_runs SET log_path=? WHERE id=?", (str(log_path), run_id))
+            self.db.conn.commit()
+            self._notify("Sync done — nothing new", "green")
+            return
+
+        prompt = (
+            "You are the digest engine for a student's course-sync system.\n"
+            "The following is a list of changes from a Brightspace sync.\n"
+            "Return STRICT JSON: {\"facts\": [{\"fact\": str, \"category\": str, "
+            "\"confidence\": float}], \"log\": str}\n"
+            "facts: short durable facts worth remembering (deadline changes, announcements).\n"
+            "log: a 3-6 line markdown sync log for the student (no preamble, no 'Lesson').\n"
+            f"Changes:\n{json.dumps(self.deltas, indent=1)}"
+        )
+        try:
+            r = httpx.post(f"{self.cfg.bifrost_url}/chat/completions",
+                           json={"model": self.cfg.bifrost_model,
+                                 "messages": [{"role": "user", "content": prompt}]},
+                           timeout=120)
+            content = r.json()["choices"][0]["message"]["content"]
+            content = content[content.find("{"):content.rfind("}") + 1]
+            result = json.loads(content)
+        except Exception as e:
+            print(f"  digest failed: {e}")
+            return
+
+        for f in result.get("facts", []):
+            self.db.conn.execute(
+                """INSERT INTO memory_facts (course_id, fact, category, confidence, source)
+                   VALUES (?,?,?,?,?)""",
+                (courses[0]["id"] if len(courses) == 1 else None, f["fact"],
+                 f.get("category", "general"), float(f.get("confidence", 0.5)),
+                 f"sync:{time.strftime('%Y-%m-%d')}"),
+            )
+            self.stats["facts_added"] += 1
+        self.db.conn.commit()
+
+        (self.cfg.data_root / "sync_logs").mkdir(parents=True, exist_ok=True)
+        log_path = self.cfg.data_root / "sync_logs" / f"{time.strftime('%Y-%m-%d')}.md"
+        log_path.write_text(f"# Sync {time.strftime('%Y-%m-%d %H:%M')}\n\n{result.get('log', '')}\n")
+        self.db.conn.execute("UPDATE sync_runs SET log_path=? WHERE id=?", (str(log_path), run_id))
+        self.db.conn.commit()
+        self._notify(f"Sync done — {self.stats['files_new']} new files, "
+                     f"{self.stats['announcements_new']} announcements",
+                     "green")
+
+    def _notify(self, message: str, priority: str = "default") -> None:
+        try:
+            httpx.post(f"{self.cfg.ntfy_url}/hippocampus",
+                       data=message.encode(),
+                       headers={"Priority": priority, "Title": "HippoCampus"},
+                       timeout=10)
+        except Exception:
+            pass
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="HippoCampus Brightspace sync (H1 pilot)")
+    ap.add_argument("--code", help="course code to sync (default: all is_pilot)")
+    ap.add_argument("--dry-run", action="store_true", help="enrollments + match only")
+    args = ap.parse_args()
+
+    cfg = Config.load()
+    store = TokenStore(cfg.token_dir, ttl=cfg.token_ttl, refresh_buffer=cfg.refresh_buffer)
+    if store.needs_refresh():
+        print("No valid token — run `python -m sync.auth` first (Duo approval needed)")
+        return 1
+
+    client = D2LClient(cfg.base_url, store.load)
+    client.initialize()
+    db = DB(cfg.db_path)
+    engine = SyncEngine(cfg, db, client)
+    try:
+        return engine.run(code=args.code, dry_run=args.dry_run)
+    finally:
+        client.close()
+        db.close()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

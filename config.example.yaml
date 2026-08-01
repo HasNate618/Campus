@@ -1,0 +1,23 @@
+# HippoCampus config — copy to config.yaml (gitignored) and fill in.
+# Secrets prefer env vars: HIPPO_USERNAME, HIPPO_BRIGHTSPACE_PASSWORD.
+
+base_url: "https://westernu.brightspace.com"
+username: "nespejo@uwo.ca"
+# password: ""            # use env HIPPO_BRIGHTSPACE_PASSWORD instead
+
+# paths
+data_root: "/srv/homelab/school"     # prod; dev: ./school
+db_path: "data/harness.db"
+token_dir: "~/.hippocampus"
+
+# auth
+token_ttl: 3600
+
+# services (docker network names)
+bifrost_url: "http://bifrost:8080/v1"
+bifrost_model: "cohere/command-a-vision-07-2025"
+pdf_extractor_url: "http://pdf-extractor:8000"
+ntfy_url: "http://ntfy:8080"
+
+# sync scope — H1: pilot only; flip to false when 2026F courses appear
+pilot_only: true
