@@ -273,6 +273,74 @@ def _trawl_call(cfg: Config, tool: str, args: dict) -> dict:
         client.close()
 
 
+# ── terminal ────────────────────────────────────────────────────────────
+# Runs inside the hippo container (the jail): no docker socket, no host
+# secrets, no /etc/nixos, no mounts outside the workspace. Blocklist +
+# audit are accident-prevention and visibility, not a security boundary —
+# the container IS the boundary.
+import re as _re
+import subprocess as _sp
+
+TERMINAL_MAX_OUTPUT = 10_000  # chars returned to the model
+TERMINAL_DEFAULT_TIMEOUT = 30
+TERMINAL_MAX_TIMEOUT = 120
+
+# denied commands / patterns (checked case-insensitively)
+TERMINAL_BLOCKLIST = [
+    r"\bsudo\b", r"\bsu\b", r"\bdocker\b", r"\bpodman\b", r"\bnixos-rebuild\b",
+    r"\bsystemctl\b", r"\bjournalctl\b", r"\bshutdown\b", r"\breboot\b",
+    r"\bmkfs\b", r"\bdd\b", r"\bchmod\b", r"\bchown\b", r"\bkill\b",
+    r"rm\s+(-[a-z]*[rf][a-z]*\s+)+/",          # rm -rf /
+    r"\.hippocampus",                          # token + browser profile — off limits
+    r"config\.yaml",                           # credentials (repo config)
+    r"python\s+-m\s+sync\s+auth",              # no Duo spawns from chat
+]
+# write-class commands that must not touch synced content/
+TERMINAL_WRITE_OPS = r"\b(rm|mv|cp|touch|tee|truncate|sed|echo|redirect)\b"
+TERMINAL_CONTENT_GUARD = r"(^|/)content(/|$)"
+
+
+def _audit(db: DB, action: str, detail: dict) -> None:
+    db.audit("ai", "terminal", None, action, detail)
+    db.conn.commit()
+
+
+def terminal_run(db: DB, cfg: Config, args: dict) -> dict:
+    cmd = args.get("command", "").strip()
+    if not cmd:
+        return {"error": "empty command"}
+    low = cmd.lower()
+    for pat in TERMINAL_BLOCKLIST:
+        if _re.search(pat, low):
+            _audit(db, "blocked", {"command": cmd, "reason": f"blocklist: {pat}"})
+            return {"error": f"blocked: command matches denied pattern {pat}"}
+    # content/ write-guard: deny write-class commands whose args mention content/
+    if _re.search(TERMINAL_WRITE_OPS, low) and _re.search(TERMINAL_CONTENT_GUARD, low):
+        _audit(db, "blocked", {"command": cmd, "reason": "content/ is read-only"})
+        return {"error": "blocked: content/ is read-only (sync owns it)"}
+
+    root = Path(cfg.data_root).resolve()
+    workdir = args.get("workdir") or str(root)
+    wd = Path(workdir).resolve()
+    if root not in wd.parents and wd != root:
+        return {"error": "workdir must be under data_root"}
+    if not wd.exists():
+        return {"error": f"workdir does not exist: {workdir}"}
+
+    timeout = min(int(args.get("timeout_s", TERMINAL_DEFAULT_TIMEOUT)), TERMINAL_MAX_TIMEOUT)
+    try:
+        p = _sp.run(cmd, shell=True, cwd=wd, capture_output=True, text=True, timeout=timeout)
+        out = (p.stdout or "") + (("\n[stderr]\n" + p.stderr) if p.stderr else "")
+        out = out[-TERMINAL_MAX_OUTPUT:]
+        _audit(db, "run", {"command": cmd, "cwd": str(wd), "exit": p.returncode})
+        return {"exit": p.returncode, "cwd": str(wd), "output": out}
+    except _sp.TimeoutExpired:
+        _audit(db, "timeout", {"command": cmd, "cwd": str(wd), "timeout_s": timeout})
+        return {"error": f"timed out after {timeout}s"}
+    except Exception as e:
+        return {"error": f"terminal failed: {e}"}
+
+
 def web_search(db: DB, cfg: Config, args: dict) -> dict:
     result = _trawl_call(cfg, "search", {"query": args.get("query", ""),
                                          "max_results": int(args.get("max_results", 5))})
@@ -408,6 +476,15 @@ TOOLS = {
         starts_at={"type": "string"},
         ends_at={"type": "string"},
         notes={"type": "string"},
+    ),
+    "terminal_run": _tool(
+        "terminal_run",
+        "Run a shell command inside the hippo container. cwd defaults to data_root; pass workdir for a course work/ dir. Blocklist enforced (sudo/docker/systemctl/rm -rf /, token paths, sync auth); content/ is read-only; commands are audited. Timeout 30s default, max 120s.",
+        terminal_run,
+        required=["command"],
+        command={"type": "string"},
+        workdir={"type": "string", "description": "must be under data_root"},
+        timeout_s={"type": "integer", "description": "1-120, default 30"},
     ),
     "web_search": _tool(
         "web_search",
