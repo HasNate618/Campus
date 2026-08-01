@@ -1,0 +1,14 @@
+.git
+.venv
+venv
+data
+school
+__pycache__
+*.pyc
+*.db
+*.db-wal
+*.db-shm
+config.yaml
+sync_logs
+node_modules
+docs

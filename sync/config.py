@@ -59,10 +59,19 @@ class Config:
         # env overrides
         cfg.username = os.environ.get("HIPPO_USERNAME", cfg.username)
         cfg.password = os.environ.get("HIPPO_BRIGHTSPACE_PASSWORD", cfg.password)
-        if os.environ.get("HIPPO_BASE_URL"):
-            cfg.base_url = os.environ["HIPPO_BASE_URL"]
-        if os.environ.get("HIPPO_DATA_ROOT"):
-            cfg.data_root = Path(os.environ["HIPPO_DATA_ROOT"])
+        for env_key, attr in [
+            ("HIPPO_BASE_URL", "base_url"),
+            ("HIPPO_DATA_ROOT", "data_root"),
+            ("HIPPO_DB_PATH", "db_path"),
+            ("HIPPO_TOKEN_DIR", "token_dir"),
+            ("HIPPO_BIFROST_URL", "bifrost_url"),
+            ("HIPPO_MODEL", "bifrost_model"),
+            ("HIPPO_PDF_EXTRACTOR_URL", "pdf_extractor_url"),
+            ("HIPPO_NTFY_URL", "ntfy_url"),
+            ("HIPPO_TRAWL_URL", "trawl_url"),
+        ]:
+            if os.environ.get(env_key):
+                setattr(cfg, attr, os.environ[env_key])
         # expand ~ and coerce to Path (YAML strings don't auto-coerce)
         for field in ("data_root", "db_path", "token_dir", "browser_profile_dir"):
             val = getattr(cfg, field)
