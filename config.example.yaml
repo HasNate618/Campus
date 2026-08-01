@@ -13,11 +13,15 @@ token_dir: "~/.hippocampus"
 # auth
 token_ttl: 3600
 
-# services (docker network names)
-bifrost_url: "http://bifrost:8080/v1"
-bifrost_model: "cohere/command-a-vision-07-2025"
-pdf_extractor_url: "http://pdf-extractor:8000"
-ntfy_url: "http://ntfy:8080"
+# services (docker network names; host ports when run on host)
+bifrost_url: "http://127.0.0.1:18081/v1"
+bifrost_model: "opencode-go/deepseek-v4-flash"   # pick from: python -m sync models
+pdf_extractor_url: "http://127.0.0.1:8001"
+ntfy_url: "http://127.0.0.1:8085"
+
+# auto-extract PDFs to markdown after sync? Keep False until pdf-extractor
+# has a LOCAL mode — the pilot course is old content, don't burn API credits.
+auto_extract_pdfs: false
 
 # sync scope — H1: pilot only; flip to false when 2026F courses appear
 pilot_only: true

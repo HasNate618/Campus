@@ -233,6 +233,8 @@ CREATE INDEX IF NOT EXISTS idx_assignments_due ON assignments(due_at);
 CREATE INDEX IF NOT EXISTS idx_lectures_course_date ON lectures(course_id, date);
 CREATE INDEX IF NOT EXISTS idx_memory_course ON memory_facts(course_id);
 CREATE INDEX IF NOT EXISTS idx_events_start ON events(starts_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_announcements_bsid
+    ON announcements(brightspace_id);
 CREATE INDEX IF NOT EXISTS idx_content_nodes_course ON content_nodes(course_id, parent_id);
 CREATE INDEX IF NOT EXISTS idx_files_course ON files(course_id);
 CREATE INDEX IF NOT EXISTS idx_work_links_course ON work_links(course_id);

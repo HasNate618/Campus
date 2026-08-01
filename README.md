@@ -25,15 +25,20 @@ shell.nix           NixOS dev shell (nixpkgs playwright + chromium)
 
 ```bash
 nix-shell                                   # NixOS-patched python + playwright
-export HIPPO_USERNAME=user@example.com
-export HIPPO_BRIGHTSPACE_PASSWORD=…        # or config.yaml (gitignored)
-python -m sync.auth --status                # is token valid?
-python -m sync.auth                         # browser login → Duo push → token
-python -m sync --code "SE 2250B"            # pilot sync (or --dry-run first)
+python -m sync auth --status                # is token valid?
+python -m sync auth                         # browser login → Duo push → token
+python -m sync models                       # list models served by bifrost
+python -m sync sync --code "SE 2250B"       # pilot sync (or --dry-run first)
+python -m sync sync --model M               # override digest model per-run
+python -m sync extract --file <path>        # PDF → markdown (keeps original)
+python -m sync extract --code "SE 2250B"    # extract all PDFs for a course
 ```
 
-Sync is always on-demand (Duo 2FA) — no background scraping. AI/AI-mutations
-are audited (`audit_log`). Course content never enters git.
+Sync is always on-demand (Duo 2FA) — no background scraping. Digest model is
+configurable (`bifrost_model` in config.yaml, default opencode-go/deepseek-v4-flash).
+PDF extraction is on-demand until pdf-extractor gains a local mode
+(`auto_extract_pdfs: true` flips it on after sync). AI/AI-mutations are
+audited (`audit_log`). Course content never enters git.
 
 ## Seed
 
