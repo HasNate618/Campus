@@ -15,6 +15,7 @@ import json
 import re
 import sys
 import time
+import urllib.parse
 from pathlib import Path
 
 import httpx
@@ -36,22 +37,33 @@ def _norm_code(code: str) -> str:
     return re.sub(r"\s+", "", code).upper()
 
 
+def _extract_code(name: str) -> str:
+    """'SE 2250B 001 LEC FW25: SOFTWARE CONSTRUCTION' -> 'SE2250B'."""
+    head = (name or "").split(":")[0]
+    m = re.match(r"([A-Z]+\s*\d{4}[A-Z]?)", head)
+    return _norm_code(m.group(1)) if m else ""
+
+
 class SyncEngine:
-    def __init__(self, cfg: Config, db: DB, client: D2LClient):
+    def __init__(self, cfg: Config, db: DB, client: D2LClient, model: str | None = None):
         self.cfg = cfg
         self.db = db
         self.client = client
+        self.model = model or cfg.bifrost_model  # --model flag overrides config
         self.stats = {"courses_processed": 0, "files_new": 0,
                       "files_changed": 0, "announcements_new": 0,
                       "facts_added": 0}
         self.deltas: list[dict] = []  # for the AI digest
 
     # ── enrollments ─────────────────────────────────────────────────────
-    def fetch_enrollments(self) -> list[dict]:
+    def fetch_enrollments(self, active_only: bool = False) -> list[dict]:
         items: list[dict] = []
         bookmark = None
         while True:
-            path = self.client.lp("/enrollments/myenrollments/?orgUnitTypeId=3&isActive=true")
+            # no isActive filter: pilot course (SE 2250B) is a past enrollment
+            path = self.client.lp("/enrollments/myenrollments/?orgUnitTypeId=3")
+            if active_only:
+                path = path.replace("?", "?isActive=true&", 1)
             if bookmark:
                 path += f"&bookmark={bookmark}"
             data = self.client.get(path)
@@ -67,7 +79,13 @@ class SyncEngine:
         target = _norm_code(code)
         for e in enrollments:
             ou = e.get("OrgUnit", {})
-            if _norm_code(ou.get("Code", "")) == target:
+            candidates = {_norm_code(ou.get("Code", ""))}
+            # Western FW25+ enrollments use UGRD_xxxx codes; the human course
+            # code ("SE 2250B") only appears in the Name field
+            name_code = _extract_code(ou.get("Name", ""))
+            if name_code:
+                candidates.add(name_code)
+            if target in candidates:
                 return ou
         return None
 
@@ -124,10 +142,11 @@ class SyncEngine:
         body = resp.content
         if len(body) > self.cfg.max_file_size:
             return
-        # filename from Content-Disposition, else topic title
+        # filename from Content-Disposition, else topic title (unquote %20 etc)
         disp = resp.headers.get("content-disposition", "")
         m = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";]+)"?', disp)
-        filename = _safe_name(m.group(1)) if m else _safe_name(title) + ".bin"
+        raw_name = m.group(1) if m else title
+        filename = _safe_name(urllib.parse.unquote(raw_name))
         subdir = content_dir.joinpath(*path_parts) if path_parts else content_dir
         subdir.mkdir(parents=True, exist_ok=True)
         rel = str((subdir / filename).relative_to(self.cfg.data_root))
@@ -171,13 +190,21 @@ class SyncEngine:
             items = self.client.get(self.client.le(org_unit, "/news/"))
         except D2LError:
             return
+
+        def author_of(n) -> str | None:
+            # Western returns CreatedBy as int (user id) — handle both shapes
+            created = n.get("CreatedBy")
+            if isinstance(created, dict):
+                return created.get("DisplayName")
+            return None
+
         for n in items:
             body = (n.get("Body") or {}).get("Text", "")
             is_new = self.db.upsert_announcement(course_id, {
                 "brightspace_id": n.get("Id"),
                 "title": n.get("Title", "(announcement)"),
                 "body": body,
-                "author": (n.get("CreatedBy") or {}).get("DisplayName"),
+                "author": author_of(n),
                 "posted_at": n.get("StartDate"),
                 "is_pinned": n.get("IsPinned", False),
             })
@@ -205,23 +232,63 @@ class SyncEngine:
             (course_dir / "syllabus.html").write_text("\n\n".join(parts))
             self.db.audit("sync", "courses", course_id, "syllabus_saved")
 
-    # ── pdf-extractor + AI digest + log + ntfy ──────────────────────────
-    def process_new_files(self, course_id: int) -> None:
-        for f in self.db.unprocessed_files(course_id):
-            path = Path(self.cfg.data_root) / f["path"]
-            if not path.exists() or not path.name.lower().endswith(".pdf"):
-                self.db.mark_processed(f["id"])
+    # ── pdf-extractor (on-demand, NOT auto — user decides which PDFs) ────
+    def extract_pdf(self, file_row) -> bool:
+        """PUT raw PDF to pdf-extractor → write .md beside it → mark processed.
+        Original PDF is always kept for viewing."""
+        path = Path(self.cfg.data_root) / file_row["path"]
+        if not path.exists():
+            return False
+        try:
+            r = httpx.put(self.cfg.pdf_extractor_url + "/process",
+                          content=path.read_bytes(), timeout=300)
+            r.raise_for_status()
+            data = r.json()
+            content = data.get("page_content", "")
+            if not content:
+                return False
+            md = path.with_suffix(".md")
+            md.write_text(content)
+            self.db.mark_processed(file_row["id"])
+            self.deltas.append({"kind": "pdf_extracted", "path": str(md)})
+            return True
+        except Exception:
+            return False
+
+    def extract(self, code: str | None = None, file_path: str | None = None,
+                max_mb: float | None = None) -> int:
+        """Extract PDFs to markdown. Filters: course code, specific file,
+        or size cap. Keeps originals. Idempotent (processed files skipped)."""
+        limit = (max_mb or self.cfg.max_extract_size / 1024 / 1024) * 1024 * 1024
+        done, skipped = 0, 0
+        if file_path:
+            rel = str(Path(file_path).relative_to(self.cfg.data_root))
+            rows = self.db.conn.execute(
+                "SELECT * FROM files WHERE path=?", (rel,)).fetchall()
+        else:
+            q = "SELECT * FROM files WHERE kind='slide' OR kind='other'"
+            if code:
+                course = self.db.get_course_by_code(code)
+                if not course:
+                    print(f"Unknown course: {code}")
+                    return 2
+                q += f" AND course_id={course['id']}"
+            rows = self.db.conn.execute(q).fetchall()
+        for row in rows:
+            path = Path(self.cfg.data_root) / row["path"]
+            if path.suffix.lower() != ".pdf" or row["processed"]:
                 continue
-            try:
-                r = httpx.post(f"{self.cfg.pdf_extractor_url}/process",
-                               json={"path": str(path)}, timeout=120)
-                if r.status_code == 200:
-                    md = path.with_suffix(".md")
-                    md.write_text(r.text if isinstance(r.text, str) else "")
-                    self.db.mark_processed(f["id"])
-                    self.deltas.append({"kind": "pdf_extracted", "path": str(md)})
-            except Exception:
-                pass  # extraction failure shouldn't kill the sync
+            if path.stat().st_size > limit:
+                print(f"  skip (>{max_mb or self.cfg.max_extract_size/1024/1024:.0f}MB): {row['path']}")
+                skipped += 1
+                continue
+            if self.extract_pdf(row):
+                done += 1
+                print(f"  extracted: {row['path']}")
+            else:
+                print(f"  FAILED: {row['path']}")
+        print(f"Extract done: {done} extracted, {skipped} skipped by size")
+        return 0
 
     def run(self, code: str | None = None, dry_run: bool = False) -> int:
         run_id = self.db.start_sync()
@@ -253,7 +320,9 @@ class SyncEngine:
                 self.sync_dropbox(course["id"], org_unit)
                 self.sync_news(course["id"], org_unit)
                 self.sync_syllabus(course["id"], org_unit, course_dir)
-                self.process_new_files(course["id"])
+                if self.cfg.auto_extract_pdfs:
+                    for row in self.db.unprocessed_files(course["id"]):
+                        self.extract_pdf(row)
                 self.stats["courses_processed"] += 1
 
             if not dry_run:
@@ -283,12 +352,14 @@ class SyncEngine:
             "Return STRICT JSON: {\"facts\": [{\"fact\": str, \"category\": str, "
             "\"confidence\": float}], \"log\": str}\n"
             "facts: short durable facts worth remembering (deadline changes, announcements).\n"
+            "category must be one of: general, scheduling, grading, course-policy, "
+            "prof-note, exam, assignment, logistics.\n"
             "log: a 3-6 line markdown sync log for the student (no preamble, no 'Lesson').\n"
             f"Changes:\n{json.dumps(self.deltas, indent=1)}"
         )
         try:
             r = httpx.post(f"{self.cfg.bifrost_url}/chat/completions",
-                           json={"model": self.cfg.bifrost_model,
+                           json={"model": self.model,
                                  "messages": [{"role": "user", "content": prompt}]},
                            timeout=120)
             content = r.json()["choices"][0]["message"]["content"]
@@ -298,12 +369,17 @@ class SyncEngine:
             print(f"  digest failed: {e}")
             return
 
+        allowed = {"general", "scheduling", "grading", "course-policy",
+                   "prof-note", "exam", "assignment", "logistics"}
         for f in result.get("facts", []):
+            category = f.get("category", "general")
+            if category not in allowed:
+                category = "general"  # model strayed — coerce, don't crash
             self.db.conn.execute(
                 """INSERT INTO memory_facts (course_id, fact, category, confidence, source)
                    VALUES (?,?,?,?,?)""",
                 (courses[0]["id"] if len(courses) == 1 else None, f["fact"],
-                 f.get("category", "general"), float(f.get("confidence", 0.5)),
+                 category, float(f.get("confidence", 0.5)),
                  f"sync:{time.strftime('%Y-%m-%d')}"),
             )
             self.stats["facts_added"] += 1
@@ -332,18 +408,19 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="HippoCampus Brightspace sync (H1 pilot)")
     ap.add_argument("--code", help="course code to sync (default: all is_pilot)")
     ap.add_argument("--dry-run", action="store_true", help="enrollments + match only")
+    ap.add_argument("--model", help="bifrost model for the digest (default: config)")
     args = ap.parse_args()
 
     cfg = Config.load()
     store = TokenStore(cfg.token_dir, ttl=cfg.token_ttl, refresh_buffer=cfg.refresh_buffer)
     if store.needs_refresh():
-        print("No valid token — run `python -m sync.auth` first (Duo approval needed)")
+        print("No valid token — run `python -m sync auth` first (Duo approval needed)")
         return 1
 
     client = D2LClient(cfg.base_url, store.load)
     client.initialize()
     db = DB(cfg.db_path)
-    engine = SyncEngine(cfg, db, client)
+    engine = SyncEngine(cfg, db, client, model=args.model)
     try:
         return engine.run(code=args.code, dry_run=args.dry_run)
     finally:
