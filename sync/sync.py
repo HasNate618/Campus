@@ -52,7 +52,7 @@ class SyncEngine:
         self.model = model or cfg.bifrost_model  # --model flag overrides config
         self.stats = {"courses_processed": 0, "files_new": 0,
                       "files_changed": 0, "announcements_new": 0,
-                      "facts_added": 0}
+                      "facts_added": 0, "pdfs_extracted": 0}
         self.deltas: list[dict] = []  # for the AI digest
 
     # ── enrollments ─────────────────────────────────────────────────────
@@ -234,29 +234,53 @@ class SyncEngine:
             (course_dir / "syllabus.html").write_text("\n\n".join(parts))
             self.db.audit("sync", "courses", course_id, "syllabus_saved")
 
-    # ── pdf-extractor (on-demand, NOT auto — user decides which PDFs) ────
+    # ── pdf-extractor (engine=local, serialized queue after sync) ───────
     def extract_pdf(self, file_row) -> bool:
         """PUT raw PDF to pdf-extractor → write .md beside it → mark processed.
-        Original PDF is always kept for viewing."""
+        Original PDF is always kept for viewing. engine from config (local|cloud)."""
         path = Path(self.cfg.data_root) / file_row["path"]
-        if not path.exists():
+        if not path.exists() or path.suffix.lower() != ".pdf":
+            self.db.mark_processed(file_row["id"])
             return False
         try:
-            r = httpx.put(self.cfg.pdf_extractor_url + "/process",
-                          content=path.read_bytes(), timeout=300)
+            r = httpx.put(f"{self.cfg.pdf_extractor_url}/process?engine={self.cfg.extract_engine}",
+                          content=path.read_bytes(), timeout=600)
             r.raise_for_status()
             data = r.json()
             content = data.get("page_content", "")
             if not content:
+                self.db.mark_processed(file_row["id"])
                 return False
             md = path.with_suffix(".md")
             md.write_text(content)
             self.db.mark_processed(file_row["id"])
+            excerpt = content[: self.cfg.digest_pdf_excerpt_chars]
             self.deltas.append({"kind": "pdf_extracted", "path": str(md),
-                                "excerpt": content[:600]})
+                                "excerpt": excerpt})
             return True
         except Exception:
             return False
+
+    def run_extraction_queue(self, course_id: int | None = None) -> int:
+        """Serialize extraction of unprocessed PDFs (one at a time — the
+        pdf-extractor worker is single and local engine is slow). Never
+        blocks the sync critical path: called after digest."""
+        done = 0
+        rows = self.db.unprocessed_files(course_id) if course_id else \
+            self.db.conn.execute("SELECT * FROM files WHERE processed=0").fetchall()
+        for row in rows:
+            path = Path(self.cfg.data_root) / row["path"]
+            if path.suffix.lower() != ".pdf":
+                self.db.mark_processed(row["id"])  # not a PDF — nothing to extract
+                continue
+            if path.stat().st_size > self.cfg.max_extract_size:
+                self.db.mark_processed(row["id"])  # too big — skip permanently
+                continue
+            if self.extract_pdf(row):
+                done += 1
+                print(f"  extracted: {row['path']}", flush=True)
+        self.stats["pdfs_extracted"] = done
+        return done
 
     def extract(self, code: str | None = None, file_path: str | None = None,
                 max_mb: float | None = None) -> int:
@@ -302,6 +326,9 @@ class SyncEngine:
                 print("No course matched. Pass --code SE 2250B or mark a course is_pilot=1")
                 return 2
 
+            if not dry_run:
+                self._notify(f"Sync started — {len(courses)} course(s)", "default")
+
             for course in courses:
                 ou = self.match_course(enrollments, course["code"])
                 if not ou:
@@ -330,6 +357,23 @@ class SyncEngine:
 
             if not dry_run:
                 self.digest_and_log(run_id, courses)
+                if self.cfg.auto_extract_pdfs:
+                    print("  extraction queue...", flush=True)
+                    self.run_extraction_queue()
+                # memory card regen (only when something changed)
+                if self.stats["facts_added"] > 0 or self.deltas:
+                    try:
+                        from agent.memory import regenerate_cards
+                        regenerate_cards(self.cfg, self.db, courses=[c["id"] for c in courses])
+                    except Exception as e:
+                        print(f"  card regen skipped: {e}")
+                self._notify(
+                    f"Sync done — {self.stats['files_new']} new files, "
+                    f"{self.stats['files_changed']} changed, "
+                    f"{self.stats['announcements_new']} announcements, "
+                    f"{self.stats['pdfs_extracted']} PDFs extracted, "
+                    f"{self.stats['facts_added']} facts",
+                    "green")
             self.db.finish_sync(run_id, "ok", **self.stats)
             print(f"\nSync OK: {json.dumps(self.stats)}")
             return 0
@@ -339,14 +383,14 @@ class SyncEngine:
             return 1
 
     def digest_and_log(self, run_id: int, courses) -> None:
-        """Bifrost AI pass: delta digest → memory_facts + markdown sync log + ntfy."""
+        """Bifrost AI pass: delta digest → memory_facts + markdown sync log.
+        (Notification is sent once by run(), covering the whole sync.)"""
         if not self.deltas:
             (self.cfg.data_root / "sync_logs").mkdir(parents=True, exist_ok=True)
             log_path = self.cfg.data_root / "sync_logs" / f"{time.strftime('%Y-%m-%d')}.md"
             log_path.write_text(f"# Sync {time.strftime('%Y-%m-%d %H:%M')}\n\nNothing new in any course.\n")
             self.db.conn.execute("UPDATE sync_runs SET log_path=? WHERE id=?", (str(log_path), run_id))
             self.db.conn.commit()
-            self._notify("Sync done — nothing new", "green")
             return
 
         prompt = (
@@ -393,9 +437,6 @@ class SyncEngine:
         log_path.write_text(f"# Sync {time.strftime('%Y-%m-%d %H:%M')}\n\n{result.get('log', '')}\n")
         self.db.conn.execute("UPDATE sync_runs SET log_path=? WHERE id=?", (str(log_path), run_id))
         self.db.conn.commit()
-        self._notify(f"Sync done — {self.stats['files_new']} new files, "
-                     f"{self.stats['announcements_new']} announcements",
-                     "green")
 
     def _notify(self, message: str, priority: str = "default") -> None:
         try:

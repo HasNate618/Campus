@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 import httpx
 
@@ -29,7 +30,6 @@ def list_models() -> int:
 def main() -> int:
     from sync.config import Config
     from sync.db import DB
-    from sync.token_store import TokenStore
     from sync.d2l import D2LClient
     from sync.sync import SyncEngine
 
@@ -40,13 +40,29 @@ def main() -> int:
     args = ap.parse_args()
 
     cfg = Config.load()
-    store = TokenStore(cfg.token_dir, ttl=cfg.token_ttl, refresh_buffer=cfg.refresh_buffer)
-    # token not needed for extraction — pass a stub so D2LClient can init
-    client = D2LClient(cfg.base_url, store.load)
     db = DB(cfg.db_path)
+    client = D2LClient(cfg.base_url, lambda: None)  # token not needed for extraction
     engine = SyncEngine(cfg, db, client)
     try:
-        return engine.extract(code=args.code, file_path=args.file, max_mb=args.max_mb)
+        course_id = None
+        if args.code:
+            course = db.get_course_by_code(args.code)
+            if not course:
+                print(f"Unknown course: {args.code}")
+                return 2
+            course_id = course["id"]
+        if args.file:
+            rel = str(Path(args.file).relative_to(Path(cfg.data_root)))
+            row = db.conn.execute("SELECT * FROM files WHERE path=?", (rel,)).fetchone()
+            if not row:
+                print(f"file not in catalog: {rel}")
+                return 2
+            ok = engine.extract_pdf(row)
+            print("extracted" if ok else "FAILED", rel)
+            return 0 if ok else 1
+        n = engine.run_extraction_queue(course_id)
+        print(f"extraction queue done: {n} extracted")
+        return 0
     finally:
         client.close()
         db.close()
