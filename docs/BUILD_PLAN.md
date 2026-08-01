@@ -7,8 +7,9 @@ existing H1 sync engine + agent harness (both working on host).
 
 | Decision | Choice |
 |----------|--------|
-| Container | One container `hippo`, proxy network, NixOS module, Caddy school.home.lab, Authelia |
+| Container | One container `hippo`, proxy network, NixOS module, Caddy school.home.lab |
 | Terminal network | Full network inside container |
+| Web app auth | NONE — plain Caddy route on LAN/Tailscale (no Authelia) |
 | Loop timing | Nudge at 22, hard stop at 24 |
 | Web tools | trawl MCP (web_search + web_read), not direct SearXNG |
 | File reads | offset/limit pagination, hard caps stay |
@@ -44,19 +45,28 @@ existing H1 sync engine + agent harness (both working on host).
 4. **PDF extraction queue**:
    - `extract_pdf` passes `engine=local` (config: extract_engine: local|cloud).
    - Extraction runs as a background job after sync (never in the sync
-     critical path): serialized, one at a time, ntfy progress
-     ("extracted 3/5 — SE 2250B"), skip when the pdf-extractor worker is busy.
+     critical path): serialized, one at a time, skip when the pdf-extractor
+     worker is busy.
    - `auto_extract_pdfs: true` (config already exists).
    - Backfill: queue the 5 pilot PDFs at low priority (free now — local).
-5. **Notes → files migration**: notes table → `{course}/notes/*.md`
+   - **Digest sees PDF content**: deltas carry a bounded excerpt of the
+     extracted markdown (config `digest_pdf_excerpt_chars`, default 2000) —
+     facts extraction reads real content, not just paths. Full text stays
+     out of the digest prompt (context budget); deep reads happen at chat
+     time via paginated content_read_file.
+5. **ntfy = one notification for the WHOLE sync**: start ping when sync
+   begins, completion ping when everything finished (sync + extraction +
+   digest) with the full breakdown: files new/changed, announcements,
+   PDFs extracted, digest facts, log path. No per-batch extraction chatter.
+6. **Notes → files migration**: notes table → `{course}/notes/*.md`
    (one-off script; existing rows converted). `mutate_add_note` becomes
    `file_write` (audited, before/after hash). Drop notes table from schema.
-6. **DB refinements**:
+7. **DB refinements**:
    - events: stop materializing class meetings — the events query computes
      classes from course_sessions; events table holds only hand-created rows.
    - Catalog extracted markdown: files rows with kind=extracted for .md
      siblings (content_list_files shows everything readable).
-7. **Memory card**:
+8. **Memory card**:
    - `memory_card.md` per course: bounded (~2-3KB, ~20 bullets),
      DEADLINES / POLICIES / PROF NOTES / OPEN THREADS / STATE.
    - Generator (consolidator script): reads facts table + recent deltas +
@@ -76,7 +86,7 @@ regens only on diff (quiet sync → no regen).
 - Volumes: /srv/homelab/school (rw), data/harness.db, ~/.hippocampus
   (token + browser profile — sync keeps working from the container).
 - No docker socket, no host secrets, no /etc/nixos.
-- Caddy school.home.lab (+ Authelia), same pattern as other services.
+- Caddy school.home.lab (plain reverse proxy — no auth per decision).
 - Config URLs → docker hostnames (bifrost, trawl, ntfy, pdf-extractor).
 - Move sync + agent + CLIs into the container; nix-shell stays for dev.
 
@@ -110,7 +120,7 @@ container; auth (Duo) still works; dashboard not yet — Phase 3.
   - assignments tab (due dates, status, weights)
   - sync page: button + run history + log viewer
   - chat rail: SSE streaming over run_turn, scoped to course/module
-- Files served via the app (private behind Authelia), not raw Caddy.
+- Files served via the app (LAN/Tailscale only — no auth by decision).
 
 **Verify**: browse SE 2250B content exactly like Brightspace but local;
 chat answers in the rail with tool calls visible; sync from the button.
