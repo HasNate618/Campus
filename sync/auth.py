@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -51,7 +52,8 @@ def _handle_campus_selector(page) -> None:
     raise RuntimeError("No login buttons found on campus selector")
 
 
-def _enter_microsoft_credentials(page, username: str, password: str) -> None:
+def _enter_microsoft_credentials(page, cfg: Config) -> None:
+    username, password = cfg.username, cfg.password
     if not username or not password:
         raise RuntimeError("HIPPO_USERNAME / HIPPO_BRIGHTSPACE_PASSWORD not set")
     _log("Entering Microsoft email")
@@ -67,25 +69,67 @@ def _enter_microsoft_credentials(page, username: str, password: str) -> None:
 
 
 def _handle_credentials(page, cfg: Config) -> None:
-    for _ in range(20):  # wait for redirect to Microsoft or Shibboleth
+    """Resilient MS Entra handling: account picker, email form, password-only,
+    or already-authed (cookies) — bails out as soon as we hit /d2l/home."""
+    for _ in range(40):  # up to ~40s
         url = page.url
+        if "/d2l/home" in url:
+            return  # session cookies already valid — done
         if "microsoftonline.com" in url or "login.microsoft.com" in url:
-            _enter_microsoft_credentials(page, cfg.username, cfg.password)
-            return
-        if "login." in url or "/d2l/login" in url:
-            # still on D2L or generic login — wait for redirect
-            pass
+            # account picker: the entry is a div[role=button], not a <button>
+            acct = page.get_by_role(
+                "button", name=re.compile(re.escape(cfg.username), re.IGNORECASE)
+            )
+            if acct.count() > 0:
+                _log(f"Account picker — selecting {cfg.username}")
+                acct.first.click()
+                page.wait_for_timeout(2500)
+                continue
+            # email form
+            email = page.locator("input[type='email']")
+            if email.count() > 0 and email.first.is_visible():
+                _enter_microsoft_credentials(page, cfg)
+                return
+            # password-only (email remembered)
+            pwd = page.locator("input[type='password']")
+            if pwd.count() > 0 and pwd.first.is_visible():
+                _log("Password prompt (email remembered)")
+                pwd.first.fill(cfg.password)
+                page.locator(
+                    'input[type="submit"][value="Sign in"], button:has-text("Sign in")'
+                ).first.click()
+                return
         page.wait_for_timeout(1000)
     raise RuntimeError(f"Did not reach Microsoft login (stuck at {page.url})")
 
 
-def _handle_mfa(page) -> None:
+def _handle_mfa_and_finish(page) -> None:
+    """Wait for MFA (Duo push), click 'Stay signed in?', reach /d2l/home.
+    The Yes prompt appears BEFORE the /d2l/home redirect — so we watch for
+    both instead of blocking on the URL (deadlock otherwise)."""
     _log("Waiting for MFA approval on your device (Duo push)...")
+    deadline = time.time() + 600  # 10 min — generous for phone-in-pocket
+    while time.time() < deadline:
+        if "/d2l/home" in page.url:
+            _log("Login successful — reached Brightspace home")
+            return
+        yes = page.locator(
+            'input[type="submit"][value="Yes"], button:has-text("Yes")'
+        ).first
+        if yes.count() > 0 and yes.is_visible():
+            _log("Clicked 'Yes' on 'Stay signed in?'")
+            yes.click()
+            page.wait_for_timeout(1500)
+            continue
+        page.wait_for_timeout(1000)
+    # self-diagnose on timeout: what was the MFA page actually showing?
     try:
-        page.wait_for_url("**/d2l/home", timeout=300_000)
+        page.screenshot(path="/tmp/hippo-mfa-timeout.png")
+        text = page.inner_text("body")[:800]
+        _log(f"TIMEOUT page text: {text}")
     except Exception:
-        raise RuntimeError("MFA/login timed out after 5 minutes")
-    _log("Login successful — reached Brightspace home")
+        pass
+    raise RuntimeError("MFA/login timed out after 10 minutes")
 
 
 def _handle_stay_signed_in(page) -> None:
@@ -174,8 +218,7 @@ def auth(cfg: Config, store) -> bool:
                 _log("Login required — starting SSO flow")
                 _handle_campus_selector(page)
                 _handle_credentials(page, cfg)
-                _handle_mfa(page)
-                _handle_stay_signed_in(page)
+                _handle_mfa_and_finish(page)
             else:
                 _log("Already logged in via stored session")
 
