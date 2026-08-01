@@ -210,8 +210,10 @@ class SyncEngine:
             })
             if is_new:
                 self.stats["announcements_new"] += 1
-                self.deltas.append({"kind": "announcement", "title": n.get("Title"),
-                                    "course_code": None})
+                self.deltas.append({"kind": "announcement",
+                                    "title": n.get("Title"),
+                                    "body": body[:800],  # excerpt for the digest
+                                    "posted_at": n.get("StartDate")})
 
     # ── syllabus ────────────────────────────────────────────────────────
     def sync_syllabus(self, course_id: int, org_unit: int, course_dir: Path) -> None:
@@ -250,7 +252,8 @@ class SyncEngine:
             md = path.with_suffix(".md")
             md.write_text(content)
             self.db.mark_processed(file_row["id"])
-            self.deltas.append({"kind": "pdf_extracted", "path": str(md)})
+            self.deltas.append({"kind": "pdf_extracted", "path": str(md),
+                                "excerpt": content[:600]})
             return True
         except Exception:
             return False
