@@ -16,8 +16,8 @@ from sync.db import DB
 from .context import build_system_prompt
 from .tools import TOOL_SCHEMAS, execute_tool
 
-MAX_ITERATIONS = 12
-NUDGE_AT = 8  # after this many rounds, tell the model to stop calling tools
+MAX_ITERATIONS = 24
+NUDGE_AT = 22  # after this many rounds, tell the model to stop calling tools
 
 
 def _model_call(cfg: Config, messages: list[dict], model: str | None = None) -> dict:
@@ -40,7 +40,7 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
              model: str | None = None, history: list[dict] | None = None,
              verbose: bool = True) -> tuple[str, list[dict]]:
     """Run one user turn. Returns (final_answer, full_message_history)."""
-    messages = [{"role": "system", "content": build_system_prompt(db, course_id)}]
+    messages = [{"role": "system", "content": build_system_prompt(cfg, db, course_id)}]
     messages.extend(history or [])
     messages.append({"role": "user", "content": user_message})
 

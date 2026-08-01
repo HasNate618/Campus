@@ -120,8 +120,15 @@ def content_read_file(db: DB, cfg: Config, args: dict) -> dict:
             path = sibling.relative_to(root)
         elif not full.exists():
             return {"error": f"file missing: {path}"}
-    data = full.read_bytes()[:MAX_READ_BYTES]
-    return {"path": str(path), "content": data.decode("utf-8", errors="replace")}
+    text = full.read_bytes()[:MAX_READ_BYTES].decode("utf-8", errors="replace")
+    lines = text.splitlines()
+    total = len(lines)
+    offset = max(int(args.get("offset", 0)), 0)
+    limit = min(int(args.get("limit", 200)), 500)
+    chunk = "\n".join(lines[offset:offset + limit])
+    return {"path": str(path), "content": chunk,
+            "offset": offset, "total_lines": total,
+            "note": f"lines {offset}-{offset + len(lines[offset:offset + limit])} of {total}; use offset/limit to page further"}
 
 
 def content_grep(db: DB, cfg: Config, args: dict) -> dict:
@@ -233,17 +240,59 @@ def mutate_add_event(db: DB, cfg: Config, args: dict) -> dict:
     return {"created": True, "event_id": cur.lastrowid}
 
 
-def web_search(db: DB, cfg: Config, args: dict) -> dict:
+def file_write(db: DB, cfg: Config, args: dict) -> dict:
+    """Audited file write. path is relative to data_root; content/ is read-only.
+    Notes convention: {TERM}/{CODE}/notes/YYYY-MM-DD-title.md; work files go in work/."""
+    rel = Path(args.get("path", ""))
+    root = Path(cfg.data_root).resolve()
+    full = (root / rel).resolve()
+    if root not in full.parents and full != root:
+        return {"error": "path must be under data_root"}
+    if any(part == "content" for part in rel.parts):
+        return {"error": "content/ is read-only (sync owns it)"}
+    before = full.read_bytes()[:64].hex() if full.exists() else None
+    full.parent.mkdir(parents=True, exist_ok=True)
+    full.write_text(args.get("content", ""))
+    after = full.read_bytes()[:64].hex()
+    db.audit("ai", "file", None, "write",
+             {"path": str(rel), "head_sha_before": before, "head_sha_after": after})
+    db.conn.commit()
+    return {"written": str(rel), "bytes": full.stat().st_size,
+            "note": "writes are audited (audit_log, actor=ai)"}
+
+
+def _trawl_call(cfg: Config, tool: str, args: dict) -> dict:
+    from .mcp import MCPClient
+    client = MCPClient(cfg.trawl_url)
     try:
-        r = httpx.get("http://127.0.0.1:8888/search",
-                      params={"q": args.get("query", ""), "format": "json"},
-                      timeout=20)
-        r.raise_for_status()
-        results = r.json().get("results", [])[:5]
-        return {"results": [{"title": x.get("title"), "url": x.get("url"),
-                             "snippet": x.get("content", "")[:300]} for x in results]}
+        client.connect()
+        return client.call_tool(tool, args)
     except Exception as e:
-        return {"error": f"search failed: {e}"}
+        return {"error": f"trawl {tool} failed: {e}"}
+    finally:
+        client.close()
+
+
+def web_search(db: DB, cfg: Config, args: dict) -> dict:
+    result = _trawl_call(cfg, "search", {"query": args.get("query", ""),
+                                         "max_results": int(args.get("max_results", 5))})
+    if "error" in result:
+        return result
+    # trawl returns results as text; try to parse JSON, else return raw
+    import json as _json
+    try:
+        parsed = _json.loads(result["content"])
+        return {"results": parsed.get("results", parsed)[:8]}
+    except _json.JSONDecodeError:
+        return {"content": result["content"][:4000]}
+
+
+def web_read(db: DB, cfg: Config, args: dict) -> dict:
+    result = _trawl_call(cfg, "read", {"url": args.get("url", ""),
+                                       "mode": args.get("mode", "fit")})
+    if "error" in result:
+        return result
+    return {"content": result["content"][:8000]}
 
 
 # ── registry ────────────────────────────────────────────────────────────
@@ -304,10 +353,12 @@ TOOLS = {
     ),
     "content_read_file": _tool(
         "content_read_file",
-        "Read a text/markdown file from the synced corpus. Path is relative to data_root (e.g. '2025W/SE2250B/content/Course Overview/SE2250 2025-2026 outline.md').",
+        "Read a text/markdown file from the synced corpus. Path is relative to data_root (e.g. '2025W/SE2250B/content/Course Overview/SE2250 2025-2026 outline.md'). Use offset/limit to page through long files (default 200 lines, max 500).",
         content_read_file,
         required=["path"],
         path={"type": "string"},
+        offset={"type": "integer", "description": "line offset"},
+        limit={"type": "integer", "description": "max lines to return"},
     ),
     "content_grep": _tool(
         "content_grep",
@@ -338,14 +389,13 @@ TOOLS = {
         category={"type": "string"},
         confidence={"type": "number"},
     ),
-    "mutate_add_note": _tool(
-        "mutate_add_note",
-        "Save a user/AI note (markdown). course optional. Audited.",
-        mutate_add_note,
-        required=["title", "body"],
-        course={"type": "string"},
-        title={"type": "string"},
-        body={"type": "string"},
+    "file_write": _tool(
+        "file_write",
+        "Write a text file into the workspace (notes/ or work/ per course — path relative to data_root, e.g. '2025W/SE2250B/notes/2026-08-01-project.md'). Audited. content/ is read-only.",
+        file_write,
+        required=["path", "content"],
+        path={"type": "string"},
+        content={"type": "string"},
     ),
     "mutate_add_event": _tool(
         "mutate_add_event",
@@ -361,10 +411,19 @@ TOOLS = {
     ),
     "web_search": _tool(
         "web_search",
-        "Web search (SearXNG) for questions outside the synced course data.",
+        "Web search (via trawl/SearXNG) for questions outside the synced course data. Returns results with title/url/snippet.",
         web_search,
         required=["query"],
         query={"type": "string"},
+        max_results={"type": "integer", "description": "default 5"},
+    ),
+    "web_read": _tool(
+        "web_read",
+        "Fetch a URL and extract its content as markdown (via trawl/crawl4ai). Use after web_search to read a promising page.",
+        web_read,
+        required=["url"],
+        url={"type": "string"},
+        mode={"type": "string", "enum": ["fit", "raw"], "description": "default fit (readability)"},
     ),
 }
 

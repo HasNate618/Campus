@@ -157,17 +157,9 @@ CREATE TABLE IF NOT EXISTS announcements (
 );
 
 -- ── Notes (user + AI) ──────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS notes (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    course_id   INTEGER REFERENCES courses(id) ON DELETE CASCADE, -- NULL = general
-    title       TEXT NOT NULL,
-    body_md     TEXT NOT NULL DEFAULT '',
-    tags        TEXT,                                    -- comma-separated
-    source      TEXT NOT NULL DEFAULT 'manual'
-                CHECK (source IN ('manual','ai','lecture','sync')),
-    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
-);
+-- NOTE: prose lives in workspace files now ({course}/notes/*.md), not the DB.
+-- The notes table was migrated out (see tools/migrate_notes.py) and dropped.
+-- File writes are audited via audit_log (actor=ai, head_sha before/after).
 
 -- ── AI-extracted durable facts ("memory") ──────────────────────────────
 -- The AI writes small verifiable facts here after every sync/lecture.
