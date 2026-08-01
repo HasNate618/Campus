@@ -21,4 +21,5 @@ RUN pip install --no-cache-dir -r requirements.txt \
  && playwright install-deps chromium || true
 
 # container idles; CLI via `docker exec hippo python -m sync ...`
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 CMD ["sleep", "infinity"]
