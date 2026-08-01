@@ -1,34 +1,42 @@
-# School Harness (HippoCampus)
+# HippoCampus — personal AI study/org system
 
-Personal AI study/org system for Western SE. Brightspace sync, structured
-memory, calendar, files, and chat — see **`docs/DESIGN.md`**.
-
-Implementers on `home`: start at **`docs/HANDOFF.md`**.
+Everything for school in one place: Brightspace sync, lecture recordings +
+transcription, AI memory (structured facts + RAG), calendar, files, and a
+chat interface to it all. Canonical docs: `docs/DESIGN.md` (architecture),
+`docs/HANDOFF.md` (implementer brief), `docs/PLAN.md` (historical).
 
 ## Layout
 
 ```
-schema.sql          SQLite schema (SoT for structured data)
-seed/               registrar + SE 2250B pilot seed
-docs/DESIGN.md      architecture (canonical)
-docs/HANDOFF.md     implementer handoff + reconverge gates
-docs/DATA_MODEL.md  tables + write rules
-docs/PLAN.md        older notes (superseded by DESIGN.md)
+schema.sql          SQLite schema (courses, assignments, lectures, memory…)
+seed/               registrar course data + seed script (SE 2250B pilot)
+sync/               H1: deterministic Brightspace sync engine (Python)
+  auth_cli.py       Playwright + Duo auth → own token store (~/.hippocampus)
+  d2l.py            D2L REST client (version discovery, bearer/cookie)
+  sync.py           orchestrator: content/files/dropbox/news + AI digest
+  db.py             audited SQLite upserts (content_nodes, files, …)
+docs/               DESIGN.md (canonical) · DATA_MODEL.md · HANDOFF.md
 data/               SQLite DB (gitignored)
-school/             synced content (gitignored; /srv in prod)
+school/             synced content per course (gitignored; {data_root} in prod)
+shell.nix           NixOS dev shell (nixpkgs playwright + chromium)
 ```
 
-## Quick start
+## Sync usage (H1)
 
 ```bash
-python3 seed/seed.py --reset   # create DB + seed courses (needs sqlite-enabled python)
+nix-shell                                   # NixOS-patched python + playwright
+export HIPPO_USERNAME=user@example.com
+export HIPPO_BRIGHTSPACE_PASSWORD=…        # or config.yaml (gitignored)
+python -m sync.auth --status                # is token valid?
+python -m sync.auth                         # browser login → Duo push → token
+python -m sync --code "SE 2250B"            # pilot sync (or --dry-run first)
 ```
 
-On `home`, the default `python3` may be minimal (no `_sqlite3`). Use a full interpreter, e.g. `nix-shell -p python3 --run "python3 seed/seed.py --reset"`, or whatever full Python you already use for services.
+Sync is always on-demand (Duo 2FA) — no background scraping. AI/AI-mutations
+are audited (`audit_log`). Course content never enters git.
 
-## Rules
+## Seed
 
-- Course content NEVER goes in git (see `.gitignore`)
-- Every AI mutation is audited (`audit_log`) — reversible by design
-- Brightspace sync is on-demand (Duo 2FA) — no background scraping
-- Brightspace MCP is not a runtime dependency — custom sync only
+```bash
+nix-shell --run "python seed/seed.py --reset"   # needs sqlite-capable python
+```
