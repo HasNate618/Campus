@@ -42,8 +42,7 @@ class Config:
     pilot_only: bool = True  # H1: only sync is_pilot courses
     max_file_size: int = 200 * 1024 * 1024  # skip downloads above this
     max_extract_size: int = 20 * 1024 * 1024  # PDFs above this are never extracted
-    auto_extract_pdfs: bool = True  # extract after sync (engine=local = credit-free)
-    extract_engine: str = "local"  # local | cloud
+    auto_extract_pdfs: bool = True  # extract after sync (cloud engine by default)
     digest_pdf_excerpt_chars: int = 2000  # PDF markdown excerpt fed to the digest
     term_dates: dict = field(default_factory=dict)  # {"2026F": "2026-09-01"} — anchors class events
 

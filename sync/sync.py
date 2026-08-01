@@ -234,16 +234,18 @@ class SyncEngine:
             (course_dir / "syllabus.html").write_text("\n\n".join(parts))
             self.db.audit("sync", "courses", course_id, "syllabus_saved")
 
-    # ── pdf-extractor (engine=local, serialized queue after sync) ───────
+    # ── pdf-extractor (cloud engine by default; serialized queue after sync)
     def extract_pdf(self, file_row) -> bool:
         """PUT raw PDF to pdf-extractor → write .md beside it → mark processed.
-        Original PDF is always kept for viewing. engine from config (local|cloud)."""
+        Original PDF is always kept for viewing. (No engine param — the
+        pdf-extractor uses its cloud engine by default; local mode caused
+        high CPU load on the host and was removed.)"""
         path = Path(self.cfg.data_root) / file_row["path"]
         if not path.exists() or path.suffix.lower() != ".pdf":
             self.db.mark_processed(file_row["id"])
             return False
         try:
-            r = httpx.put(f"{self.cfg.pdf_extractor_url}/process?engine={self.cfg.extract_engine}",
+            r = httpx.put(f"{self.cfg.pdf_extractor_url}/process",
                           content=path.read_bytes(), timeout=600)
             r.raise_for_status()
             data = r.json()
@@ -395,12 +397,20 @@ class SyncEngine:
 
         prompt = (
             "You are the digest engine for a student's course-sync system.\n"
-            "The following is a list of changes from a Brightspace sync.\n"
+            f"Today is {time.strftime('%Y-%m-%d')}. The changes below come from a Brightspace sync.\n"
             "Return STRICT JSON: {\"facts\": [{\"fact\": str, \"category\": str, "
             "\"confidence\": float}], \"log\": str}\n"
             "facts: short durable facts worth remembering (deadline changes, announcements).\n"
             "category must be one of: general, scheduling, grading, course-policy, "
             "prof-note, exam, assignment, logistics.\n"
+            "TIME RULES (critical):\n"
+            "- Resolve relative dates ('tomorrow', 'next week', 'Friday') into ABSOLUTE dates "
+            "(YYYY-MM-DD) using today's date.\n"
+            "- Convert ephemeral instructions ('install X before class') into dated facts "
+            "('install X by YYYY-MM-DD').\n"
+            "- SKIP any fact whose relevance window has already passed, or that has no date "
+            "and is a one-off instruction.\n"
+            "- Never store 'tomorrow'/'next week' — always the concrete date.\n"
             "log: a 3-6 line markdown sync log for the student (no preamble, no 'Lesson').\n"
             f"Changes:\n{json.dumps(self.deltas, indent=1)}"
         )
