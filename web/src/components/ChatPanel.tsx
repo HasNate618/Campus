@@ -53,36 +53,36 @@ export function ChatPanel({ courseId, fullScreen }: Props) {
   }
 
   return (
-    <div className={`chat-rail${fullScreen ? ' chat-rail--fullscreen' : ''}`}>
-      <div className="chat-rail__header">
+    <div className={`chat-panel${fullScreen ? ' chat-panel--fullscreen' : ''}`}>
+      <div className="chat-panel__header">
         <div>
-          <span className="chat-rail__title">Chat</span>
-          <span className="chat-rail__scope">
+          <div className="chat-panel__title">Chat</div>
+          <div className="chat-panel__scope">
             {courseId ? `Course ${courseId}` : 'All courses'}
-          </span>
+          </div>
         </div>
         <Button variant="ghost" size="sm" onClick={() => setMessages([])}>
           Clear
         </Button>
       </div>
-      <div className="chat-messages">
+      <div className="chat-panel__messages">
         {messages.length === 0 && (
-          <p className="chat-empty">
+          <p className="chat-panel__empty">
             Ask about syllabus, deadlines, or course content. Conversations aren&apos;t saved.
           </p>
         )}
         {messages.map((m, i) => (
-          <div key={i} className={`chat-msg ${m.role}`}>
+          <div key={i} className={`chat-bubble chat-bubble--${m.role}`}>
             {m.role === 'tool' ? (
-              <div className="chat-tool">{m.content}</div>
+              <code className="chat-tool">{m.content}</code>
             ) : (
-              <div className="bubble">{m.content}</div>
+              <div className="chat-bubble__text">{m.content}</div>
             )}
           </div>
         ))}
         <div ref={bottomRef} />
       </div>
-      <div className="chat-input-row">
+      <div className="chat-panel__input">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
