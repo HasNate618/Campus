@@ -1,4 +1,4 @@
-"""SQLite access helpers."""
+"""SQLite access helpers (real DB)."""
 
 from __future__ import annotations
 
@@ -10,14 +10,23 @@ from api.config import DB_PATH, USE_MOCK
 
 
 def db_available() -> bool:
-    if USE_MOCK:
-        return False
-    return DB_PATH.exists()
+    return not USE_MOCK and DB_PATH.exists()
+
+
+def ensure_wal() -> None:
+    """One-time: enable WAL so API readers don't block the sync writer."""
+    if not DB_PATH.exists():
+        return
+    c = sqlite3.connect(DB_PATH)
+    try:
+        c.execute("PRAGMA journal_mode=WAL")
+    finally:
+        c.close()
 
 
 @contextmanager
 def get_conn() -> Iterator[sqlite3.Connection]:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     try:

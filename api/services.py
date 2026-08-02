@@ -1,360 +1,268 @@
-"""Data access — SQLite when available, mock fallback."""
+"""Read services — thin SQL over the harness DB, shaped for the frontend
+contracts in web/src/types.ts. No logic beyond queries; the harness owns
+logic (agent/) and mutations (mutate_* tools, audit_log).
+"""
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
-from typing import Any
+import datetime
+import sqlite3
+import threading
+from pathlib import Path
 
-from api import mock_data
-from api.db import db_available, get_conn, rows_to_dicts
-
-
-def _course_stats(conn, course_id: int) -> dict[str, Any]:
-    row = conn.execute(
-        """
-        SELECT
-            (SELECT COUNT(*) FROM files WHERE course_id = ?) AS file_count,
-            (SELECT COUNT(*) FROM assignments WHERE course_id = ?) AS assignment_count,
-            (SELECT MAX(finished_at) FROM sync_runs) AS last_sync_at
-        """,
-        (course_id, course_id),
-    ).fetchone()
-    return dict(row) if row else {"file_count": 0, "assignment_count": 0, "last_sync_at": None}
+from api.config import cfg, DB_PATH, SCHOOL_ROOT
+from api.db import get_conn
 
 
-def list_courses(active_only: bool = True) -> list[dict[str, Any]]:
-    if not db_available():
-        courses = list(mock_data.COURSES)
-        if active_only:
-            courses = [c for c in courses if c.get("is_active", 1)]
-        return courses
-
-    with get_conn() as conn:
-        q = "SELECT * FROM courses"
-        if active_only:
-            q += " WHERE is_active = 1"
-        q += " ORDER BY term, code"
-        courses = rows_to_dicts(conn.execute(q).fetchall())
-        for c in courses:
-            stats = _course_stats(conn, c["id"])
-            c.update(stats)
-        return courses
+def _rows(q: str, args: tuple = ()) -> list[dict]:
+    with get_conn() as c:
+        return [dict(r) for r in c.execute(q, args)]
 
 
-def get_course(course_id: int) -> dict[str, Any] | None:
-    if not db_available():
-        for c in mock_data.COURSES:
-            if c["id"] == course_id:
-                return dict(c)
-        return None
-
-    with get_conn() as conn:
-        row = conn.execute("SELECT * FROM courses WHERE id = ?", (course_id,)).fetchone()
-        if not row:
-            return None
-        course = dict(row)
-        course.update(_course_stats(conn, course_id))
-        return course
+def _row(q: str, args: tuple = ()) -> dict | None:
+    rows = _rows(q, args)
+    return rows[0] if rows else None
 
 
-def list_announcements(course_id: int | None = None, limit: int = 20) -> list[dict[str, Any]]:
-    if not db_available():
-        items = mock_data.ANNOUNCEMENTS
-        if course_id is not None:
-            items = [a for a in items if a["course_id"] == course_id]
-        return items[:limit]
-
-    with get_conn() as conn:
-        if course_id is not None:
-            rows = conn.execute(
-                """
-                SELECT a.*, c.code AS course_code
-                FROM announcements a
-                JOIN courses c ON c.id = a.course_id
-                WHERE a.course_id = ?
-                ORDER BY a.posted_at DESC
-                LIMIT ?
-                """,
-                (course_id, limit),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                """
-                SELECT a.*, c.code AS course_code
-                FROM announcements a
-                JOIN courses c ON c.id = a.course_id
-                ORDER BY a.posted_at DESC
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
-        return rows_to_dicts(rows)
+def _now_iso() -> str:
+    return datetime.datetime.now().isoformat()
 
 
-def list_assignments(course_id: int, upcoming_only: bool = False) -> list[dict[str, Any]]:
-    if not db_available():
-        items = [a for a in mock_data.ASSIGNMENTS if a["course_id"] == course_id]
-        if upcoming_only:
-            now = datetime.now().isoformat()
-            items = [a for a in items if a.get("due_at") and a["due_at"] > now]
-        return items
-
-    with get_conn() as conn:
-        q = "SELECT * FROM assignments WHERE course_id = ?"
-        params: list[Any] = [course_id]
-        if upcoming_only:
-            q += " AND due_at > datetime('now') AND status NOT IN ('submitted','graded')"
-        q += " ORDER BY due_at ASC"
-        return rows_to_dicts(conn.execute(q, params).fetchall())
+# ── courses ─────────────────────────────────────────────────────────────
+def list_courses(active_only: bool = True) -> list[dict]:
+    q = """SELECT c.*,
+        (SELECT COUNT(*) FROM files f WHERE f.course_id=c.id) AS file_count,
+        (SELECT COUNT(*) FROM assignments a WHERE a.course_id=c.id) AS assignment_count,
+        (SELECT started_at FROM sync_runs s WHERE s.status IN ('ok','partial')
+           ORDER BY s.id DESC LIMIT 1) AS last_sync_at
+        FROM courses c"""
+    if active_only:
+        q += " WHERE c.is_active=1"
+    q += " ORDER BY c.term DESC, c.code"
+    return _rows(q)
 
 
-def list_content_nodes(course_id: int) -> list[dict[str, Any]]:
-    if not db_available():
-        return [n for n in mock_data.CONTENT_NODES if n["course_id"] == course_id]
-
-    with get_conn() as conn:
-        return rows_to_dicts(
-            conn.execute(
-                "SELECT * FROM content_nodes WHERE course_id = ? ORDER BY sort_order, id",
-                (course_id,),
-            ).fetchall()
-        )
+def get_course(course_id: int) -> dict | None:
+    return _row("SELECT * FROM courses WHERE id=?", (course_id,))
 
 
-def get_content_node(node_id: int) -> dict[str, Any] | None:
-    if not db_available():
-        for n in mock_data.CONTENT_NODES:
-            if n["id"] == node_id:
-                return dict(n)
-        return None
-
-    with get_conn() as conn:
-        row = conn.execute("SELECT * FROM content_nodes WHERE id = ?", (node_id,)).fetchone()
-        return dict(row) if row else None
-
-
-def list_files(course_id: int) -> list[dict[str, Any]]:
-    if not db_available():
-        return [f for f in mock_data.FILES if f["course_id"] == course_id]
-
-    with get_conn() as conn:
-        return rows_to_dicts(
-            conn.execute("SELECT * FROM files WHERE course_id = ? ORDER BY path", (course_id,)).fetchall()
-        )
-
-
-def get_file(file_id: int) -> dict[str, Any] | None:
-    if not db_available():
-        for f in mock_data.FILES:
-            if f["id"] == file_id:
-                return dict(f)
-        return None
-
-    with get_conn() as conn:
-        row = conn.execute("SELECT * FROM files WHERE id = ?", (file_id,)).fetchone()
-        return dict(row) if row else None
-
-
-def get_file_content(file_id: int) -> str | None:
-    if not db_available():
-        return mock_data.FILE_CONTENT.get(file_id)
-
-    # Real impl would read from disk; return placeholder for now
-    f = get_file(file_id)
-    if not f:
-        return None
-    return mock_data.FILE_CONTENT.get(file_id, f"# {f['path']}\n\nContent not available locally.")
-
-
-def list_events(
-    course_id: int | None = None,
-    from_dt: str | None = None,
-    to_dt: str | None = None,
-) -> list[dict[str, Any]]:
-    if not db_available():
-        items = list(mock_data.EVENTS)
-        if course_id is not None:
-            items = [e for e in items if e.get("course_id") == course_id]
-        return items
-
-    with get_conn() as conn:
-        q = """
-            SELECT e.*, c.code AS course_code
-            FROM events e
-            LEFT JOIN courses c ON c.id = e.course_id
-            WHERE 1=1
-        """
-        params: list[Any] = []
-        if course_id is not None:
-            q += " AND e.course_id = ?"
-            params.append(course_id)
-        if from_dt:
-            q += " AND e.starts_at >= ?"
-            params.append(from_dt)
-        if to_dt:
-            q += " AND e.starts_at <= ?"
-            params.append(to_dt)
-        q += " ORDER BY e.starts_at ASC"
-        return rows_to_dicts(conn.execute(q, params).fetchall())
-
-
-def events_next_days(days: int = 7, course_id: int | None = None) -> list[dict[str, Any]]:
-    now = datetime.now()
-    end = now + timedelta(days=days)
-    return list_events(
-        course_id=course_id,
-        from_dt=now.isoformat(),
-        to_dt=end.isoformat(),
-    )
-
-
-def list_memory_facts(course_id: int) -> list[dict[str, Any]]:
-    if not db_available():
-        return [m for m in mock_data.MEMORY_FACTS if m["course_id"] == course_id and m["is_active"]]
-
-    with get_conn() as conn:
-        return rows_to_dicts(
-            conn.execute(
-                "SELECT * FROM memory_facts WHERE course_id = ? AND is_active = 1 ORDER BY created_at DESC",
-                (course_id,),
-            ).fetchall()
-        )
-
-
-def get_memory_card(course_id: int) -> str:
-    if not db_available():
-        return mock_data.MEMORY_CARD
-
-    facts = list_memory_facts(course_id)
-    if not facts:
-        return "# Memory Card\n\nNo facts recorded yet."
-    lines = ["# Memory Card\n"]
-    for f in facts:
-        lines.append(f"- **{f['category']}**: {f['fact']}")
-    return "\n".join(lines)
-
-
-def course_hub(course_id: int) -> dict[str, Any] | None:
+# ── course hub ──────────────────────────────────────────────────────────
+def course_hub(course_id: int) -> dict | None:
     course = get_course(course_id)
     if not course:
         return None
+    announcements = _rows(
+        "SELECT * FROM announcements WHERE course_id=? ORDER BY posted_at DESC LIMIT 10",
+        (course_id,))
+    events = events_next_days(7, course_id=course_id)
+    assignments_upcoming = _rows(
+        """SELECT * FROM assignments WHERE course_id=? AND due_at IS NOT NULL
+           AND due_at >= datetime('now') ORDER BY due_at LIMIT 8""", (course_id,))
+    memory_facts = _rows(
+        "SELECT id, fact, category FROM memory_facts WHERE course_id=? AND is_active=1 "
+        "ORDER BY id DESC LIMIT 12", (course_id,))
+    recent_files = _rows(
+        "SELECT * FROM files WHERE course_id=? ORDER BY id DESC LIMIT 8", (course_id,))
+    stats = {
+        "file_count": _row("SELECT COUNT(*) n FROM files WHERE course_id=?", (course_id,))["n"],
+        "assignment_count": _row("SELECT COUNT(*) n FROM assignments WHERE course_id=?", (course_id,))["n"],
+        "processed_files": _row("SELECT COUNT(*) n FROM files WHERE course_id=? AND processed=1", (course_id,))["n"],
+    }
     return {
         "course": course,
-        "announcements": list_announcements(course_id=course_id, limit=10),
-        "events": events_next_days(7, course_id=course_id),
-        "assignments_upcoming": list_assignments(course_id, upcoming_only=True),
-        "memory_facts": list_memory_facts(course_id),
-        "recent_files": list_files(course_id)[:5],
-        "stats": {
-            "file_count": course.get("file_count", 0),
-            "assignment_count": course.get("assignment_count", 0),
-            "processed_files": sum(1 for f in list_files(course_id) if f.get("processed")),
-        },
+        "announcements": announcements,
+        "events": events,
+        "assignments_upcoming": assignments_upcoming,
+        "memory_facts": memory_facts,
+        "recent_files": recent_files,
+        "stats": stats,
     }
 
 
-def list_sync_runs(limit: int = 20) -> list[dict[str, Any]]:
-    if not db_available():
-        return mock_data.SYNC_RUNS[:limit]
-
-    with get_conn() as conn:
-        return rows_to_dicts(
-            conn.execute(
-                "SELECT * FROM sync_runs ORDER BY started_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
-        )
+# ── content / files ─────────────────────────────────────────────────────
+def list_content_nodes(course_id: int) -> list[dict]:
+    return _rows(
+        "SELECT * FROM content_nodes WHERE course_id=? ORDER BY sort_order, id", (course_id,))
 
 
-def get_sync_run(run_id: int) -> dict[str, Any] | None:
-    if not db_available():
-        for r in mock_data.SYNC_RUNS:
-            if r["id"] == run_id:
-                return dict(r)
+def list_files(course_id: int) -> list[dict]:
+    return _rows("SELECT * FROM files WHERE course_id=? ORDER BY id", (course_id,))
+
+
+def get_file(file_id: int) -> dict | None:
+    return _row("SELECT * FROM files WHERE id=?", (file_id,))
+
+
+def _read_text(path: Path, max_chars: int = 200_000) -> str:
+    return path.read_bytes()[:max_chars].decode("utf-8", errors="replace")
+
+
+def get_file_content(file_id: int) -> dict | None:
+    f = get_file(file_id)
+    if not f:
         return None
+    full = (SCHOOL_ROOT / f["path"]).resolve()
+    if not full.exists():
+        return None
+    if full.suffix.lower() == ".pdf":
+        return {"content": "", "format": "pdf", "rawUrl": f"/api/files/{file_id}/raw"}
+    # prefer extracted .md sibling for PDFs' markdown, else the file itself
+    if full.suffix.lower() != ".md":
+        sibling = full.with_suffix(".md")
+        if sibling.exists():
+            full = sibling
+    return {"content": _read_text(full), "format": "markdown"}
 
-    with get_conn() as conn:
-        row = conn.execute("SELECT * FROM sync_runs WHERE id = ?", (run_id,)).fetchone()
-        return dict(row) if row else None
+
+def get_file_raw_path(file_id: int) -> Path | None:
+    f = get_file(file_id)
+    if not f:
+        return None
+    full = (SCHOOL_ROOT / f["path"]).resolve()
+    return full if full.exists() else None
+
+
+# ── assignments / announcements ─────────────────────────────────────────
+def list_assignments(course_id: int, upcoming_only: bool = False) -> list[dict]:
+    q = "SELECT * FROM assignments WHERE course_id=?"
+    args: tuple = (course_id,)
+    if upcoming_only:
+        q += " AND due_at IS NOT NULL AND due_at >= datetime('now')"
+    q += " ORDER BY due_at"
+    return _rows(q, args)
+
+
+def list_announcements(course_id: int | None = None, limit: int = 20) -> list[dict]:
+    q = """SELECT a.*, c.code AS course_code FROM announcements a
+           JOIN courses c ON c.id = a.course_id"""
+    args: tuple = ()
+    if course_id is not None:
+        q += " WHERE a.course_id=?"
+        args = (course_id,)
+    q += " ORDER BY a.posted_at DESC LIMIT ?"
+    return _rows(q, args + (limit,))
+
+
+# ── events (assignments + exams + hand-created, next N days) ────────────
+def _events_sql(base: str, course_id: int | None, args: tuple) -> tuple[str, tuple]:
+    if course_id is not None:
+        return base + " WHERE (? IS NULL OR a.course_id=?)", args + (course_id, course_id)
+    return base, args
+
+
+def events_next_days(days: int, course_id: int | None = None) -> list[dict]:
+    now = _now_iso()
+    later = (datetime.datetime.now() + datetime.timedelta(days=days)).isoformat()
+    q = """SELECT a.id, a.course_id, c.code AS course_code, 'assignment' AS kind,
+                  a.title, a.due_at AS starts_at, NULL AS ends_at, NULL AS notes
+           FROM assignments a JOIN courses c ON c.id=a.course_id
+           WHERE a.due_at BETWEEN ? AND ? AND (? IS NULL OR a.course_id=?)
+           UNION ALL
+           SELECT e.id, e.course_id, c.code, 'exam', e.title, e.starts_at, NULL, NULL
+           FROM exams e JOIN courses c ON c.id=e.course_id
+           WHERE e.starts_at BETWEEN ? AND ? AND (? IS NULL OR e.course_id=?)
+           UNION ALL
+           SELECT ev.id, ev.course_id, c.code, ev.kind, ev.title, ev.starts_at, ev.ends_at, ev.notes
+           FROM events ev LEFT JOIN courses c ON c.id=ev.course_id
+           WHERE ev.starts_at BETWEEN ? AND ? AND (? IS NULL OR ev.course_id=?)
+           ORDER BY starts_at"""
+    args = (now, later, course_id, course_id) * 3
+    return _rows(q, args)
+
+
+def list_events(course_id: int | None = None,
+                from_dt: str | None = None, to_dt: str | None = None) -> list[dict]:
+    q = """SELECT ev.id, ev.course_id, c.code AS course_code, ev.kind, ev.title,
+                  ev.starts_at, ev.ends_at, ev.notes
+           FROM events ev LEFT JOIN courses c ON c.id=ev.course_id WHERE 1=1"""
+    args: tuple = ()
+    if course_id is not None:
+        q += " AND ev.course_id=?"
+        args += (course_id,)
+    if from_dt:
+        q += " AND ev.starts_at >= ?"
+        args += (from_dt,)
+    if to_dt:
+        q += " AND ev.starts_at <= ?"
+        args += (to_dt,)
+    q += " ORDER BY ev.starts_at"
+    return _rows(q, args)
+
+
+# ── memory card ─────────────────────────────────────────────────────────
+def get_memory_card(course_id: int) -> str:
+    course = get_course(course_id)
+    if not course:
+        return ""
+    p = SCHOOL_ROOT / course["term"] / course["code"].replace(" ", "") / "memory-card.md"
+    if p.exists():
+        return p.read_text()[:20_000]
+    return ""
+
+
+# ── sync runs / digest ──────────────────────────────────────────────────
+def latest_sync_status() -> dict:
+    last = _row("SELECT * FROM sync_runs ORDER BY id DESC LIMIT 1")
+    token_valid = False
+    try:
+        from sync.token_store import TokenStore
+        store = TokenStore(cfg.token_dir, ttl=cfg.token_ttl, refresh_buffer=cfg.refresh_buffer)
+        token_valid = bool(store.load())
+    except Exception:
+        pass
+    return {"status": (last or {}).get("status", "never"), "last_run": last,
+            "token_valid": token_valid}
+
+
+def list_sync_runs(limit: int = 20) -> list[dict]:
+    return _rows("SELECT * FROM sync_runs ORDER BY id DESC LIMIT ?", (limit,))
+
+
+def get_sync_run(run_id: int) -> dict | None:
+    return _row("SELECT * FROM sync_runs WHERE id=?", (run_id,))
 
 
 def get_sync_log(run_id: int) -> str:
-    if not db_available():
-        return mock_data.SYNC_LOG_MARKDOWN
-
     run = get_sync_run(run_id)
     if not run or not run.get("log_path"):
-        return f"# Sync run #{run_id}\n\nNo log available."
-    return mock_data.SYNC_LOG_MARKDOWN
+        return ""
+    p = Path(run["log_path"])
+    if p.exists():
+        return p.read_text()[:20_000]
+    return ""
 
 
-def latest_sync_status() -> dict[str, Any]:
-    runs = list_sync_runs(limit=1)
-    if not runs:
-        return {"status": "never", "last_run": None}
-    last = runs[0]
-    return {
-        "status": last["status"],
-        "last_run": last,
-        "token_valid": True,
-        "token_expires_in_minutes": 42,
-    }
+def get_digest() -> dict:
+    logs = sorted((SCHOOL_ROOT / "sync_logs").glob("*.md")) if (SCHOOL_ROOT / "sync_logs").exists() else []
+    if not logs:
+        return {"generated_at": "", "markdown": "", "source": ""}
+    latest = logs[-1]
+    return {"generated_at": latest.stem, "markdown": latest.read_text()[:20_000],
+            "source": str(latest)}
 
 
-def trigger_sync(course_id: int | None = None) -> dict[str, Any]:
-    """Mock sync trigger — creates a completed run in mock mode."""
-    if not db_available():
-        new_run = {
-            "id": 48,
-            "started_at": datetime.now().isoformat(),
-            "finished_at": datetime.now().isoformat(),
-            "status": "ok",
-            "trigger": "api",
-            "courses_processed": 1,
-            "files_new": 0,
-            "files_changed": 0,
-            "announcements_new": 0,
-            "facts_added": 0,
-            "log_path": "sync_logs/mock.md",
-            "error": None,
-        }
-        mock_data.SYNC_RUNS.insert(0, new_run)
-        return {"run_id": new_run["id"], "status": "ok", "message": "Sync completed (mock)"}
+# ── sync trigger (background) ───────────────────────────────────────────
+def trigger_sync(course_id: int | None = None) -> dict:
+    def _run() -> None:
+        try:
+            from sync.d2l import D2LClient
+            from sync.sync import SyncEngine
+            from sync.token_store import TokenStore
+            from sync.db import DB
+            store = TokenStore(cfg.token_dir, ttl=cfg.token_ttl, refresh_buffer=cfg.refresh_buffer)
+            db = DB(cfg.db_path)
+            client = D2LClient(cfg.base_url, store.load)
+            engine = SyncEngine(cfg, db, client)
+            code = None
+            if course_id:
+                row = db.conn.execute("SELECT code FROM courses WHERE id=?", (course_id,)).fetchone()
+                code = row["code"] if row else None
+            # engine.run() owns the sync_runs lifecycle and error recording
+            engine.run(code=code)
+            client.close()
+            db.close()
+        except Exception:
+            pass
 
-    with get_conn() as conn:
-        cur = conn.execute(
-            """
-            INSERT INTO sync_runs (status, trigger, courses_processed)
-            VALUES ('ok', 'api', 0)
-            """
-        )
-        conn.commit()
-        return {"run_id": cur.lastrowid, "status": "ok", "message": "Sync queued (stub)"}
-
-
-def get_digest() -> dict[str, Any]:
-    return {
-        "generated_at": datetime.now().isoformat(),
-        "markdown": mock_data.DIGEST_MARKDOWN if not db_available() else _build_digest_from_db(),
-        "source": "mock" if not db_available() else "db",
-    }
-
-
-def _build_digest_from_db() -> str:
-    upcoming = list_events(from_dt=datetime.now().isoformat())
-    upcoming_lines = "\n".join(f"- {e['title']} ({e.get('course_code', '')})" for e in upcoming[:5])
-    if not upcoming_lines:
-        upcoming_lines = "None."
-    anns = list_announcements(limit=5)
-    ann_lines = "\n".join(f"- {a['course_code']}: {a['title']}" for a in anns)
-    if not ann_lines:
-        ann_lines = "None."
-    return f"""## Today
-Check calendar for classes.
-
-## Upcoming events
-{upcoming_lines}
-
-## Recent announcements
-{ann_lines}
-"""
+    threading.Thread(target=_run, daemon=True).start()
+    return {"run_id": 0, "status": "started", "message": "sync running in background"}
