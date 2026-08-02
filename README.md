@@ -1,47 +1,57 @@
-# HippoCampus — personal AI study/org system
+# HippoCampus
 
-Everything for school in one place: Brightspace sync, lecture recordings +
-transcription, AI memory (structured facts + RAG), calendar, files, and a
-chat interface to it all. Canonical docs: `docs/DESIGN.md` (architecture),
-`docs/HANDOFF.md` (implementer brief), `docs/PLAN.md` (historical).
+Personal AI study/org system for Western SE — Brightspace sync, structured
+memory, calendar, files, and a course-scoped AI chat. The model harness is
+the product; the web UI is a surface over it.
 
 ## Layout
 
 ```
-schema.sql          SQLite schema (courses, assignments, lectures, memory…)
-seed/               registrar course data + seed script (SE 2250B pilot)
-sync/               H1: deterministic Brightspace sync engine (Python)
-  auth_cli.py       Playwright + Duo auth → own token store (~/.hippocampus)
-  d2l.py            D2L REST client (version discovery, bearer/cookie)
-  sync.py           orchestrator: content/files/dropbox/news + AI digest
-  db.py             audited SQLite upserts (content_nodes, files, …)
-docs/               DESIGN.md (canonical) · DATA_MODEL.md · HANDOFF.md
+agent/              AI harness: context builder, 14 tools, tool-calling loop
+sync/               Brightspace sync engine (D2L REST + Playwright auth)
+api/                FastAPI backend (Phase 3) — serves web/ + SSE chat
+web/                React/TS PWA frontend (Vite + Tailwind v4 + shadcn)
+schema.sql          SQLite schema (source of truth for structured data)
+seed/               registrar + SE 2250B pilot seed (+ pilot_data.py dev mock)
+docs/               architecture + handoffs (DESIGN, HANDOFF, BUILD_PLAN,
+                    DATA_MODEL, FRONTEND_HANDOFF)
 data/               SQLite DB (gitignored)
-school/             synced content per course (gitignored; {data_root} in prod)
-shell.nix           NixOS dev shell (nixpkgs playwright + chromium)
+{data_root} synced course content (gitignored, on the homelab)
 ```
 
-## Sync usage (H1)
+## Dev (frontend, on the workstation)
 
 ```bash
-nix-shell                                   # NixOS-patched python + playwright
-python -m sync auth --status                # is token valid?
-python -m sync auth                         # browser login → Duo push → token
-python -m sync models                       # list models served by bifrost
-python -m sync sync --code "SE 2250B"       # pilot sync (or --dry-run first)
-python -m sync sync --model M               # override digest model per-run
-python -m sync extract --file <path>        # PDF → markdown (keeps original)
-python -m sync extract --code "SE 2250B"    # extract all PDFs for a course
+./scripts/dev.sh          # seeds dev DB, starts API (:8000) + Vite (:5173)
+cd web && npx tsc -b      # type-check
+cd web && npx vite build  # production build
 ```
 
-Sync is always on-demand (Duo 2FA) — no background scraping. Digest model is
-configurable (`bifrost_model` in config.yaml, default opencode-go/deepseek-v4-flash).
-PDF extraction is on-demand until pdf-extractor gains a local mode
-(`auto_extract_pdfs: true` flips it on after sync). AI/AI-mutations are
-audited (`audit_log`). Course content never enters git.
-
-## Seed
+## Dev (harness / sync, on the homelab)
 
 ```bash
-nix-shell --run "python seed/seed.py --reset"   # needs sqlite-capable python
+nix-shell                 # playwright + python (system python lacks sqlite3)
+python -m sync auth       # Duo flow — token in ~/.hippocampus
+python -m sync sync       # deterministic Brightspace sync + AI digest
+python -m agent           # interactive harness chat (REPL)
+python -m agent --one "What's due in SE 2250B?" --course "SE 2250B"
 ```
+
+## Production (homelab)
+
+The `hippo` Docker container runs everything (NixOS module
+`modules/server/ai/hippo.nix`): code mounted ro from `/home/nate/hippocampus`,
+DB + token mounted rw, on the proxy network, running as uid 1000 with
+`--cap-drop ALL`. Web app binds `:8000` → `127.0.0.1:8087` →
+`http://campus.local` (no auth — LAN/Tailscale only).
+
+```bash
+docker exec hippo python -m sync sync
+docker exec hippo python -m agent --one "question" --course "SE 2250B"
+```
+
+## Rules
+
+- Structured rows beat facts; all AI mutations are audited (audit_log).
+- Never commit data/, *.db, config.yaml, school/ content.
+- The harness owns the tools (terminal, web, mutations); the UI renders them.

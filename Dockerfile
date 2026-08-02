@@ -1,10 +1,19 @@
-# HippoCampus runtime container — sync engine + agent harness + (later) web app.
-# Code runs from the /app mount (ro) so image rebuilds aren't needed on code
-# changes; the image is just the runtime + deps. Auth (playwright + chromium)
-# lives here too — the Debian base sidesteps the NixOS playwright problem.
-FROM python:3.13-slim
+# HippoCampus runtime image — multi-stage: build the React PWA, then run the
+# FastAPI backend (api/) + harness (agent/, sync/) with Playwright for auth.
+# Runs as nate (uid 1000): cap-drop ALL strips CAP_DAC_OVERRIDE, so the
+# container must run as the owner of the mounted paths, not root.
 
-# build deps for playwright chromium + system libs it needs at runtime
+# ── Stage 1: build the React/TS PWA ─────────────────────────────────────
+FROM node:22-alpine AS web-build
+WORKDIR /app/web
+COPY web/package*.json ./
+RUN npm ci
+COPY web/ ./
+RUN npm run build
+
+# ── Stage 2: runtime ────────────────────────────────────────────────────
+FROM python:3.12-slim
+# playwright chromium system deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git ripgrep curl ca-certificates \
         libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
@@ -14,12 +23,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt \
+COPY requirements.txt api/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt -r api/requirements.txt \
  && playwright install chromium \
  && playwright install-deps chromium || true
-
-# container idles; CLI via `docker exec hippo python -m sync ...`
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
-CMD ["sleep", "infinity"]
+
+# code mounts from the repo (ro) in the homelab deployment — these copies
+# make the image self-contained for other environments
+COPY schema.sql ./
+COPY seed/ ./seed/
+COPY api/ ./api/
+COPY agent/ ./agent/
+COPY sync/ ./sync/
+COPY --from=web-build /app/web/dist ./web/dist
+
+ENV HIPPO_DB=/app/data/harness.db
+EXPOSE 8000
+# seed only when the DB is missing (prod data comes from sync, not seeds);
+# pilot_data.py is a dev-only mock, never run here
+CMD ["sh", "-c", "test -f $HIPPO_DB || python seed/seed.py 2>/dev/null || true; uvicorn api.main:app --host 0.0.0.0 --port 8000"]
