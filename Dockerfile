@@ -23,10 +23,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY requirements.txt api/requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt -r api/requirements.txt \
- && playwright install chromium \
- && playwright install-deps chromium || true
+COPY requirements.txt ./
+COPY api/requirements.txt ./api/requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt -r api/requirements.txt
+RUN playwright install chromium || true
+RUN playwright install-deps chromium || true
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 
 # code mounts from the repo (ro) in the homelab deployment — these copies
