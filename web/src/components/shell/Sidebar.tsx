@@ -3,23 +3,19 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   CalendarDays,
   GraduationCap,
-  MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
   RefreshCw,
-  SquarePen,
   Sunrise,
-  Trash2,
 } from 'lucide-react'
 import { api } from '@/api/client'
 import { useChat } from '@/chat/ChatContext'
 import { courseColor } from '@/lib/courses'
 import { fmtRelative } from '@/lib/format'
-import { useIsDesktop } from '@/lib/useMediaQuery'
 import type { Course } from '@/types'
 
 const NAV = [
-  { to: '/today', label: 'Today', icon: Sunrise, end: false },
+  { to: '/', label: 'Today', icon: Sunrise, end: true },
   { to: '/calendar', label: 'Calendar', icon: CalendarDays, end: false },
   { to: '/sync', label: 'Sync', icon: RefreshCw, end: false },
 ]
@@ -29,9 +25,8 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem('hc.sidebar.collapsed') === '1',
   )
-  const { sessions, active, selectSession, deleteSession, newChat } = useChat()
+  const { sessions, activeFor, openSession } = useChat()
   const navigate = useNavigate()
-  const isDesktop = useIsDesktop()
 
   useEffect(() => {
     api.courses().then(setCourses).catch(console.error)
@@ -44,20 +39,9 @@ export function Sidebar() {
     })
   }
 
-  const openChat = (id: string) => {
-    selectSession(id)
-    if (!isDesktop) navigate('/')
-  }
-
-  const startNewChat = () => {
-    newChat()
-    if (!isDesktop) navigate('/')
-  }
-
-  const recentChats = sessions
-    .filter((s) => s.messages.length > 0)
+  const recentChats = [...sessions]
     .sort((a, b) => b.updatedAt - a.updatedAt)
-    .slice(0, 8)
+    .slice(0, 5)
 
   const courseById = new Map(courses.map((c) => [c.id, c]))
 
@@ -72,10 +56,6 @@ export function Sidebar() {
 
       <div className="sidebar-scroll">
         <nav>
-          <NavLink to="/" end title="Chat" className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
-            <MessageSquare size={17} />
-            <span className="side-label">Chat</span>
-          </NavLink>
           {NAV.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
@@ -90,41 +70,37 @@ export function Sidebar() {
           ))}
         </nav>
 
-        <div className="section-head">
-          <p className="section-label">Chats</p>
-          <button className="icon-btn side-label" onClick={startNewChat} title="New chat">
-            <SquarePen size={13} />
-          </button>
-        </div>
-        <div>
-          {recentChats.length === 0 && (
-            <p className="side-label" style={{ padding: '0 20px', fontSize: 12, color: 'var(--text-3)', margin: '2px 0 6px' }}>
-              No chats yet
-            </p>
-          )}
-          {recentChats.map((s) => {
-            const c = s.courseId != null ? courseById.get(s.courseId) : undefined
-            return (
-              <div key={s.id} className={`session-item${active?.id === s.id ? ' active' : ''}`}>
-                <button className="session-btn" onClick={() => openChat(s.id)} title={s.title}>
-                  <span
-                    className="dot"
-                    style={{ background: c ? courseColor(c) : 'var(--violet)', flexShrink: 0 }}
-                  />
-                  <span className="side-label session-title">{s.title}</span>
-                  <span className="side-label session-time">{fmtRelative(new Date(s.updatedAt).toISOString())}</span>
-                </button>
-                <button
-                  className="icon-btn session-delete"
-                  onClick={() => deleteSession(s.id)}
-                  title="Delete chat"
-                >
-                  <Trash2 size={12} />
-                </button>
-              </div>
-            )
-          })}
-        </div>
+        {recentChats.length > 0 && (
+          <>
+            <p className="section-label">Chats</p>
+            <div>
+              {recentChats.map((s) => {
+                const c = courseById.get(s.courseId)
+                return (
+                  <button
+                    key={s.id}
+                    className={`nav-item session-nav${activeFor(s.courseId)?.id === s.id ? ' active' : ''}`}
+                    style={{ width: 'calc(100% - 20px)' }}
+                    title={`${c?.code ?? 'Course'} — ${s.title}`}
+                    onClick={() => {
+                      openSession(s.courseId, s.id)
+                      navigate(`/courses/${s.courseId}`)
+                    }}
+                  >
+                    <span
+                      className="dot"
+                      style={{ background: c ? courseColor(c) : 'var(--violet)', margin: '0 5px', flexShrink: 0 }}
+                    />
+                    <span className="side-label session-title">{s.title}</span>
+                    <span className="side-label session-time">
+                      {fmtRelative(new Date(s.updatedAt).toISOString())}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </>
+        )}
 
         <p className="section-label">Courses</p>
         <div>

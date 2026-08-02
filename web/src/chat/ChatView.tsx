@@ -6,20 +6,22 @@ import {
   Check,
   ChevronDown,
   GraduationCap,
+  History,
   Loader2,
   SquarePen,
+  Trash2,
   Wrench,
 } from 'lucide-react'
-import { api } from '@/api/client'
 import { courseColor } from '@/lib/courses'
+import { fmtRelative } from '@/lib/format'
 import { useChat } from './ChatContext'
 import type { Course } from '@/types'
 
 const SUGGESTIONS = [
   "What's due this week?",
   'Summarize recent announcements',
-  'Explain a concept from my course content',
-  'When is my next exam?',
+  'Explain a concept from the course content',
+  'What should I study next?',
 ]
 
 function greeting(): string {
@@ -30,35 +32,55 @@ function greeting(): string {
   return 'Good evening'
 }
 
-export function ChatView() {
-  const { active, scope, busy, input, setInput, setScope, newChat, toggleTool, send } = useChat()
-  const [courses, setCourses] = useState<Course[]>([])
-  const [scopeOpen, setScopeOpen] = useState(false)
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const headRef = useRef<HTMLDivElement>(null)
+interface Props {
+  courseId: number
+  course?: Course
+  /** Show a course-switcher pill in the header (mobile chat tab). */
+  courses?: Course[]
+  onPickCourse?: (courseId: number) => void
+}
 
-  useEffect(() => {
-    api.courses().then(setCourses).catch(console.error)
-  }, [])
+export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
+  const {
+    busy,
+    sessionsFor,
+    activeFor,
+    openSession,
+    newChat,
+    deleteSession,
+    toggleTool,
+    send,
+  } = useChat()
+  const [input, setInput] = useState('')
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const historyRef = useRef<HTMLDivElement>(null)
+  const pickerRef = useRef<HTMLDivElement>(null)
+
+  const session = activeFor(courseId)
+  const courseSessions = sessionsFor(courseId)
 
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [active.messages, active.id])
+  }, [session?.messages, session?.id])
 
   useEffect(() => {
-    if (!scopeOpen) return
+    if (!historyOpen && !pickerOpen) return
     const close = (e: MouseEvent) => {
-      if (!headRef.current?.contains(e.target as Node)) setScopeOpen(false)
+      if (historyOpen && !historyRef.current?.contains(e.target as Node)) setHistoryOpen(false)
+      if (pickerOpen && !pickerRef.current?.contains(e.target as Node)) setPickerOpen(false)
     }
     document.addEventListener('mousedown', close)
     return () => document.removeEventListener('mousedown', close)
-  }, [scopeOpen])
+  }, [historyOpen, pickerOpen])
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      void send(input)
+      setInput('')
+      void send(courseId, input)
     }
   }
 
@@ -68,70 +90,119 @@ export function ChatView() {
     e.target.style.height = `${e.target.scrollHeight}px`
   }
 
-  const scopeCourse = courses.find((c) => c.id === scope)
+  const submit = () => {
+    setInput('')
+    void send(courseId, input)
+  }
 
   return (
     <div className="chat-wrap">
-      <div className="chat-head" ref={headRef}>
-        <button className="icon-btn" onClick={newChat} title="New chat">
-          <SquarePen size={15} />
-        </button>
-        <button className="scope-pill" onClick={() => setScopeOpen((o) => !o)}>
-          {scopeCourse && <span className="dot" style={{ background: courseColor(scopeCourse) }} />}
-          {scopeCourse ? scopeCourse.code : 'All courses'}
-          <ChevronDown size={13} />
-        </button>
-        {scopeOpen && (
-          <div className="popover">
-            <button
-              className={`popover-item${scope === null ? ' selected' : ''}`}
-              onClick={() => {
-                setScope(null)
-                setScopeOpen(false)
-              }}
-            >
-              All courses
-            </button>
-            {courses.map((c) => (
+      <div className="chat-head">
+        <div ref={historyRef} style={{ position: 'relative' }}>
+          <button className="icon-btn" onClick={() => setHistoryOpen((o) => !o)} title="Chat history">
+            <History size={15} />
+          </button>
+          {historyOpen && (
+            <div className="popover left">
               <button
-                key={c.id}
-                className={`popover-item${scope === c.id ? ' selected' : ''}`}
+                className="popover-item"
                 onClick={() => {
-                  setScope(c.id)
-                  setScopeOpen(false)
+                  newChat(courseId)
+                  setHistoryOpen(false)
                 }}
               >
-                <span className="dot" style={{ background: courseColor(c) }} />
-                {c.code} — {c.name}
+                <SquarePen size={13} style={{ flexShrink: 0 }} />
+                New chat
               </button>
-            ))}
+              {courseSessions.length > 0 && <div className="popover-divider" />}
+              {courseSessions.map((s) => (
+                <div key={s.id} className="popover-row">
+                  <button
+                    className={`popover-item${session?.id === s.id ? ' selected' : ''}`}
+                    onClick={() => {
+                      openSession(courseId, s.id)
+                      setHistoryOpen(false)
+                    }}
+                  >
+                    <span className="popover-title">{s.title}</span>
+                    <span className="popover-time">{fmtRelative(new Date(s.updatedAt).toISOString())}</span>
+                  </button>
+                  <button
+                    className="icon-btn popover-delete"
+                    onClick={() => deleteSession(s.id)}
+                    title="Delete chat"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ))}
+              {courseSessions.length === 0 && (
+                <p style={{ margin: '6px 10px', fontSize: 12, color: 'var(--text-3)' }}>
+                  No chats yet
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {courses && onPickCourse ? (
+          <div ref={pickerRef} style={{ position: 'relative' }}>
+            <button className="scope-pill" onClick={() => setPickerOpen((o) => !o)}>
+              {course && <span className="dot" style={{ background: courseColor(course) }} />}
+              {course ? course.code : 'Select course'}
+              <ChevronDown size={13} />
+            </button>
+            {pickerOpen && (
+              <div className="popover">
+                {courses.map((c) => (
+                  <button
+                    key={c.id}
+                    className={`popover-item${c.id === courseId ? ' selected' : ''}`}
+                    onClick={() => {
+                      onPickCourse(c.id)
+                      setPickerOpen(false)
+                    }}
+                  >
+                    <span className="dot" style={{ background: courseColor(c) }} />
+                    {c.code} — {c.name}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
+        ) : (
+          <span className="chat-head-title">{session?.title ?? 'New chat'}</span>
         )}
+
+        <button className="icon-btn" onClick={() => newChat(courseId)} title="New chat">
+          <SquarePen size={15} />
+        </button>
       </div>
 
       <div className="chat-scroll" ref={scrollRef}>
         <div className="chat-col">
-          {active.messages.length === 0 ? (
+          {!session || session.messages.length === 0 ? (
             <div className="chat-empty">
               <div className="logo-mark">
                 <GraduationCap size={24} />
               </div>
               <p className="greeting">{greeting()}, Nate</p>
               <p className="page-sub" style={{ margin: 0 }}>
-                Ask about deadlines, course content, or what's on this week.
+                Ask about {course ? course.code : 'this course'} — deadlines, content, or what to
+                study next.
               </p>
               <div className="suggestions">
                 {SUGGESTIONS.map((s) => (
-                  <button key={s} className="suggestion" onClick={() => void send(s)}>
+                  <button key={s} className="suggestion" onClick={() => void send(courseId, s)}>
                     {s}
                   </button>
                 ))}
               </div>
             </div>
           ) : (
-            active.messages.map((m, i) => (
+            session.messages.map((m, i) => (
               <motion.div
-                key={`${active.id}-${i}`}
+                key={`${session.id}-${i}`}
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.18 }}
@@ -148,7 +219,7 @@ export function ChatView() {
                 )}
                 {m.role === 'tool' && (
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <button className="tool-chip" onClick={() => toggleTool(i)}>
+                    <button className="tool-chip" onClick={() => toggleTool(session.id, i)}>
                       {m.done ? <Check size={13} /> : <Loader2 size={13} className="animate-spin" />}
                       <Wrench size={13} />
                       {m.tool}
@@ -174,13 +245,13 @@ export function ChatView() {
             value={input}
             onChange={autoGrow}
             onKeyDown={onKeyDown}
-            placeholder="Ask anything…"
+            placeholder={`Ask ${course ? course.code : 'about this course'}…`}
             rows={1}
             disabled={busy}
           />
           <button
             className="send-btn"
-            onClick={() => void send(input)}
+            onClick={submit}
             disabled={busy || !input.trim()}
             aria-label="Send"
           >

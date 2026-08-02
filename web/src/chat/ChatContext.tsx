@@ -16,15 +16,16 @@ export type ChatMsg =
 
 export interface ChatSession {
   id: string
-  courseId: number | null
+  courseId: number
   title: string
   createdAt: number
   updatedAt: number
   messages: ChatMsg[]
 }
 
-const STORAGE_KEY = 'hc.chat.sessions.v1'
-const MAX_SESSIONS = 30
+const STORAGE_KEY = 'hc.chat.sessions.v2'
+const LAST_COURSE_KEY = 'hc.chat.lastCourse'
+const MAX_SESSIONS = 50
 
 function stripUiFlags(m: ChatMsg): ChatMsg {
   if (m.role === 'assistant') return { ...m, streaming: false }
@@ -39,45 +40,43 @@ function loadSessions(): ChatSession[] {
     const parsed: unknown = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
     return parsed
-      .filter((s) => s && typeof s.id === 'string' && Array.isArray(s.messages))
+      .filter((s) => s && typeof s.id === 'string' && typeof s.courseId === 'number' && Array.isArray(s.messages))
       .map((s) => ({ ...s, messages: s.messages.map(stripUiFlags) }))
   } catch {
     return []
   }
 }
 
-function persistSessions(sessions: ChatSession[], activeId: string | null) {
+function persistSessions(sessions: ChatSession[], activeIds: Set<string>) {
   const kept = sessions
-    .filter((s) => s.messages.length > 0 || s.id === activeId)
+    .filter((s) => s.messages.length > 0 || activeIds.has(s.id))
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, MAX_SESSIONS)
     .map((s) => ({ ...s, messages: s.messages.map(stripUiFlags) }))
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(kept))
   } catch {
-    // storage full — drop oldest and retry once
     localStorage.setItem(STORAGE_KEY, JSON.stringify(kept.slice(0, 10)))
   }
 }
 
 interface ChatContextValue {
   sessions: ChatSession[]
-  active: ChatSession
-  scope: number | null
   busy: boolean
-  input: string
-  setInput: (v: string) => void
-  setScope: (courseId: number | null) => void
-  newChat: () => void
-  selectSession: (id: string) => void
-  deleteSession: (id: string) => void
-  toggleTool: (msgIdx: number) => void
-  send: (text: string) => Promise<void>
+  lastCourseId: number | null
+  setLastCourse: (courseId: number) => void
+  sessionsFor: (courseId: number) => ChatSession[]
+  activeFor: (courseId: number) => ChatSession | null
+  openSession: (courseId: number, sessionId: string) => void
+  newChat: (courseId: number) => void
+  deleteSession: (sessionId: string) => void
+  toggleTool: (sessionId: string, msgIdx: number) => void
+  send: (courseId: number, text: string) => Promise<void>
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null)
 
-function makeSession(courseId: number | null): ChatSession {
+function makeSession(courseId: number): ChatSession {
   return {
     id: crypto.randomUUID(),
     courseId,
@@ -90,93 +89,98 @@ function makeSession(courseId: number | null): ChatSession {
 
 export function ChatProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<ChatSession[]>(loadSessions)
-  const [activeId, setActiveId] = useState<string | null>(null)
-  const [scope, setScopeState] = useState<number | null>(null)
+  const [activeMap, setActiveMap] = useState<Record<number, string>>({})
   const [busy, setBusy] = useState(false)
-  const [input, setInput] = useState('')
+  const [lastCourseId, setLastCourseId] = useState<number | null>(() => {
+    const raw = localStorage.getItem(LAST_COURSE_KEY)
+    return raw ? Number(raw) : null
+  })
 
-  const active = useMemo(
-    () => sessions.find((s) => s.id === activeId) ?? null,
-    [sessions, activeId],
+  useEffect(() => {
+    persistSessions(sessions, new Set(Object.values(activeMap)))
+  }, [sessions, activeMap])
+
+  const setLastCourse = useCallback((courseId: number) => {
+    setLastCourseId(courseId)
+    localStorage.setItem(LAST_COURSE_KEY, String(courseId))
+  }, [])
+
+  const sessionsFor = useCallback(
+    (courseId: number) =>
+      sessions.filter((s) => s.courseId === courseId).sort((a, b) => b.updatedAt - a.updatedAt),
+    [sessions],
+  )
+
+  const activeFor = useCallback(
+    (courseId: number): ChatSession | null => {
+      const id = activeMap[courseId]
+      const found = id ? sessions.find((s) => s.id === id) : undefined
+      if (found) return found
+      return sessionsFor(courseId)[0] ?? null
+    },
+    [activeMap, sessions, sessionsFor],
   )
 
   const updateSession = useCallback((id: string, fn: (s: ChatSession) => ChatSession) => {
     setSessions((ss) => ss.map((s) => (s.id === id ? { ...fn(s) } : s)))
   }, [])
 
-  const newChat = useCallback(() => {
-    const s = makeSession(scope)
-    setSessions((ss) => [s, ...ss])
-    setActiveId(s.id)
-  }, [scope])
+  const openSession = useCallback((courseId: number, sessionId: string) => {
+    setActiveMap((m) => ({ ...m, [courseId]: sessionId }))
+    setLastCourse(courseId)
+  }, [setLastCourse])
 
-  // Ensure there's always an active session.
-  useEffect(() => {
-    if (!active) newChat()
-  }, [active, newChat])
+  const newChat = useCallback(
+    (courseId: number) => {
+      const s = makeSession(courseId)
+      setSessions((ss) => [s, ...ss])
+      setActiveMap((m) => ({ ...m, [courseId]: s.id }))
+      setLastCourse(courseId)
+    },
+    [setLastCourse],
+  )
 
-  useEffect(() => {
-    persistSessions(sessions, activeId)
-  }, [sessions, activeId])
-
-  const setScope = useCallback(
-    (courseId: number | null) => {
-      setScopeState(courseId)
-      if (activeId) {
-        updateSession(activeId, (s) => ({ ...s, courseId }))
+  const deleteSession = useCallback((sessionId: string) => {
+    setSessions((ss) => ss.filter((s) => s.id !== sessionId))
+    setActiveMap((m) => {
+      const next = { ...m }
+      for (const [k, v] of Object.entries(next)) {
+        if (v === sessionId) delete next[Number(k)]
       }
-    },
-    [activeId, updateSession],
-  )
-
-  const selectSession = useCallback(
-    (id: string) => {
-      setActiveId(id)
-      const s = sessions.find((x) => x.id === id)
-      if (s) setScopeState(s.courseId)
-    },
-    [sessions],
-  )
-
-  const deleteSession = useCallback(
-    (id: string) => {
-      setSessions((ss) => ss.filter((s) => s.id !== id))
-      if (id === activeId) {
-        const next = sessions.find((s) => s.id !== id && s.messages.length > 0)
-        if (next) {
-          setActiveId(next.id)
-          setScopeState(next.courseId)
-        } else {
-          setActiveId(null)
-        }
-      }
-    },
-    [activeId, sessions],
-  )
+      return next
+    })
+  }, [])
 
   const toggleTool = useCallback(
-    (msgIdx: number) => {
-      if (!activeId) return
-      updateSession(activeId, (s) => ({
+    (sessionId: string, msgIdx: number) => {
+      updateSession(sessionId, (s) => ({
         ...s,
         messages: s.messages.map((m, i) =>
           i === msgIdx && m.role === 'tool' ? { ...m, open: !m.open } : m,
         ),
       }))
     },
-    [activeId, updateSession],
+    [updateSession],
   )
 
   const send = useCallback(
-    async (raw: string) => {
+    async (courseId: number, raw: string) => {
       const text = raw.trim()
-      if (!text || busy || !activeId) return
-      const sessionId = activeId
-      const courseId = sessions.find((s) => s.id === sessionId)?.courseId ?? null
+      if (!text || busy) return
+
+      let sessionId = activeMap[courseId]
+      const existing = sessionId ? sessions.find((s) => s.id === sessionId) : undefined
+      if (!existing) {
+        const s = makeSession(courseId)
+        sessionId = s.id
+        setSessions((ss) => [s, ...ss])
+        setActiveMap((m) => ({ ...m, [courseId]: s.id }))
+      }
+      const sid = sessionId
 
       setBusy(true)
-      setInput('')
-      updateSession(sessionId, (s) => ({
+      setLastCourse(courseId)
+      updateSession(sid, (s) => ({
         ...s,
         title: s.messages.length === 0 ? text.slice(0, 42) : s.title,
         updatedAt: Date.now(),
@@ -187,7 +191,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         await streamChat(text, courseId, (event, data) => {
           const d = data as Record<string, string>
           if (event === 'tool_start') {
-            updateSession(sessionId, (s) => ({
+            updateSession(sid, (s) => ({
               ...s,
               messages: [
                 ...s.messages,
@@ -201,7 +205,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               ],
             }))
           } else if (event === 'tool_end') {
-            updateSession(sessionId, (s) => ({
+            updateSession(sid, (s) => ({
               ...s,
               messages: s.messages.map((m) =>
                 m.role === 'tool' && !m.done && m.tool === (d.tool ?? m.tool)
@@ -210,7 +214,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               ),
             }))
           } else if (event === 'token') {
-            updateSession(sessionId, (s) => {
+            updateSession(sid, (s) => {
               const last = s.messages[s.messages.length - 1]
               if (last?.role === 'assistant' && last.streaming) {
                 return {
@@ -229,7 +233,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           }
         })
       } catch (err) {
-        updateSession(sessionId, (s) => ({
+        updateSession(sid, (s) => ({
           ...s,
           messages: [
             ...s.messages,
@@ -241,7 +245,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           ],
         }))
       } finally {
-        updateSession(sessionId, (s) => ({
+        updateSession(sid, (s) => ({
           ...s,
           updatedAt: Date.now(),
           messages: s.messages.map((m) =>
@@ -251,23 +255,37 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         setBusy(false)
       }
     },
-    [busy, activeId, sessions, updateSession],
+    [busy, activeMap, sessions, updateSession, setLastCourse],
   )
 
-  const value: ChatContextValue = {
-    sessions,
-    active: active ?? makeSession(scope),
-    scope,
-    busy,
-    input,
-    setInput,
-    setScope,
-    newChat,
-    selectSession,
-    deleteSession,
-    toggleTool,
-    send,
-  }
+  const value = useMemo<ChatContextValue>(
+    () => ({
+      sessions,
+      busy,
+      lastCourseId,
+      setLastCourse,
+      sessionsFor,
+      activeFor,
+      openSession,
+      newChat,
+      deleteSession,
+      toggleTool,
+      send,
+    }),
+    [
+      sessions,
+      busy,
+      lastCourseId,
+      setLastCourse,
+      sessionsFor,
+      activeFor,
+      openSession,
+      newChat,
+      deleteSession,
+      toggleTool,
+      send,
+    ],
+  )
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>
 }
