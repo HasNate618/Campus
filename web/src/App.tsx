@@ -1,5 +1,8 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
+
+const DemoApp = lazy(() => import('./demo/DemoApp'))
 import { TodayPage } from './pages/TodayPage'
 import { CalendarPage } from './pages/CalendarPage'
 import { SyncPage } from './pages/SyncPage'
@@ -14,6 +17,14 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+        <Route
+          path="/demo"
+          element={
+            <Suspense fallback={null}>
+              <DemoApp />
+            </Suspense>
+          }
+        />
         <Route path="/" element={<Layout />}>
           <Route index element={<Navigate to="/today" replace />} />
           <Route path="today" element={<TodayPage />} />
