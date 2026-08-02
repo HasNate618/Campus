@@ -1,0 +1,98 @@
+export interface Course {
+  id: number
+  code: string
+  name: string
+  term: string
+  instructor?: string | null
+  color?: string | null
+  is_pilot?: number
+  is_active?: number
+  file_count?: number
+  assignment_count?: number
+  last_sync_at?: string | null
+}
+
+export interface Announcement {
+  id: number
+  course_id: number
+  course_code?: string
+  title: string
+  body?: string | null
+  author?: string | null
+  posted_at?: string | null
+}
+
+export interface Assignment {
+  id: number
+  course_id: number
+  title: string
+  description?: string | null
+  due_at?: string | null
+  weight?: number | null
+  status: string
+  notes?: string | null
+}
+
+export interface ContentNode {
+  id: number
+  course_id: number
+  parent_id: number | null
+  node_type: 'module' | 'topic'
+  topic_type?: string | null
+  title: string
+  sort_order: number
+  is_hidden?: number
+  is_locked?: number
+}
+
+export interface FileRecord {
+  id: number
+  course_id: number
+  content_node_id?: number | null
+  path: string
+  kind: string
+  processed: number
+}
+
+export interface Event {
+  id: number
+  course_id?: number | null
+  course_code?: string
+  kind: string
+  title: string
+  starts_at: string
+  ends_at?: string | null
+  notes?: string | null
+}
+
+export interface SyncRun {
+  id: number
+  started_at: string
+  finished_at?: string | null
+  status: string
+  trigger: string
+  courses_processed: number
+  files_new: number
+  files_changed: number
+  announcements_new: number
+  facts_added: number
+  log_path?: string | null
+  error?: string | null
+}
+
+export interface CourseHub {
+  course: Course
+  announcements: Announcement[]
+  events: Event[]
+  assignments_upcoming: Assignment[]
+  memory_facts: { id: number; fact: string; category: string }[]
+  recent_files: FileRecord[]
+  stats: { file_count: number; assignment_count: number; processed_files: number }
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant' | 'tool'
+  content: string
+  tool?: string
+  toolResult?: string
+}
