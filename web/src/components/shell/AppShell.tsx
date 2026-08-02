@@ -8,12 +8,11 @@ import {
   Sunrise,
 } from 'lucide-react'
 import { ChatProvider } from '@/chat/ChatContext'
-import { ChatView } from '@/chat/ChatView'
 import { Sidebar } from './Sidebar'
 
 const MOBILE_TABS = [
-  { to: '/', label: 'Chat', icon: MessageSquare, end: true },
-  { to: '/today', label: 'Today', icon: Sunrise, end: false },
+  { to: '/chat', label: 'Chat', icon: MessageSquare, end: true },
+  { to: '/', label: 'Today', icon: Sunrise, end: true },
   { to: '/calendar', label: 'Calendar', icon: CalendarDays, end: false },
   { to: '/courses', label: 'Courses', icon: BookOpen, end: false },
   { to: '/more', label: 'More', icon: MoreHorizontal, end: false },
@@ -29,9 +28,6 @@ export function AppShell() {
     <ChatProvider>
       <div className="shell">
         <Sidebar />
-        <div className="chat-dock">
-          <ChatView />
-        </div>
         <main className="main">
           <AnimatePresence mode="wait">
             <motion.div

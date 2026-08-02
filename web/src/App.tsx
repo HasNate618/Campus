@@ -1,6 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AppShell } from './components/shell/AppShell'
-import { HomePage } from './pages/HomePage'
+import { ChatTabPage } from './pages/ChatTabPage'
 import { TodayPage } from './pages/TodayPage'
 import { CalendarPage } from './pages/CalendarPage'
 import { SyncPage } from './pages/SyncPage'
@@ -15,9 +15,9 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<AppShell />}>
-          <Route index element={<HomePage />} />
-          <Route path="chat" element={<Navigate to="/" replace />} />
-          <Route path="today" element={<TodayPage />} />
+          <Route index element={<TodayPage />} />
+          <Route path="today" element={<Navigate to="/" replace />} />
+          <Route path="chat" element={<ChatTabPage />} />
           <Route path="calendar" element={<CalendarPage />} />
           <Route path="sync" element={<SyncPage />} />
           <Route path="more" element={<MorePage />} />

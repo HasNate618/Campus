@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useParams } from 'react-router-dom'
 import { Bell, CalendarDays } from 'lucide-react'
 import { api } from '@/api/client'
+import { ChatView } from '@/chat/ChatView'
+import { useChat } from '@/chat/ChatContext'
+import { SplitPane } from '@/components/SplitPane'
 import { courseColor } from '@/lib/courses'
 import { fmtDateTime, fmtRelative } from '@/lib/format'
 import type { Course, CourseHub } from '@/types'
@@ -10,40 +13,50 @@ export function CourseLayout() {
   const { courseId } = useParams()
   const cid = Number(courseId)
   const [course, setCourse] = useState<Course | null>(null)
+  const { setLastCourse } = useChat()
 
   useEffect(() => {
     setCourse(null)
+    setLastCourse(cid)
     api.course(cid).then(setCourse).catch(console.error)
-  }, [cid])
+  }, [cid, setLastCourse])
 
   return (
-    <div className="page">
-      <div className="page-col">
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {course && (
-              <span className="dot" style={{ background: courseColor(course), width: 10, height: 10 }} />
-            )}
-            <h1 className="page-title">{course?.code ?? '…'}</h1>
-            {course && <span className="chip">{course.term}</span>}
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <SplitPane
+        storageKey="hc.split.course"
+        left={<ChatView key={cid} courseId={cid} course={course ?? undefined} />}
+        right={
+          <div className="page">
+            <div className="page-col">
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {course && (
+                    <span className="dot" style={{ background: courseColor(course), width: 10, height: 10 }} />
+                  )}
+                  <h1 className="page-title">{course?.code ?? '…'}</h1>
+                  {course && <span className="chip">{course.term}</span>}
+                </div>
+                <p className="page-sub">{course?.name ?? ''}</p>
+              </div>
+
+              <nav className="tabs">
+                <NavLink to={`/courses/${cid}`} end className={({ isActive }) => `tab-link${isActive ? ' active' : ''}`}>
+                  Overview
+                </NavLink>
+                <NavLink to={`/courses/${cid}/content`} className={({ isActive }) => `tab-link${isActive ? ' active' : ''}`}>
+                  Content
+                </NavLink>
+                <NavLink to={`/courses/${cid}/assignments`} className={({ isActive }) => `tab-link${isActive ? ' active' : ''}`}>
+                  Assignments
+                </NavLink>
+              </nav>
+
+              <Outlet />
+            </div>
           </div>
-          <p className="page-sub">{course?.name ?? ''}</p>
-        </div>
-
-        <nav className="tabs">
-          <NavLink to={`/courses/${cid}`} end className={({ isActive }) => `tab-link${isActive ? ' active' : ''}`}>
-            Overview
-          </NavLink>
-          <NavLink to={`/courses/${cid}/content`} className={({ isActive }) => `tab-link${isActive ? ' active' : ''}`}>
-            Content
-          </NavLink>
-          <NavLink to={`/courses/${cid}/assignments`} className={({ isActive }) => `tab-link${isActive ? ' active' : ''}`}>
-            Assignments
-          </NavLink>
-        </nav>
-
-        <Outlet />
-      </div>
+        }
+      />
     </div>
   )
 }
