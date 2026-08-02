@@ -1,34 +1,60 @@
-# School Harness (HippoCampus)
+# HippoCampus / School Harness
 
 Personal AI study/org system for Western SE. Brightspace sync, structured
 memory, calendar, files, and chat — see **`docs/DESIGN.md`**.
 
-Implementers on `home`: start at **`docs/HANDOFF.md`**.
-
 ## Layout
 
 ```
+api/                FastAPI backend (Phase 3)
+web/                React/TS PWA frontend
 schema.sql          SQLite schema (SoT for structured data)
 seed/               registrar + SE 2250B pilot seed
-docs/DESIGN.md      architecture (canonical)
-docs/HANDOFF.md     implementer handoff + reconverge gates
-docs/DATA_MODEL.md  tables + write rules
-docs/PLAN.md        older notes (superseded by DESIGN.md)
+docs/               architecture and handoff
 data/               SQLite DB (gitignored)
-school/             synced content (gitignored; /srv in prod)
+school/             synced content (gitignored)
 ```
 
-## Quick start
+## Quick start (dev)
 
 ```bash
-python3 seed/seed.py --reset   # create DB + seed courses (needs sqlite-enabled python)
+# Seed DB (first time)
+python3 seed/seed.py --reset
+python3 seed/pilot_data.py
+
+# API (port 8000)
+python3 -m venv .venv && .venv/bin/pip install -r api/requirements.txt
+.venv/bin/uvicorn api.main:app --reload --port 8000
+
+# Frontend (port 5173, proxies /api → 8000)
+cd web && npm install && npm run dev
+
+# Or both:
+./scripts/dev.sh
 ```
 
-On `home`, the default `python3` may be minimal (no `_sqlite3`). Use a full interpreter, e.g. `nix-shell -p python3 --run "python3 seed/seed.py --reset"`, or whatever full Python you already use for services.
+Open http://localhost:5173 — dashboard at `/today`.
+
+## Production
+
+```bash
+cd web && npm run build
+uvicorn api.main:app --host 0.0.0.0 --port 8000
+# Serves API + static frontend from web/dist
+```
+
+Docker: `docker build -t hippocampus .` — binds `:8000`, publish `127.0.0.1:8087` via Caddy.
+
+## API endpoints
+
+- `GET /api/courses`, `/api/courses/{id}/hub`, content-tree, assignments
+- `GET /api/announcements`, `/api/events`, `/api/digest/latest`
+- `GET /api/sync/runs`, `POST /api/sync/trigger`
+- `POST /api/chat` — SSE streaming (mock until agent wired)
 
 ## Rules
 
-- Course content NEVER goes in git (see `.gitignore`)
-- Every AI mutation is audited (`audit_log`) — reversible by design
-- Brightspace sync is on-demand (Duo 2FA) — no background scraping
-- Brightspace MCP is not a runtime dependency — custom sync only
+- Course content NEVER goes in git
+- Every AI mutation is audited (`audit_log`)
+- Brightspace sync is on-demand (Duo 2FA)
+- Chat uses mock SSE locally; wire to `agent.run_turn` on server
