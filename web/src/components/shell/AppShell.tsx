@@ -7,6 +7,8 @@ import {
   MoreHorizontal,
   Sunrise,
 } from 'lucide-react'
+import { ChatProvider } from '@/chat/ChatContext'
+import { ChatView } from '@/chat/ChatView'
 import { Sidebar } from './Sidebar'
 
 const MOBILE_TABS = [
@@ -24,36 +26,41 @@ export function AppShell() {
   const transitionKey = location.pathname.split('/').slice(0, 3).join('/')
 
   return (
-    <div className="shell">
-      <Sidebar />
-      <main className="main">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={transitionKey}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.16 }}
-            style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
-          >
-            <Outlet />
-          </motion.div>
-        </AnimatePresence>
-      </main>
+    <ChatProvider>
+      <div className="shell">
+        <Sidebar />
+        <div className="chat-dock">
+          <ChatView />
+        </div>
+        <main className="main">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={transitionKey}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.16 }}
+              style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
+            >
+              <Outlet />
+            </motion.div>
+          </AnimatePresence>
+        </main>
 
-      <nav className="tabbar">
-        {MOBILE_TABS.map(({ to, label, icon: Icon, end }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={end}
-            className={({ isActive }) => `tabbar-tab${isActive ? ' active' : ''}`}
-          >
-            <Icon size={19} />
-            {label}
-          </NavLink>
-        ))}
-      </nav>
-    </div>
+        <nav className="tabbar">
+          {MOBILE_TABS.map(({ to, label, icon: Icon, end }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={end}
+              className={({ isActive }) => `tabbar-tab${isActive ? ' active' : ''}`}
+            >
+              <Icon size={19} />
+              {label}
+            </NavLink>
+          ))}
+        </nav>
+      </div>
+    </ChatProvider>
   )
 }

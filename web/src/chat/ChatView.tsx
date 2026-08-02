@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
-import { ArrowUp, Check, ChevronDown, GraduationCap, Loader2, Wrench } from 'lucide-react'
-import { api, streamChat } from '@/api/client'
+import {
+  ArrowUp,
+  Check,
+  ChevronDown,
+  GraduationCap,
+  Loader2,
+  SquarePen,
+  Wrench,
+} from 'lucide-react'
+import { api } from '@/api/client'
 import { courseColor } from '@/lib/courses'
+import { useChat } from './ChatContext'
 import type { Course } from '@/types'
-
-type ChatMsg =
-  | { role: 'user'; content: string }
-  | { role: 'assistant'; content: string; streaming: boolean }
-  | { role: 'tool'; tool: string; args?: string; result?: string; done: boolean; open: boolean }
 
 const SUGGESTIONS = [
   "What's due this week?",
@@ -26,13 +30,10 @@ function greeting(): string {
   return 'Good evening'
 }
 
-export function ChatPage() {
+export function ChatView() {
+  const { active, scope, busy, input, setInput, setScope, newChat, toggleTool, send } = useChat()
   const [courses, setCourses] = useState<Course[]>([])
-  const [scope, setScope] = useState<number | null>(null)
   const [scopeOpen, setScopeOpen] = useState(false)
-  const [messages, setMessages] = useState<ChatMsg[]>([])
-  const [input, setInput] = useState('')
-  const [busy, setBusy] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const headRef = useRef<HTMLDivElement>(null)
 
@@ -43,7 +44,7 @@ export function ChatPage() {
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [messages])
+  }, [active.messages, active.id])
 
   useEffect(() => {
     if (!scopeOpen) return
@@ -53,70 +54,6 @@ export function ChatPage() {
     document.addEventListener('mousedown', close)
     return () => document.removeEventListener('mousedown', close)
   }, [scopeOpen])
-
-  const pickScope = (id: number | null) => {
-    setScope(id)
-    setScopeOpen(false)
-    setMessages([])
-  }
-
-  const send = async (raw: string) => {
-    const text = raw.trim()
-    if (!text || busy) return
-    setBusy(true)
-    setInput('')
-    setMessages((m) => [...m, { role: 'user', content: text }])
-
-    try {
-      await streamChat(text, scope, (event, data) => {
-        const d = data as Record<string, string>
-        if (event === 'tool_start') {
-          setMessages((m) => [
-            ...m,
-            {
-              role: 'tool',
-              tool: d.tool ?? 'tool',
-              args: d.args ? JSON.stringify(d.args) : undefined,
-              done: false,
-              open: false,
-            },
-          ])
-        } else if (event === 'tool_end') {
-          setMessages((m) =>
-            m.map((msg) =>
-              msg.role === 'tool' && !msg.done && msg.tool === (d.tool ?? msg.tool)
-                ? { ...msg, done: true, result: d.result }
-                : msg,
-            ),
-          )
-        } else if (event === 'token') {
-          setMessages((m) => {
-            const last = m[m.length - 1]
-            if (last?.role === 'assistant' && last.streaming) {
-              return [...m.slice(0, -1), { ...last, content: last.content + (d.text ?? '') }]
-            }
-            return [...m, { role: 'assistant', content: d.text ?? '', streaming: true }]
-          })
-        }
-      })
-    } catch (err) {
-      setMessages((m) => [
-        ...m,
-        {
-          role: 'assistant',
-          content: `Something went wrong: ${err instanceof Error ? err.message : String(err)}`,
-          streaming: false,
-        },
-      ])
-    } finally {
-      setMessages((m) =>
-        m.map((msg) =>
-          msg.role === 'assistant' && msg.streaming ? { ...msg, streaming: false } : msg,
-        ),
-      )
-      setBusy(false)
-    }
-  }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -136,10 +73,11 @@ export function ChatPage() {
   return (
     <div className="chat-wrap">
       <div className="chat-head" ref={headRef}>
+        <button className="icon-btn" onClick={newChat} title="New chat">
+          <SquarePen size={15} />
+        </button>
         <button className="scope-pill" onClick={() => setScopeOpen((o) => !o)}>
-          {scopeCourse && (
-            <span className="dot" style={{ background: courseColor(scopeCourse) }} />
-          )}
+          {scopeCourse && <span className="dot" style={{ background: courseColor(scopeCourse) }} />}
           {scopeCourse ? scopeCourse.code : 'All courses'}
           <ChevronDown size={13} />
         </button>
@@ -147,7 +85,10 @@ export function ChatPage() {
           <div className="popover">
             <button
               className={`popover-item${scope === null ? ' selected' : ''}`}
-              onClick={() => pickScope(null)}
+              onClick={() => {
+                setScope(null)
+                setScopeOpen(false)
+              }}
             >
               All courses
             </button>
@@ -155,7 +96,10 @@ export function ChatPage() {
               <button
                 key={c.id}
                 className={`popover-item${scope === c.id ? ' selected' : ''}`}
-                onClick={() => pickScope(c.id)}
+                onClick={() => {
+                  setScope(c.id)
+                  setScopeOpen(false)
+                }}
               >
                 <span className="dot" style={{ background: courseColor(c) }} />
                 {c.code} — {c.name}
@@ -167,7 +111,7 @@ export function ChatPage() {
 
       <div className="chat-scroll" ref={scrollRef}>
         <div className="chat-col">
-          {messages.length === 0 ? (
+          {active.messages.length === 0 ? (
             <div className="chat-empty">
               <div className="logo-mark">
                 <GraduationCap size={24} />
@@ -185,9 +129,9 @@ export function ChatPage() {
               </div>
             </div>
           ) : (
-            messages.map((m, i) => (
+            active.messages.map((m, i) => (
               <motion.div
-                key={i}
+                key={`${active.id}-${i}`}
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.18 }}
@@ -204,21 +148,8 @@ export function ChatPage() {
                 )}
                 {m.role === 'tool' && (
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <button
-                      className="tool-chip"
-                      onClick={() =>
-                        setMessages((msgs) =>
-                          msgs.map((msg, j) =>
-                            j === i && msg.role === 'tool' ? { ...msg, open: !msg.open } : msg,
-                          ),
-                        )
-                      }
-                    >
-                      {m.done ? (
-                        <Check size={13} />
-                      ) : (
-                        <Loader2 size={13} className="animate-spin" />
-                      )}
+                    <button className="tool-chip" onClick={() => toggleTool(i)}>
+                      {m.done ? <Check size={13} /> : <Loader2 size={13} className="animate-spin" />}
                       <Wrench size={13} />
                       {m.tool}
                       <span style={{ opacity: 0.6 }}>{m.done ? '· done' : '· running'}</span>
