@@ -4,12 +4,9 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   BookOpen,
   Calendar,
-  ChevronLeft,
-  ChevronRight,
   Home,
   MessageSquare,
   PanelLeft,
-  PanelRight,
   RefreshCw,
 } from 'lucide-react'
 import { api } from '@/api/client'
@@ -26,15 +23,15 @@ function useCourseIdFromPath(): number | null {
 }
 
 const panelMotion = {
-  initial: { opacity: 0, x: -16 },
+  initial: { opacity: 0, x: -12 },
   animate: { opacity: 1, x: 0 },
-  exit: { opacity: 0, x: -16 },
+  exit: { opacity: 0, x: -12 },
 }
 
 const chatMotion = {
-  initial: { opacity: 0, x: 16 },
+  initial: { opacity: 0, x: 12 },
   animate: { opacity: 1, x: 0 },
-  exit: { opacity: 0, x: 16 },
+  exit: { opacity: 0, x: 12 },
 }
 
 export function Layout() {
@@ -45,13 +42,10 @@ export function Layout() {
   const showChat = location.pathname !== '/chat'
 
   const {
-    narrow,
     sidebarOpen,
     chatOpen,
     toggleSidebar,
     toggleChat,
-    closeSidebar,
-    closeChat,
   } = usePanelLayout()
 
   useEffect(() => {
@@ -83,18 +77,6 @@ export function Layout() {
           chatOpen && showChat && 'app-canvas--chat-open',
         )}
       >
-        {/* Sidebar toggle (when closed) */}
-        {!sidebarOpen && (
-          <button
-            type="button"
-            className="panel-toggle panel-toggle--left"
-            onClick={toggleSidebar}
-            aria-label="Open sidebar"
-          >
-            <PanelLeft size={18} />
-          </button>
-        )}
-
         <AnimatePresence>
           {sidebarOpen && (
             <motion.aside
@@ -104,22 +86,14 @@ export function Layout() {
               initial="initial"
               animate="animate"
               exit="exit"
-              transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+              transition={{ duration: 0.18, ease: [0.25, 0.1, 0.25, 1] }}
             >
-              <button
-                type="button"
-                className="float-panel__close"
-                onClick={closeSidebar}
-                aria-label="Close sidebar"
-              >
-                <ChevronLeft size={16} />
-              </button>
               <div className="panel__brand">
                 <Link to="/today" className="brand">
                   <span className="brand__mark">H</span>
                   <span className="brand__name">HippoCampus</span>
+                  <span className="brand__term">2026F</span>
                 </Link>
-                <span className="brand__term">2026F</span>
               </div>
               <CourseSwitcher />
               <SidebarNav />
@@ -129,19 +103,33 @@ export function Layout() {
 
         <main className="main-stage">
           <header className="main-stage__topbar">
-            {narrow && sidebarOpen && (
-              <button type="button" className="icon-btn" onClick={toggleSidebar} aria-label="Toggle sidebar">
-                <PanelLeft size={18} />
-              </button>
+            <button
+              type="button"
+              className={cn('icon-btn', 'topbar-panel-btn', sidebarOpen && 'active')}
+              onClick={toggleSidebar}
+              aria-label="Toggle sidebar"
+            >
+              <PanelLeft size={16} />
+            </button>
+            {!sidebarOpen && (
+              <Link to="/today" className="brand-mini">
+                <span className="brand__mark">H</span>
+                <span>HippoCampus</span>
+              </Link>
             )}
             <div className="main-stage__topbar-spacer" />
             <Link to="/sync" className="sync-chip">
               <span className={cn('status-dot', syncOk ? 'ok' : 'failed')} />
               Synced {syncLabel}
             </Link>
-            {narrow && showChat && chatOpen && (
-              <button type="button" className="icon-btn" onClick={toggleChat} aria-label="Toggle chat">
-                <PanelRight size={18} />
+            {showChat && (
+              <button
+                type="button"
+                className={cn('icon-btn', 'topbar-panel-btn', chatOpen && 'active')}
+                onClick={toggleChat}
+                aria-label="Toggle chat"
+              >
+                <MessageSquare size={16} />
               </button>
             )}
           </header>
@@ -149,17 +137,6 @@ export function Layout() {
             <PageTransition />
           </div>
         </main>
-
-        {showChat && !chatOpen && (
-          <button
-            type="button"
-            className="panel-toggle panel-toggle--right"
-            onClick={toggleChat}
-            aria-label="Open chat"
-          >
-            <MessageSquare size={18} />
-          </button>
-        )}
 
         <AnimatePresence>
           {showChat && chatOpen && (
@@ -170,16 +147,8 @@ export function Layout() {
               initial="initial"
               animate="animate"
               exit="exit"
-              transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+              transition={{ duration: 0.18, ease: [0.25, 0.1, 0.25, 1] }}
             >
-              <button
-                type="button"
-                className="float-panel__close float-panel__close--right"
-                onClick={closeChat}
-                aria-label="Close chat"
-              >
-                <ChevronRight size={16} />
-              </button>
               <ChatPanel courseId={courseId} />
             </motion.aside>
           )}
@@ -192,7 +161,7 @@ export function Layout() {
           const active = location.pathname === l.to || (l.to !== '/today' && location.pathname.startsWith(l.to))
           return (
             <Link key={l.to} to={l.to} className={active ? 'active' : ''}>
-              <Icon strokeWidth={active ? 2.25 : 1.75} />
+              <Icon size={20} strokeWidth={active ? 2.25 : 1.75} />
               <span>{l.label}</span>
             </Link>
           )

@@ -76,8 +76,20 @@ export function CourseHubPage() {
 
       <div className="grid-2">
         <Card title="At a glance">
-          <p className="list-item__body" style={{ marginTop: 0 }}>{stats.assignment_count} assignments</p>
-          <p className="list-item__body">{stats.file_count} files · {stats.processed_files} processed</p>
+          <div className="stat-row">
+            <div className="stat">
+              <div className="stat__value">{stats.assignment_count}</div>
+              <div className="stat__label">Assignments</div>
+            </div>
+            <div className="stat">
+              <div className="stat__value">{stats.file_count}</div>
+              <div className="stat__label">Files</div>
+            </div>
+            <div className="stat">
+              <div className="stat__value">{stats.processed_files}</div>
+              <div className="stat__label">Processed</div>
+            </div>
+          </div>
           <Link to={`/courses/${id}/assignments`} className="text-link">View assignments →</Link>
         </Card>
         <Card title="Memory">
@@ -85,7 +97,7 @@ export function CourseHubPage() {
             <EmptyState compact>No facts yet</EmptyState>
           ) : (
             memory_facts.map((f) => (
-              <p key={f.id} className="list-item__body" style={{ marginTop: 0 }}>· {f.fact}</p>
+              <p key={f.id} className="memory-fact">{f.fact}</p>
             ))
           )}
           <div className="card-actions">
@@ -123,9 +135,7 @@ export function CourseHubPage() {
           title="Memory card"
           action={<Button variant="ghost" size="sm" onClick={() => setMemoryOpen(false)}>Close</Button>}
         >
-          <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.8125rem', color: 'hsl(var(--muted-foreground))', fontFamily: 'inherit', lineHeight: 1.55 }}>
-            {memoryMd}
-          </pre>
+          <pre className="memory-pre">{memoryMd}</pre>
         </Card>
       )}
     </div>

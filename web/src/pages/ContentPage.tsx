@@ -4,9 +4,9 @@ import ReactMarkdown from 'react-markdown'
 import { api } from '@/api/client'
 import { AppCard as Card } from '@/components/AppCard'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { Segmented } from '@/components/ui/segmented'
 import type { ContentNode, FileRecord } from '@/types'
 
 export function ContentPage() {
@@ -64,10 +64,9 @@ export function ContentPage() {
                     key={topic.id}
                     to={`/courses/${cid}/content/${topic.id}`}
                     className={`tree-node topic${nid === topic.id ? ' selected' : ''}`}
-                    style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}
                   >
                     {topic.title}
-                    {f?.processed && <Badge variant="secondary" className="ml-1.5 text-[10px]">md</Badge>}
+                    {f?.processed && <Badge variant="secondary" className="ml-1.5">md</Badge>}
                   </Link>
                 )
               })}
@@ -81,18 +80,23 @@ export function ContentPage() {
             <EmptyState>Select a topic from the tree</EmptyState>
           ) : (
             <>
-              <div style={{ marginBottom: '1rem' }}>
-                <div style={{ fontWeight: 600, fontSize: '0.9375rem' }}>{selectedNode.title}</div>
+              <div className="content-viewer__head">
+                <div className="content-viewer__title">{selectedNode.title}</div>
                 {selectedFile && (
-                  <div className="list-item__meta" style={{ marginTop: '0.25rem' }}>{selectedFile.path}</div>
+                  <div className="content-viewer__path">{selectedFile.path}</div>
                 )}
               </div>
               {selectedFile ? (
                 <>
-                  <div className="viewer-tabs">
-                    <Button variant={tab === 'markdown' ? 'default' : 'ghost'} size="sm" onClick={() => setTab('markdown')}>Markdown</Button>
-                    <Button variant={tab === 'pdf' ? 'default' : 'ghost'} size="sm" onClick={() => setTab('pdf')}>PDF</Button>
-                  </div>
+                  <Segmented
+                    className="viewer-tabs"
+                    options={[
+                      { value: 'markdown', label: 'Markdown' },
+                      { value: 'pdf', label: 'PDF' },
+                    ]}
+                    value={tab}
+                    onChange={setTab}
+                  />
                   {tab === 'markdown' ? (
                     content ? (
                       <div className="markdown-body"><ReactMarkdown>{content}</ReactMarkdown></div>

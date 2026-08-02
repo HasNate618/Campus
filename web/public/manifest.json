@@ -4,8 +4,8 @@
   "description": "Personal AI study system for Western SE",
   "start_url": "/today",
   "display": "standalone",
-  "background_color": "#060608",
-  "theme_color": "#060608",
+  "background_color": "#09090c",
+  "theme_color": "#09090c",
   "icons": [
     {
       "src": "/favicon.svg",
