@@ -1,8 +1,8 @@
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { Calendar, Home, Newspaper, RefreshCw, BookOpen } from 'lucide-react'
-import { api } from '../api/client'
-import type { Course } from '../types'
+import { api } from '@/api/client'
+import type { Course } from '@/types'
 
 export function CourseSwitcher() {
   const [courses, setCourses] = useState<Course[]>([])

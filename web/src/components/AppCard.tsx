@@ -8,7 +8,7 @@ interface CardProps {
   padding?: 'sm' | 'md'
 }
 
-export function Card({ title, action, children, className = '', padding = 'md' }: CardProps) {
+export function AppCard({ title, action, children, className = '', padding = 'md' }: CardProps) {
   return (
     <section className={`card card--${padding} ${className}`.trim()}>
       {(title || action) && (

@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { api } from '../api/client'
-import { Card } from '../components/ui/Card'
-import { PageHeader } from '../components/ui/PageHeader'
-import { Button } from '../components/ui/Button'
-import { Badge } from '../components/ui/Badge'
-import { EmptyState } from '../components/ui/EmptyState'
-import type { Assignment } from '../types'
+import { api } from '@/api/client'
+import { AppCard as Card } from '@/components/AppCard'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { EmptyState } from '@/components/ui/EmptyState'
+import type { Assignment } from '@/types'
 
 export function AssignmentsPage() {
   const { courseId } = useParams()
@@ -30,7 +30,7 @@ export function AssignmentsPage() {
       <PageHeader title="Assignments" />
       <div className="filter-bar">
         {(['all', 'upcoming', 'past'] as const).map((f) => (
-          <Button key={f} variant={filter === f ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter(f)}>
+          <Button key={f} variant={filter === f ? 'default' : 'secondary'} size="sm" onClick={() => setFilter(f)}>
             {f.charAt(0).toUpperCase() + f.slice(1)}
           </Button>
         ))}
@@ -54,7 +54,7 @@ export function AssignmentsPage() {
               </div>
             )}
             <div style={{ marginTop: '0.5rem' }}>
-              <Badge variant="muted">{a.status}</Badge>
+              <Badge variant="outline">{a.status}</Badge>
             </div>
             {a.description && <p className="list-item__body">{a.description}</p>}
             {a.notes && <p className="assignment-card__notes">{a.notes}</p>}

@@ -29,11 +29,31 @@ python3 -m venv .venv && .venv/bin/pip install -r api/requirements.txt
 # Frontend (port 5173, proxies /api → 8000)
 cd web && npm install && npm run dev
 
-# Or both:
+# Or both (binds 0.0.0.0 for LAN access):
 ./scripts/dev.sh
 ```
 
 Open http://localhost:5173 — dashboard at `/today`.
+
+## LAN access (phone / other devices)
+
+Dev servers bind **`0.0.0.0`** so other machines on your LAN (or Tailscale) can reach them.
+
+```bash
+./scripts/dev.sh
+# prints your LAN IP, e.g. http://10.0.0.45:5173
+```
+
+| Service | Port | URL |
+|---------|------|-----|
+| **Web UI** (use this) | 5173 | `http://<host-ip>:5173` |
+| API direct | 8000 | `http://<host-ip>:8000` |
+
+Use the **Vite URL (:5173)** on phones — it proxies `/api` to the backend. If you open `:8000` directly you get API/JSON only (unless `web/dist` is built).
+
+**On `home`:** Caddy `school.home.lab` → `127.0.0.1:8087` (production). For dev, hit the host's LAN IP or Tailscale IP.
+
+**Firewall:** allow TCP 5173 (and 8000 if needed) on the host.
 
 ## Production
 

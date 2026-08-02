@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
-import { api } from '../api/client'
-import { Card } from '../components/ui/Card'
-import { PageHeader } from '../components/ui/PageHeader'
-import { Button } from '../components/ui/Button'
-import { EmptyState } from '../components/ui/EmptyState'
-import type { Event } from '../types'
+import { api } from '@/api/client'
+import { AppCard as Card } from '@/components/AppCard'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/EmptyState'
+import type { Event } from '@/types'
 
 export function CalendarPage() {
   const [events, setEvents] = useState<Event[]>([])
@@ -24,8 +24,8 @@ export function CalendarPage() {
         title="Calendar"
         action={
           <div className="filter-bar" style={{ marginBottom: 0 }}>
-            <Button variant={view === 'agenda' ? 'primary' : 'secondary'} size="sm" onClick={() => setView('agenda')}>Agenda</Button>
-            <Button variant={view === 'month' ? 'primary' : 'secondary'} size="sm" onClick={() => setView('month')}>Month</Button>
+            <Button variant={view === 'agenda' ? 'default' : 'secondary'} size="sm" onClick={() => setView('agenda')}>Agenda</Button>
+            <Button variant={view === 'month' ? 'default' : 'secondary'} size="sm" onClick={() => setView('month')}>Month</Button>
             <Button variant="secondary" size="sm" disabled title="Coming in Phase 4">Export ICS</Button>
           </div>
         }

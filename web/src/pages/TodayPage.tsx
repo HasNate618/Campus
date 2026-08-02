@@ -1,12 +1,12 @@
 import { Link } from 'react-router-dom'
 import { useEffect, useState } from 'react'
-import { api } from '../api/client'
-import { CalendarStrip } from '../components/CalendarStrip'
-import { Card } from '../components/ui/Card'
-import { PageHeader } from '../components/ui/PageHeader'
-import { Button } from '../components/ui/Button'
-import { EmptyState } from '../components/ui/EmptyState'
-import type { Announcement, Event, SyncRun } from '../types'
+import { api } from '@/api/client'
+import { CalendarStrip } from '@/components/CalendarStrip'
+import { AppCard as Card } from '@/components/AppCard'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/EmptyState'
+import type { Announcement, Event, SyncRun } from '@/types'
 
 export function TodayPage() {
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
@@ -93,8 +93,12 @@ export function TodayPage() {
             <EmptyState compact>Never synced</EmptyState>
           )}
           <div className="card-actions">
-            <Button to="/sync">Sync now</Button>
-            {syncRun && <Button to={`/sync?run=${syncRun.id}`} variant="secondary">View log</Button>}
+            <Button asChild><Link to="/sync">Sync now</Link></Button>
+            {syncRun && (
+              <Button asChild variant="secondary">
+                <Link to={`/sync?run=${syncRun.id}`}>View log</Link>
+              </Button>
+            )}
           </div>
         </Card>
       </div>

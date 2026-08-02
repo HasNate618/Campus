@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { api } from '../api/client'
-import { Card } from '../components/ui/Card'
+import { AppCard as Card } from '@/components/AppCard'
 import { PageHeader } from '../components/ui/PageHeader'
 
 export function DigestPage() {

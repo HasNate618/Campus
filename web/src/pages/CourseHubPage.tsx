@@ -1,11 +1,11 @@
 import { Link, NavLink, Outlet, useParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
-import { api } from '../api/client'
-import { CalendarStrip } from '../components/CalendarStrip'
-import { Card } from '../components/ui/Card'
-import { Button } from '../components/ui/Button'
-import { EmptyState } from '../components/ui/EmptyState'
-import type { CourseHub } from '../types'
+import { api } from '@/api/client'
+import { CalendarStrip } from '@/components/CalendarStrip'
+import { AppCard as Card } from '@/components/AppCard'
+import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/EmptyState'
+import type { CourseHub } from '@/types'
 
 export function CourseLayout() {
   const { courseId } = useParams()
@@ -49,7 +49,9 @@ export function CourseHubPage() {
             {course.last_sync_at ? ` · Synced ${new Date(course.last_sync_at).toLocaleDateString('en-CA')}` : ''}
           </p>
         </div>
-        <Button to="/sync" variant="secondary" size="sm">Sync course</Button>
+        <Button asChild variant="secondary" size="sm">
+          <Link to="/sync">Sync course</Link>
+        </Button>
       </header>
 
       <Card title="Next 7 days">
@@ -121,7 +123,7 @@ export function CourseHubPage() {
           title="Memory card"
           action={<Button variant="ghost" size="sm" onClick={() => setMemoryOpen(false)}>Close</Button>}
         >
-          <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.8125rem', color: 'var(--text-secondary)', fontFamily: 'inherit', lineHeight: 1.55 }}>
+          <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.8125rem', color: 'hsl(var(--muted-foreground))', fontFamily: 'inherit', lineHeight: 1.55 }}>
             {memoryMd}
           </pre>
         </Card>
