@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
+import { Card } from '../components/ui/Card'
+import { PageHeader } from '../components/ui/PageHeader'
+import { Button } from '../components/ui/Button'
+import { EmptyState } from '../components/ui/EmptyState'
 import type { Event } from '../types'
 
 export function CalendarPage() {
@@ -15,48 +19,46 @@ export function CalendarPage() {
   }, [])
 
   return (
-    <div>
-      <h1 className="page-title">Calendar</h1>
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-        <button className={view === 'agenda' ? '' : 'secondary'} onClick={() => setView('agenda')}>Agenda</button>
-        <button className={view === 'month' ? '' : 'secondary'} onClick={() => setView('month')}>Month</button>
-        <button className="secondary" disabled title="Coming in Phase 4">Export ICS</button>
-      </div>
+    <div className="page">
+      <PageHeader
+        title="Calendar"
+        action={
+          <div className="filter-bar" style={{ marginBottom: 0 }}>
+            <Button variant={view === 'agenda' ? 'primary' : 'secondary'} size="sm" onClick={() => setView('agenda')}>Agenda</Button>
+            <Button variant={view === 'month' ? 'primary' : 'secondary'} size="sm" onClick={() => setView('month')}>Month</Button>
+            <Button variant="secondary" size="sm" disabled title="Coming in Phase 4">Export ICS</Button>
+          </div>
+        }
+      />
 
       {view === 'agenda' ? (
-        <div className="card">
-          <h3>Upcoming</h3>
+        <Card title="Upcoming">
           {events.length === 0 ? (
-            <p className="empty-state">No upcoming events. Pilot course deadlines are in the past.</p>
+            <EmptyState>No upcoming events. Pilot course deadlines are in the past.</EmptyState>
           ) : (
             events.map((e) => (
               <div key={e.id} className="list-item" onClick={() => setSelected(e)} style={{ cursor: 'pointer' }}>
-                <div className="title">{e.title}</div>
-                <div className="meta">
+                <div className="list-item__title">{e.title}</div>
+                <div className="list-item__meta">
                   {e.course_code} · {new Date(e.starts_at).toLocaleString('en-CA')}
                   {e.notes ? ` · ${e.notes}` : ''}
                 </div>
               </div>
             ))
           )}
-        </div>
+        </Card>
       ) : (
         <MonthGrid events={events} onSelect={setSelected} />
       )}
 
       {selected && (
-        <div className="card" style={{ marginTop: '1rem' }}>
-          <h3>{selected.title}</h3>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+        <Card title={selected.title}>
+          <p className="list-item__meta" style={{ marginBottom: '0.5rem' }}>
             {selected.course_code} · {selected.kind} · {new Date(selected.starts_at).toLocaleString('en-CA')}
           </p>
-          {selected.notes && <p>{selected.notes}</p>}
-        </div>
+          {selected.notes && <p className="list-item__body">{selected.notes}</p>}
+        </Card>
       )}
-
-      <p style={{ marginTop: '1rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-        Legend: class · assignment · exam · personal
-      </p>
     </div>
   )
 }
@@ -76,32 +78,21 @@ function MonthGrid({ events, onSelect }: { events: Event[]; onSelect: (e: Event)
   }
 
   return (
-    <div className="card">
-      <h3>{today.toLocaleDateString('en-CA', { month: 'long', year: 'numeric' })}</h3>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', fontSize: '0.75rem' }}>
+    <Card title={today.toLocaleDateString('en-CA', { month: 'long', year: 'numeric' })}>
+      <div className="month-grid">
         {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
-          <div key={d} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '0.25rem' }}>{d}</div>
+          <div key={d} className="month-grid__head">{d}</div>
         ))}
         {cells.map((day, i) => (
           <div
             key={i}
-            style={{
-              minHeight: '64px',
-              border: '1px solid var(--border)',
-              borderRadius: '4px',
-              padding: '4px',
-              background: day === today.getDate() ? 'rgba(91,159,212,0.1)' : undefined,
-            }}
+            className={`month-grid__cell${day === today.getDate() ? ' month-grid__cell--today' : ''}`}
           >
             {day && (
               <>
-                <div style={{ fontWeight: 600 }}>{day}</div>
+                <div className="month-grid__day-num">{day}</div>
                 {eventsOnDay(day).slice(0, 2).map((e) => (
-                  <div
-                    key={e.id}
-                    style={{ fontSize: '0.65rem', color: 'var(--accent)', cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                    onClick={() => onSelect(e)}
-                  >
+                  <div key={e.id} className="month-grid__event" onClick={() => onSelect(e)}>
                     {e.title}
                   </div>
                 ))}
@@ -110,6 +101,6 @@ function MonthGrid({ events, onSelect }: { events: Event[]; onSelect: (e: Event)
           </div>
         ))}
       </div>
-    </div>
+    </Card>
   )
 }

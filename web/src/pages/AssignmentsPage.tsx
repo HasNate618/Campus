@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
+import { Card } from '../components/ui/Card'
+import { PageHeader } from '../components/ui/PageHeader'
+import { Button } from '../components/ui/Button'
+import { Badge } from '../components/ui/Badge'
+import { EmptyState } from '../components/ui/EmptyState'
 import type { Assignment } from '../types'
 
 export function AssignmentsPage() {
@@ -22,45 +27,41 @@ export function AssignmentsPage() {
 
   return (
     <div>
-      <h1 className="page-title">Assignments</h1>
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+      <PageHeader title="Assignments" />
+      <div className="filter-bar">
         {(['all', 'upcoming', 'past'] as const).map((f) => (
-          <button key={f} className={filter === f ? '' : 'secondary'} onClick={() => setFilter(f)}>
+          <Button key={f} variant={filter === f ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter(f)}>
             {f.charAt(0).toUpperCase() + f.slice(1)}
-          </button>
+          </Button>
         ))}
       </div>
 
       {filtered.length === 0 ? (
-        <p className="empty-state">
+        <EmptyState>
           {filter === 'upcoming'
             ? 'No upcoming assignments. Term may be complete or not synced.'
             : 'No assignments found.'}
-        </p>
+        </EmptyState>
       ) : (
         filtered.map((a) => (
-          <div key={a.id} className="card" style={{ marginBottom: '0.75rem' }}>
-            <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>{a.title}</div>
+          <Card key={a.id} padding="sm" className="assignment-card">
+            <div className="assignment-card__title">{a.title}</div>
             {a.due_at && (
-              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                Due: {new Date(a.due_at).toLocaleString('en-CA')}
+              <div className="assignment-card__meta">
+                Due {new Date(a.due_at).toLocaleString('en-CA')}
                 {a.due_at < now ? ' · Past' : ''}
-                {a.weight != null ? ` · Weight: ${a.weight}%` : ''}
+                {a.weight != null ? ` · ${a.weight}%` : ''}
               </div>
             )}
-            <div style={{ marginTop: '0.35rem' }}>
-              <span className="badge">{a.status}</span>
+            <div style={{ marginTop: '0.5rem' }}>
+              <Badge variant="muted">{a.status}</Badge>
             </div>
-            {a.description && (
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>{a.description}</p>
-            )}
-            {a.notes && (
-              <p style={{ fontSize: '0.8rem', marginTop: '0.35rem', fontStyle: 'italic' }}>{a.notes}</p>
-            )}
-            <Link to="/chat" style={{ fontSize: '0.85rem', display: 'inline-block', marginTop: '0.5rem' }}>
+            {a.description && <p className="list-item__body">{a.description}</p>}
+            {a.notes && <p className="assignment-card__notes">{a.notes}</p>}
+            <Link to="/chat" className="text-link" style={{ display: 'inline-block', marginTop: '0.75rem' }}>
               Ask in chat →
             </Link>
-          </div>
+          </Card>
         ))
       )}
     </div>
