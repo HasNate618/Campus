@@ -14,27 +14,29 @@ export function CourseSwitcher() {
   }, [])
 
   return (
-    <div>
+    <div className="sidebar-courses">
       <div className="sidebar__section-label">Courses</div>
-      {courses.map((c) => {
-        const active = courseId === String(c.id) || location.pathname.includes(`/courses/${c.id}`)
-        return (
-          <Link
-            key={c.id}
-            to={`/courses/${c.id}`}
-            className={`course-item${active ? ' active' : ''}`}
-          >
-            <span className="course-item__dot" style={{ background: c.color ?? '#a1a1aa' }} />
-            <span>
-              <span className="course-item__code">{c.code}</span>
-              <span className="course-item__meta">
-                {c.is_pilot ? 'Pilot · ' : ''}{c.term}
-                {c.file_count ? ` · ${c.file_count} files` : ''}
+      <div className="sidebar-courses__list">
+        {courses.map((c) => {
+          const active = courseId === String(c.id) || location.pathname.includes(`/courses/${c.id}`)
+          return (
+            <Link
+              key={c.id}
+              to={`/courses/${c.id}`}
+              className={`course-item${active ? ' active' : ''}`}
+            >
+              <span className="course-item__dot" style={{ background: c.color ?? '#71717a' }} />
+              <span>
+                <span className="course-item__code">{c.code}</span>
+                <span className="course-item__meta">
+                  {c.is_pilot ? 'Pilot · ' : ''}{c.term}
+                  {c.file_count ? ` · ${c.file_count} files` : ''}
+                </span>
               </span>
-            </span>
-          </Link>
-        )
-      })}
+            </Link>
+          )
+        })}
+      </div>
     </div>
   )
 }

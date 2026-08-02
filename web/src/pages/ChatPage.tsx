@@ -8,9 +8,9 @@ export function ChatPage() {
   const courseId = match ? Number(match[1]) : null
 
   return (
-    <div className="page page--wide" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - var(--header-height) - 2rem)' }}>
+    <div className="page page--chat">
       <PageHeader title="Chat" />
-      <div style={{ flex: 1, minHeight: 0, border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+      <div className="chat-page-panel">
         <ChatPanel courseId={courseId} fullScreen />
       </div>
     </div>

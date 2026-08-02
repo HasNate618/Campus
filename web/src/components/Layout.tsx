@@ -22,6 +22,7 @@ export function Layout() {
   const courseId = useCourseIdFromPath()
   const [syncLabel, setSyncLabel] = useState('…')
   const [syncOk, setSyncOk] = useState(true)
+  const showChat = location.pathname !== '/chat'
 
   useEffect(() => {
     api.syncStatus().then((s) => {
@@ -30,8 +31,7 @@ export function Layout() {
         setSyncOk(false)
         return
       }
-      const ago = formatAgo(s.last_run.finished_at ?? s.last_run.started_at)
-      setSyncLabel(`${ago}`)
+      setSyncLabel(formatAgo(s.last_run.finished_at ?? s.last_run.started_at))
       setSyncOk(s.last_run.status === 'ok')
     }).catch(() => setSyncLabel('Unknown'))
   }, [location.pathname])
@@ -46,37 +46,46 @@ export function Layout() {
 
   return (
     <div className="app-shell">
-      <header className="app-header">
-        <Link to="/today" className="app-header__logo">
-          <span className="app-header__logo-icon">
-            <BookOpen size={15} strokeWidth={2.25} />
-          </span>
-          HippoCampus
-        </Link>
-        <span className="app-header__term">2026F</span>
-        <Link to="/sync" className="app-header__sync">
-          <span className={`status-dot ${syncOk ? 'ok' : 'failed'}`} />
-          {syncLabel}
-        </Link>
-      </header>
-      <div className="app-body">
-        <aside className="sidebar">
+      <div className={`app-canvas${showChat ? '' : ' app-canvas--no-chat'}`}>
+        <aside className="panel panel--sidebar">
+          <div className="panel__brand">
+            <Link to="/today" className="brand">
+              <span className="brand__mark">H</span>
+              <span className="brand__name">HippoCampus</span>
+            </Link>
+            <span className="brand__term">2026F</span>
+          </div>
           <CourseSwitcher />
           <SidebarNav />
         </aside>
-        <main className="main-content">
-          <Outlet />
+
+        <main className="panel panel--main">
+          <header className="panel__topbar">
+            <Link to="/sync" className="sync-chip">
+              <span className={`status-dot ${syncOk ? 'ok' : 'failed'}`} />
+              Synced {syncLabel}
+            </Link>
+          </header>
+          <div className="panel__scroll">
+            <Outlet />
+          </div>
         </main>
-        {location.pathname !== '/chat' && <ChatPanel courseId={courseId} />}
+
+        {showChat && (
+          <aside className="panel panel--chat">
+            <ChatPanel courseId={courseId} />
+          </aside>
+        )}
       </div>
-      <nav className="mobile-nav">
+
+      <nav className="mobile-dock">
         {mobileLinks.map((l) => {
           const Icon = l.icon
           const active = location.pathname === l.to || (l.to !== '/today' && location.pathname.startsWith(l.to))
           return (
             <Link key={l.to} to={l.to} className={active ? 'active' : ''}>
               <Icon strokeWidth={active ? 2.25 : 1.75} />
-              {l.label}
+              <span>{l.label}</span>
             </Link>
           )
         })}
