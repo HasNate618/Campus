@@ -1,10 +1,10 @@
 import { Link } from 'react-router-dom'
 import { useEffect, useState } from 'react'
-import { api } from '../api/client'
-import { Card } from '../components/ui/Card'
-import { PageHeader } from '../components/ui/PageHeader'
-import { Badge } from '../components/ui/Badge'
-import type { Course } from '../types'
+import { api } from '@/api/client'
+import { AppCard as Card } from '@/components/AppCard'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { Badge } from '@/components/ui/badge'
+import type { Course } from '@/types'
 
 export function CoursesPage() {
   const [courses, setCourses] = useState<Course[]>([])
@@ -19,7 +19,7 @@ export function CoursesPage() {
       <PageHeader
         title="Courses"
         action={
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem', color: 'hsl(var(--muted-foreground))', cursor: 'pointer' }}>
             <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
             Show inactive
           </label>
@@ -37,8 +37,8 @@ export function CoursesPage() {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '0.375rem' }}>
-                {c.is_pilot ? <Badge variant="muted">Pilot</Badge> : null}
-                {!c.last_sync_at && <Badge>Not synced</Badge>}
+                {c.is_pilot ? <Badge variant="secondary">Pilot</Badge> : null}
+                {!c.last_sync_at && <Badge variant="outline">Not synced</Badge>}
               </div>
             </div>
             <div className="course-card__footer">

@@ -1,12 +1,13 @@
 import { Link, useParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { api } from '../api/client'
-import { Card } from '../components/ui/Card'
-import { PageHeader } from '../components/ui/PageHeader'
-import { Button } from '../components/ui/Button'
-import { EmptyState } from '../components/ui/EmptyState'
-import type { ContentNode, FileRecord } from '../types'
+import { api } from '@/api/client'
+import { AppCard as Card } from '@/components/AppCard'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { EmptyState } from '@/components/ui/EmptyState'
+import type { ContentNode, FileRecord } from '@/types'
 
 export function ContentPage() {
   const { courseId, nodeId } = useParams()
@@ -66,7 +67,7 @@ export function ContentPage() {
                     style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}
                   >
                     {topic.title}
-                    {f?.processed && <span className="badge badge--accent" style={{ marginLeft: '0.375rem' }}>md</span>}
+                    {f?.processed && <Badge variant="secondary" className="ml-1.5 text-[10px]">md</Badge>}
                   </Link>
                 )
               })}
@@ -89,8 +90,8 @@ export function ContentPage() {
               {selectedFile ? (
                 <>
                   <div className="viewer-tabs">
-                    <Button variant={tab === 'markdown' ? 'primary' : 'ghost'} size="sm" onClick={() => setTab('markdown')}>Markdown</Button>
-                    <Button variant={tab === 'pdf' ? 'primary' : 'ghost'} size="sm" onClick={() => setTab('pdf')}>PDF</Button>
+                    <Button variant={tab === 'markdown' ? 'default' : 'ghost'} size="sm" onClick={() => setTab('markdown')}>Markdown</Button>
+                    <Button variant={tab === 'pdf' ? 'default' : 'ghost'} size="sm" onClick={() => setTab('pdf')}>PDF</Button>
                   </div>
                   {tab === 'markdown' ? (
                     content ? (

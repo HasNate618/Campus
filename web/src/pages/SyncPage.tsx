@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
-import { api } from '../api/client'
-import { Card } from '../components/ui/Card'
-import { PageHeader } from '../components/ui/PageHeader'
-import { Button } from '../components/ui/Button'
-import { Badge } from '../components/ui/Badge'
-import { EmptyState } from '../components/ui/EmptyState'
-import type { SyncRun } from '../types'
+import { api } from '@/api/client'
+import { AppCard as Card } from '@/components/AppCard'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { EmptyState } from '@/components/ui/EmptyState'
+import type { SyncRun } from '@/types'
 
 export function SyncPage() {
   const [runs, setRuns] = useState<SyncRun[]>([])
@@ -48,17 +48,12 @@ export function SyncPage() {
 
   return (
     <div className="page page--wide">
-      <PageHeader
-        title="Sync"
-        subtitle="Manual Brightspace sync · Duo required when session expires"
-      />
+      <PageHeader title="Sync" subtitle="Manual Brightspace sync · Duo required when session expires" />
 
       <Card>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
           <div>
-            <p style={{ fontSize: '0.8125rem', fontWeight: 500 }}>
-              {syncing ? 'Syncing…' : 'Ready'}
-            </p>
+            <p style={{ fontSize: '0.8125rem', fontWeight: 500 }}>{syncing ? 'Syncing…' : 'Ready'}</p>
             {tokenValid != null && (
               <p className="list-item__meta" style={{ marginTop: '0.25rem' }}>
                 Token {tokenValid ? 'valid' : 'expired'}
@@ -94,11 +89,11 @@ export function SyncPage() {
                 >
                   <td>{new Date(r.started_at).toLocaleString('en-CA')}</td>
                   <td>
-                    <Badge variant={r.status === 'ok' ? 'success' : 'danger'}>{r.status}</Badge>
+                    <Badge variant={r.status === 'ok' ? 'secondary' : 'destructive'}>{r.status}</Badge>
                   </td>
                   <td>{r.files_new} new</td>
                   <td>{r.announcements_new}</td>
-                  <td style={{ color: 'var(--danger)', fontSize: '0.75rem' }}>{r.error ?? '—'}</td>
+                  <td style={{ color: 'hsl(var(--destructive))', fontSize: '0.75rem' }}>{r.error ?? '—'}</td>
                 </tr>
               ))}
             </tbody>

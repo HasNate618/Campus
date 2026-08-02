@@ -1,20 +1,40 @@
-import { Link, Outlet, useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useEffect, useState } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
 import {
+  BookOpen,
   Calendar,
+  ChevronLeft,
+  ChevronRight,
   Home,
   MessageSquare,
+  PanelLeft,
+  PanelRight,
   RefreshCw,
-  BookOpen,
 } from 'lucide-react'
-import { api } from '../api/client'
+import { api } from '@/api/client'
 import { CourseSwitcher, SidebarNav } from './CourseSwitcher'
 import { ChatPanel } from './ChatPanel'
+import { PageTransition } from './PageTransition'
+import { usePanelLayout } from '@/hooks/usePanelLayout'
+import { cn } from '@/lib/utils'
 
 function useCourseIdFromPath(): number | null {
   const location = useLocation()
   const match = location.pathname.match(/\/courses\/(\d+)/)
   return match ? Number(match[1]) : null
+}
+
+const panelMotion = {
+  initial: { opacity: 0, x: -16 },
+  animate: { opacity: 1, x: 0 },
+  exit: { opacity: 0, x: -16 },
+}
+
+const chatMotion = {
+  initial: { opacity: 0, x: 16 },
+  animate: { opacity: 1, x: 0 },
+  exit: { opacity: 0, x: 16 },
 }
 
 export function Layout() {
@@ -23,6 +43,16 @@ export function Layout() {
   const [syncLabel, setSyncLabel] = useState('…')
   const [syncOk, setSyncOk] = useState(true)
   const showChat = location.pathname !== '/chat'
+
+  const {
+    narrow,
+    sidebarOpen,
+    chatOpen,
+    toggleSidebar,
+    toggleChat,
+    closeSidebar,
+    closeChat,
+  } = usePanelLayout()
 
   useEffect(() => {
     api.syncStatus().then((s) => {
@@ -46,36 +76,114 @@ export function Layout() {
 
   return (
     <div className="app-shell">
-      <div className={`app-canvas${showChat ? '' : ' app-canvas--no-chat'}`}>
-        <aside className="panel panel--sidebar">
-          <div className="panel__brand">
-            <Link to="/today" className="brand">
-              <span className="brand__mark">H</span>
-              <span className="brand__name">HippoCampus</span>
-            </Link>
-            <span className="brand__term">2026F</span>
-          </div>
-          <CourseSwitcher />
-          <SidebarNav />
-        </aside>
+      <div
+        className={cn(
+          'app-canvas',
+          sidebarOpen && 'app-canvas--sidebar-open',
+          chatOpen && showChat && 'app-canvas--chat-open',
+        )}
+      >
+        {/* Sidebar toggle (when closed) */}
+        {!sidebarOpen && (
+          <button
+            type="button"
+            className="panel-toggle panel-toggle--left"
+            onClick={toggleSidebar}
+            aria-label="Open sidebar"
+          >
+            <PanelLeft size={18} />
+          </button>
+        )}
 
-        <main className="panel panel--main">
-          <header className="panel__topbar">
+        <AnimatePresence>
+          {sidebarOpen && (
+            <motion.aside
+              key="sidebar"
+              className="float-panel float-panel--sidebar"
+              variants={panelMotion}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+            >
+              <button
+                type="button"
+                className="float-panel__close"
+                onClick={closeSidebar}
+                aria-label="Close sidebar"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <div className="panel__brand">
+                <Link to="/today" className="brand">
+                  <span className="brand__mark">H</span>
+                  <span className="brand__name">HippoCampus</span>
+                </Link>
+                <span className="brand__term">2026F</span>
+              </div>
+              <CourseSwitcher />
+              <SidebarNav />
+            </motion.aside>
+          )}
+        </AnimatePresence>
+
+        <main className="main-stage">
+          <header className="main-stage__topbar">
+            {narrow && sidebarOpen && (
+              <button type="button" className="icon-btn" onClick={toggleSidebar} aria-label="Toggle sidebar">
+                <PanelLeft size={18} />
+              </button>
+            )}
+            <div className="main-stage__topbar-spacer" />
             <Link to="/sync" className="sync-chip">
-              <span className={`status-dot ${syncOk ? 'ok' : 'failed'}`} />
+              <span className={cn('status-dot', syncOk ? 'ok' : 'failed')} />
               Synced {syncLabel}
             </Link>
+            {narrow && showChat && chatOpen && (
+              <button type="button" className="icon-btn" onClick={toggleChat} aria-label="Toggle chat">
+                <PanelRight size={18} />
+              </button>
+            )}
           </header>
-          <div className="panel__scroll">
-            <Outlet />
+          <div className="main-stage__scroll">
+            <PageTransition />
           </div>
         </main>
 
-        {showChat && (
-          <aside className="panel panel--chat">
-            <ChatPanel courseId={courseId} />
-          </aside>
+        {showChat && !chatOpen && (
+          <button
+            type="button"
+            className="panel-toggle panel-toggle--right"
+            onClick={toggleChat}
+            aria-label="Open chat"
+          >
+            <MessageSquare size={18} />
+          </button>
         )}
+
+        <AnimatePresence>
+          {showChat && chatOpen && (
+            <motion.aside
+              key="chat"
+              className="float-panel float-panel--chat"
+              variants={chatMotion}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+            >
+              <button
+                type="button"
+                className="float-panel__close float-panel__close--right"
+                onClick={closeChat}
+                aria-label="Close chat"
+              >
+                <ChevronRight size={16} />
+              </button>
+              <ChatPanel courseId={courseId} />
+            </motion.aside>
+          )}
+        </AnimatePresence>
       </div>
 
       <nav className="mobile-dock">
