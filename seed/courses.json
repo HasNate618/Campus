@@ -1,0 +1,130 @@
+{
+  "term_info": {
+    "2025W": { "label": "Winter 2025 (pilot)", "starts": "", "ends": "" },
+    "2026F": { "label": "Fall 2026", "starts": "", "ends": "" },
+    "2027W": { "label": "Winter 2027", "starts": "", "ends": "" }
+  },
+  "courses": [
+    {
+      "code": "SE 2250B", "name": "Software Construction", "term": "2025W",
+      "instructor": null, "units": 0.50, "class_nbr": null, "color": "#64748b",
+      "is_pilot": true,
+      "sessions": []
+    },
+    {
+      "code": "DATASCI 3000B", "name": "Intro to Machine Learning", "term": "2027W",
+      "instructor": "Viswanathan", "units": 0.50, "class_nbr": "14341", "color": "#8b5cf6",
+      "sessions": [
+        { "kind": "LEC", "day": 0, "start": "11:30", "end": "13:30", "room": "SH-3345", "section": "003" },
+        { "kind": "LAB", "day": 3, "start": "11:30", "end": "13:30", "room": "ACEB-2415", "section": "006" }
+      ]
+    },
+    {
+      "code": "ECE 3375B", "name": "Microprocessors & Microcomputers", "term": "2027W",
+      "instructor": "Dounavis", "units": 0.50, "class_nbr": "13526", "color": "#f59e0b",
+      "sessions": [
+        { "kind": "LEC", "day": 1, "start": "09:30", "end": "11:30", "room": "3M-3250", "section": "003" },
+        { "kind": "LEC", "day": 4, "start": "11:30", "end": "12:30", "room": "HSB-236", "section": "003" },
+        { "kind": "LAB", "day": 2, "start": "18:30", "end": "21:30", "room": "", "section": "009" }
+      ]
+    },
+    {
+      "code": "ECE 3390B", "name": "Hardware/Software Co-Design", "term": "2027W",
+      "instructor": "Eagleson", "units": 0.50, "class_nbr": "10818", "color": "#10b981",
+      "sessions": [
+        { "kind": "LEC", "day": 1, "start": "13:30", "end": "15:30", "room": "FNB-1270", "section": "001" },
+        { "kind": "LEC", "day": 2, "start": "15:30", "end": "16:30", "room": "ACEB-1420", "section": "001" },
+        { "kind": "LAB", "day": 0, "start": "18:30", "end": "21:30", "room": "", "section": "002" }
+      ]
+    },
+    {
+      "code": "ECE 4436A", "name": "Networking", "term": "2026F",
+      "instructor": "AlMahamid", "units": 0.50, "class_nbr": "9225", "color": "#3b82f6",
+      "sessions": [
+        { "kind": "LEC", "day": 1, "start": "10:30", "end": "12:30", "room": "HSB-236", "section": "001" },
+        { "kind": "LEC", "day": 3, "start": "17:30", "end": "18:30", "room": "SEB-2100", "section": "001" },
+        { "kind": "LAB", "day": 1, "start": "15:30", "end": "17:30", "room": "ACEB-4435", "section": "005" }
+      ]
+    },
+    {
+      "code": "SE 3309A", "name": "Database Management Systems", "term": "2026F",
+      "instructor": "Grolinger", "units": 0.50, "class_nbr": "9722", "color": "#ef4444",
+      "sessions": [
+        { "kind": "LEC", "day": 1, "start": "12:30", "end": "14:30", "room": "HSB-240", "section": "001" },
+        { "kind": "LEC", "day": 2, "start": "17:30", "end": "18:30", "room": "HSB-236", "section": "001" },
+        { "kind": "LAB", "day": 2, "start": "09:30", "end": "11:30", "room": "ACEB-4465", "section": "003" }
+      ]
+    },
+    {
+      "code": "SE 3310A", "name": "Theoretical Foundations of Software Engineering", "term": "2026F",
+      "instructor": "TBA", "units": 0.50, "class_nbr": "13628", "color": "#ec4899",
+      "sessions": [
+        { "kind": "LEC", "day": 0, "start": "12:30", "end": "14:30", "room": "SEB-2200", "section": "001" },
+        { "kind": "LEC", "day": 2, "start": "12:30", "end": "13:30", "room": "SEB-2200", "section": "001" },
+        { "kind": "TUT", "day": 4, "start": "12:30", "end": "14:30", "room": "SEB-2200", "section": "002" }
+      ]
+    },
+    {
+      "code": "SE 3313B", "name": "Operating Systems for Software Engineering", "term": "2027W",
+      "instructor": "Sarkar", "units": 0.50, "class_nbr": "12392", "color": "#06b6d4",
+      "sessions": [
+        { "kind": "LEC", "day": 1, "start": "17:30", "end": "19:30", "room": "SEB-1059", "section": "001" },
+        { "kind": "LEC", "day": 3, "start": "09:30", "end": "10:30", "room": "SEB-2200", "section": "001" },
+        { "kind": "LAB", "day": 4, "start": "09:30", "end": "11:30", "room": "ACEB-4440", "section": "003" }
+      ]
+    },
+    {
+      "code": "SE 3314B", "name": "Computer Networks Applications", "term": "2027W",
+      "instructor": "Platsko", "units": 0.50, "class_nbr": "9362", "color": "#84cc16",
+      "sessions": [
+        { "kind": "LEC", "day": 1, "start": "15:30", "end": "17:30", "room": "SEB-1059", "section": "001" },
+        { "kind": "LEC", "day": 3, "start": "15:30", "end": "16:30", "room": "SEB-2200", "section": "001" },
+        { "kind": "LAB", "day": 4, "start": "12:30", "end": "14:30", "room": "ACEB-4435", "section": "004" }
+      ]
+    },
+    {
+      "code": "SE 3316A", "name": "Web Technologies", "term": "2026F",
+      "instructor": "Samarabandu", "units": 0.50, "class_nbr": "9895", "color": "#f97316",
+      "sessions": [
+        { "kind": "LEC", "day": 0, "start": "11:30", "end": "12:30", "room": "NSC-1", "section": "001" },
+        { "kind": "LEC", "day": 2, "start": "15:30", "end": "16:30", "room": "SEB-1200", "section": "001" },
+        { "kind": "LEC", "day": 3, "start": "16:30", "end": "17:30", "room": "SEB-2200", "section": "001" },
+        { "kind": "LAB", "day": 2, "start": "13:30", "end": "15:30", "room": "ACEB-4440", "section": "005" }
+      ]
+    },
+    {
+      "code": "SE 3350B", "name": "Software Engineering Design I", "term": "2027W",
+      "instructor": "Ali", "units": 0.50, "class_nbr": "10895", "color": "#a855f7",
+      "sessions": [
+        { "kind": "LEC", "day": 3, "start": "13:30", "end": "14:30", "room": "SEB-2200", "section": "001" },
+        { "kind": "LAB", "day": 4, "start": "14:30", "end": "17:30", "room": "ACEB-4465", "section": "003" }
+      ]
+    },
+    {
+      "code": "SE 3351A", "name": "Software Project & Process Management", "term": "2026F",
+      "instructor": "Ali", "units": 0.50, "class_nbr": "12397", "color": "#14b8a6",
+      "sessions": [
+        { "kind": "LEC", "day": 2, "start": "16:30", "end": "17:30", "room": "SEB-1200", "section": "001" },
+        { "kind": "LEC", "day": 4, "start": "15:30", "end": "17:30", "room": "SEB-2200", "section": "001" },
+        { "kind": "TUT", "day": 0, "start": "15:30", "end": "17:30", "room": "SEB-1200", "section": "002" }
+      ]
+    },
+    {
+      "code": "SE 3352A", "name": "Software Requirements and Analysis", "term": "2026F",
+      "instructor": "Ali", "units": 0.50, "class_nbr": "13012", "color": "#eab308",
+      "sessions": [
+        { "kind": "LEC", "day": 3, "start": "10:30", "end": "12:30", "room": "SEB-1200", "section": "001" },
+        { "kind": "LAB", "day": 3, "start": "08:30", "end": "10:30", "room": "ACEB-4435", "section": "004" }
+      ]
+    },
+    {
+      "code": "SE 3353B", "name": "Human-Computer Interface Design", "term": "2027W",
+      "instructor": "Eagleson", "units": 0.50, "class_nbr": "9231", "color": "#64748b",
+      "sessions": [
+        { "kind": "LEC", "day": 2, "start": "13:30", "end": "15:30", "room": "AHB-1R40", "section": "001" },
+        { "kind": "TUT", "day": 1, "start": "12:30", "end": "13:30", "room": "SEB-2200", "section": "002" },
+        { "kind": "TUT", "day": 2, "start": "17:30", "end": "18:30", "room": "SEB-2200", "section": "002" }
+      ]
+    }
+  ]
+}
