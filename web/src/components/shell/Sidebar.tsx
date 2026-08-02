@@ -1,11 +1,9 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
-  CalendarDays,
   GraduationCap,
   PanelLeftClose,
   PanelLeftOpen,
-  RefreshCw,
   Sunrise,
 } from 'lucide-react'
 import { api } from '@/api/client'
@@ -14,11 +12,7 @@ import { courseColor } from '@/lib/courses'
 import { fmtRelative } from '@/lib/format'
 import type { Course } from '@/types'
 
-const NAV = [
-  { to: '/', label: 'Today', icon: Sunrise, end: true },
-  { to: '/calendar', label: 'Calendar', icon: CalendarDays, end: false },
-  { to: '/sync', label: 'Sync', icon: RefreshCw, end: false },
-]
+const NAV = [{ to: '/', label: 'Today', icon: Sunrise, end: true }]
 
 export function Sidebar() {
   const [courses, setCourses] = useState<Course[]>([])
@@ -73,7 +67,7 @@ export function Sidebar() {
         {recentChats.length > 0 && (
           <>
             <p className="section-label">Chats</p>
-            <div>
+            <div className="sidebar-list">
               {recentChats.map((s) => {
                 const c = courseById.get(s.courseId)
                 return (
@@ -103,7 +97,7 @@ export function Sidebar() {
         )}
 
         <p className="section-label">Courses</p>
-        <div>
+        <div className="sidebar-list">
           {courses.map((c) => (
             <NavLink
               key={c.id}
