@@ -4,6 +4,7 @@ import { AppCard as Card } from '@/components/AppCard'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { Segmented } from '@/components/ui/segmented'
 import type { Event } from '@/types'
 
 export function CalendarPage() {
@@ -23,9 +24,15 @@ export function CalendarPage() {
       <PageHeader
         title="Calendar"
         action={
-          <div className="filter-bar" style={{ marginBottom: 0 }}>
-            <Button variant={view === 'agenda' ? 'default' : 'secondary'} size="sm" onClick={() => setView('agenda')}>Agenda</Button>
-            <Button variant={view === 'month' ? 'default' : 'secondary'} size="sm" onClick={() => setView('month')}>Month</Button>
+          <div className="filter-bar filter-bar--flush">
+            <Segmented
+              options={[
+                { value: 'agenda', label: 'Agenda' },
+                { value: 'month', label: 'Month' },
+              ]}
+              value={view}
+              onChange={setView}
+            />
             <Button variant="secondary" size="sm" disabled title="Coming in Phase 4">Export ICS</Button>
           </div>
         }
@@ -37,7 +44,7 @@ export function CalendarPage() {
             <EmptyState>No upcoming events. Pilot course deadlines are in the past.</EmptyState>
           ) : (
             events.map((e) => (
-              <div key={e.id} className="list-item" onClick={() => setSelected(e)} style={{ cursor: 'pointer' }}>
+              <div key={e.id} className="list-item list-item--clickable" onClick={() => setSelected(e)}>
                 <div className="list-item__title">{e.title}</div>
                 <div className="list-item__meta">
                   {e.course_code} · {new Date(e.starts_at).toLocaleString('en-CA')}
@@ -53,7 +60,7 @@ export function CalendarPage() {
 
       {selected && (
         <Card title={selected.title}>
-          <p className="list-item__meta" style={{ marginBottom: '0.5rem' }}>
+          <p className="list-item__meta event-detail__meta">
             {selected.course_code} · {selected.kind} · {new Date(selected.starts_at).toLocaleString('en-CA')}
           </p>
           {selected.notes && <p className="list-item__body">{selected.notes}</p>}

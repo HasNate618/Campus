@@ -69,7 +69,7 @@ export function ChatPanel({ courseId, fullScreen }: Props) {
     <div className={cn('chat-panel flex h-full flex-col', fullScreen && 'chat-panel--fullscreen')}>
       <div className="flex items-start justify-between gap-2 border-b border-border px-4 py-3">
         <div>
-          <p className="text-sm font-semibold tracking-tight">Chat</p>
+          <p className="text-[13px] font-semibold tracking-tight">Chat</p>
           <p className="text-xs text-muted-foreground">
             {courseId ? `Course ${courseId}` : 'All courses'}
           </p>
@@ -96,12 +96,12 @@ export function ChatPanel({ courseId, fullScreen }: Props) {
               )}
             >
               {m.role === 'tool' ? (
-                <div className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs font-mono text-muted-foreground">
+                <div className="flex items-center gap-2 rounded-md border border-border bg-secondary/60 px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground">
                   <Wrench className="size-3 shrink-0 text-primary" />
                   {m.content}
                 </div>
               ) : m.role === 'user' ? (
-                <div className="max-w-[88%] rounded-2xl rounded-br-sm bg-primary px-3.5 py-2 text-sm text-primary-foreground shadow-sm">
+                <div className="max-w-[88%] rounded-xl rounded-br-[4px] bg-primary px-3.5 py-2 text-sm text-primary-foreground">
                   {m.content}
                 </div>
               ) : (

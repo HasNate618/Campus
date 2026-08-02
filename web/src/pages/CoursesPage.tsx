@@ -19,7 +19,7 @@ export function CoursesPage() {
       <PageHeader
         title="Courses"
         action={
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem', color: 'hsl(var(--muted-foreground))', cursor: 'pointer' }}>
+          <label className="checkbox-label">
             <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
             Show inactive
           </label>
@@ -36,7 +36,7 @@ export function CoursesPage() {
                   {c.term}{c.instructor ? ` · ${c.instructor}` : ''}
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: '0.375rem' }}>
+              <div className="course-card__badges">
                 {c.is_pilot ? <Badge variant="secondary">Pilot</Badge> : null}
                 {!c.last_sync_at && <Badge variant="outline">Not synced</Badge>}
               </div>

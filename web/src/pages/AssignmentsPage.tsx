@@ -3,9 +3,9 @@ import { Link, useParams } from 'react-router-dom'
 import { api } from '@/api/client'
 import { AppCard as Card } from '@/components/AppCard'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { Segmented } from '@/components/ui/segmented'
 import type { Assignment } from '@/types'
 
 export function AssignmentsPage() {
@@ -29,11 +29,15 @@ export function AssignmentsPage() {
     <div>
       <PageHeader title="Assignments" />
       <div className="filter-bar">
-        {(['all', 'upcoming', 'past'] as const).map((f) => (
-          <Button key={f} variant={filter === f ? 'default' : 'secondary'} size="sm" onClick={() => setFilter(f)}>
-            {f.charAt(0).toUpperCase() + f.slice(1)}
-          </Button>
-        ))}
+        <Segmented
+          options={[
+            { value: 'all', label: 'All' },
+            { value: 'upcoming', label: 'Upcoming' },
+            { value: 'past', label: 'Past' },
+          ]}
+          value={filter}
+          onChange={setFilter}
+        />
       </div>
 
       {filtered.length === 0 ? (
@@ -53,12 +57,12 @@ export function AssignmentsPage() {
                 {a.weight != null ? ` · ${a.weight}%` : ''}
               </div>
             )}
-            <div style={{ marginTop: '0.5rem' }}>
+            <div className="assignment-card__badge">
               <Badge variant="outline">{a.status}</Badge>
             </div>
             {a.description && <p className="list-item__body">{a.description}</p>}
             {a.notes && <p className="assignment-card__notes">{a.notes}</p>}
-            <Link to="/chat" className="text-link" style={{ display: 'inline-block', marginTop: '0.75rem' }}>
+            <Link to="/chat" className="text-link assignment-card__link">
               Ask in chat →
             </Link>
           </Card>

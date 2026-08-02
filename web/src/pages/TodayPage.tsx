@@ -81,11 +81,11 @@ export function TodayPage() {
         <Card title="Sync">
           {syncRun ? (
             <>
-              <p style={{ fontSize: '0.8125rem', marginBottom: '0.375rem' }}>
+              <p className="sync-status__label">
                 <span className={`status-dot ${syncRun.status === 'ok' ? 'ok' : 'failed'}`} />
                 {formatDate(syncRun.finished_at ?? syncRun.started_at)} · {syncRun.status}
               </p>
-              <p className="list-item__meta">
+              <p className="list-item__meta sync-status__meta">
                 {syncRun.files_new} new files · {syncRun.announcements_new} announcements
               </p>
             </>
