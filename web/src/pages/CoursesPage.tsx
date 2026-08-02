@@ -1,6 +1,9 @@
 import { Link } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
+import { Card } from '../components/ui/Card'
+import { PageHeader } from '../components/ui/PageHeader'
+import { Badge } from '../components/ui/Badge'
 import type { Course } from '../types'
 
 export function CoursesPage() {
@@ -12,39 +15,38 @@ export function CoursesPage() {
   }, [showInactive])
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <h1 className="page-title" style={{ marginBottom: 0 }}>Courses</h1>
-        <label style={{ fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
-          Show inactive
-        </label>
-      </div>
+    <div className="page">
+      <PageHeader
+        title="Courses"
+        action={
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+            <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
+            Show inactive
+          </label>
+        }
+      />
 
       {courses.map((c) => (
-        <Link key={c.id} to={`/courses/${c.id}`} style={{ textDecoration: 'none' }}>
-          <div className="card" style={{ marginBottom: '0.75rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <Link key={c.id} to={`/courses/${c.id}`} className="course-card">
+          <Card padding="sm">
+            <div className="course-card__top">
               <div>
-                <div style={{ fontWeight: 600, color: 'var(--text)' }}>
-                  {c.code} · {c.name}
-                </div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-                  {c.term}
-                  {c.instructor ? ` · ${c.instructor}` : ''}
+                <div className="course-card__title">{c.code} · {c.name}</div>
+                <div className="course-card__subtitle">
+                  {c.term}{c.instructor ? ` · ${c.instructor}` : ''}
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                {c.is_pilot ? <span className="badge pilot">Pilot</span> : null}
-                {!c.last_sync_at && <span className="badge">Not synced</span>}
+              <div style={{ display: 'flex', gap: '0.375rem' }}>
+                {c.is_pilot ? <Badge variant="muted">Pilot</Badge> : null}
+                {!c.last_sync_at && <Badge>Not synced</Badge>}
               </div>
             </div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+            <div className="course-card__footer">
               {c.last_sync_at
-                ? `Last sync: ${new Date(c.last_sync_at).toLocaleDateString('en-CA')} · ${c.file_count ?? 0} files · ${c.assignment_count ?? 0} assignments`
+                ? `Last sync ${new Date(c.last_sync_at).toLocaleDateString('en-CA')} · ${c.file_count ?? 0} files · ${c.assignment_count ?? 0} assignments`
                 : 'Not synced yet'}
             </div>
-          </div>
+          </Card>
         </Link>
       ))}
     </div>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { streamChat } from '../api/client'
+import { Button } from './ui/Button'
 import type { ChatMessage } from '../types'
 
 interface Props {
@@ -14,7 +15,7 @@ export function ChatPanel({ courseId, fullScreen }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    bottomRef.current?.scrollIntoView()
   }, [messages])
 
   const send = async () => {
@@ -31,9 +32,9 @@ export function ChatPanel({ courseId, fullScreen }: Props) {
       await streamChat(userMsg, courseId, (event, data) => {
         const d = data as Record<string, string>
         if (event === 'tool_start') {
-          setMessages((m) => [...m, { role: 'tool', content: `⚙ ${d.tool}`, tool: d.tool }])
+          setMessages((m) => [...m, { role: 'tool', content: d.tool, tool: d.tool }])
         } else if (event === 'tool_end') {
-          setMessages((m) => [...m, { role: 'tool', content: `✓ ${d.tool}: ${d.result}`, toolResult: d.result }])
+          setMessages((m) => [...m, { role: 'tool', content: `${d.tool} → ${d.result}`, toolResult: d.result }])
         } else if (event === 'token') {
           assistantText += d.text ?? ''
           setMessages((m) => {
@@ -52,32 +53,28 @@ export function ChatPanel({ courseId, fullScreen }: Props) {
   }
 
   return (
-    <div className="chat-rail" style={fullScreen ? { width: '100%', border: 'none' } : undefined}>
-      <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)', fontSize: '0.85rem' }}>
-        <strong>Chat</strong>
-        <span style={{ color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
-          {courseId ? `Course ${courseId}` : 'All courses'}
-        </span>
-        <button
-          className="secondary"
-          style={{ float: 'right', padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
-          onClick={() => setMessages([])}
-        >
+    <div className={`chat-rail${fullScreen ? ' chat-rail--fullscreen' : ''}`}>
+      <div className="chat-rail__header">
+        <div>
+          <span className="chat-rail__title">Chat</span>
+          <span className="chat-rail__scope">
+            {courseId ? `Course ${courseId}` : 'All courses'}
+          </span>
+        </div>
+        <Button variant="ghost" size="sm" onClick={() => setMessages([])}>
           Clear
-        </button>
+        </Button>
       </div>
       <div className="chat-messages">
         {messages.length === 0 && (
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-            Chat isn&apos;t saved between visits. Ask about syllabus, deadlines, or course content.
+          <p className="chat-empty">
+            Ask about syllabus, deadlines, or course content. Conversations aren&apos;t saved.
           </p>
         )}
         {messages.map((m, i) => (
           <div key={i} className={`chat-msg ${m.role}`}>
             {m.role === 'tool' ? (
               <div className="chat-tool">{m.content}</div>
-            ) : m.role === 'user' ? (
-              <div className="bubble">{m.content}</div>
             ) : (
               <div className="bubble">{m.content}</div>
             )}
@@ -89,13 +86,13 @@ export function ChatPanel({ courseId, fullScreen }: Props) {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && send()}
+          onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && send()}
           placeholder="Ask anything…"
           disabled={streaming}
         />
-        <button onClick={send} disabled={streaming || !input.trim()}>
+        <Button onClick={send} disabled={streaming || !input.trim()} size="md">
           {streaming ? '…' : 'Send'}
-        </button>
+        </Button>
       </div>
     </div>
   )

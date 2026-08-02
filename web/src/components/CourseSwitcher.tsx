@@ -1,5 +1,6 @@
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
+import { Calendar, Home, Newspaper, RefreshCw, BookOpen } from 'lucide-react'
 import { api } from '../api/client'
 import type { Course } from '../types'
 
@@ -14,43 +15,51 @@ export function CourseSwitcher() {
 
   return (
     <div>
-      <div style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-        Courses
-      </div>
-      {courses.map((c) => (
-        <Link
-          key={c.id}
-          to={`/courses/${c.id}`}
-          className={`course-item${courseId === String(c.id) || location.pathname.includes(`/courses/${c.id}`) ? ' active' : ''}`}
-          style={{ borderLeftColor: c.color ?? undefined }}
-        >
-          <span className="code">{c.code}</span>
-          <span className="meta">
-            {c.is_pilot ? 'Pilot · ' : ''}{c.term}
-            {c.file_count ? ` · ${c.file_count} files` : ''}
-          </span>
-        </Link>
-      ))}
+      <div className="sidebar__section-label">Courses</div>
+      {courses.map((c) => {
+        const active = courseId === String(c.id) || location.pathname.includes(`/courses/${c.id}`)
+        return (
+          <Link
+            key={c.id}
+            to={`/courses/${c.id}`}
+            className={`course-item${active ? ' active' : ''}`}
+          >
+            <span className="course-item__dot" style={{ background: c.color ?? '#a1a1aa' }} />
+            <span>
+              <span className="course-item__code">{c.code}</span>
+              <span className="course-item__meta">
+                {c.is_pilot ? 'Pilot · ' : ''}{c.term}
+                {c.file_count ? ` · ${c.file_count} files` : ''}
+              </span>
+            </span>
+          </Link>
+        )
+      })}
     </div>
   )
 }
 
+const NAV = [
+  { to: '/today', label: 'Today', icon: Home },
+  { to: '/calendar', label: 'Calendar', icon: Calendar },
+  { to: '/sync', label: 'Sync', icon: RefreshCw },
+  { to: '/digest', label: 'Digest', icon: Newspaper },
+  { to: '/courses', label: 'All courses', icon: BookOpen },
+]
+
 export function SidebarNav() {
   const location = useLocation()
-  const links = [
-    { to: '/today', label: 'Today' },
-    { to: '/calendar', label: 'Calendar' },
-    { to: '/sync', label: 'Sync' },
-    { to: '/digest', label: 'Digest' },
-    { to: '/courses', label: 'All Courses' },
-  ]
   return (
     <nav className="sidebar-nav">
-      {links.map((l) => (
-        <Link key={l.to} to={l.to} className={location.pathname === l.to ? 'active' : ''}>
-          {l.label}
-        </Link>
-      ))}
+      {NAV.map((l) => {
+        const Icon = l.icon
+        return (
+          <Link key={l.to} to={l.to} className={location.pathname === l.to ? 'active' : ''}>
+            <Icon size={16} strokeWidth={location.pathname === l.to ? 2.25 : 1.75} />
+            {l.label}
+          </Link>
+        )
+      })}
     </nav>
   )
 }

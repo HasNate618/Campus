@@ -2,6 +2,9 @@ import { Link, NavLink, Outlet, useParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import { CalendarStrip } from '../components/CalendarStrip'
+import { Card } from '../components/ui/Card'
+import { Button } from '../components/ui/Button'
+import { EmptyState } from '../components/ui/EmptyState'
 import type { CourseHub } from '../types'
 
 export function CourseLayout() {
@@ -9,7 +12,7 @@ export function CourseLayout() {
   const id = Number(courseId)
 
   return (
-    <div>
+    <div className="page page--wide">
       <nav className="tabs">
         <NavLink to={`/courses/${id}`} end>Overview</NavLink>
         <NavLink to={`/courses/${id}/content`}>Content</NavLink>
@@ -31,96 +34,97 @@ export function CourseHubPage() {
     api.courseHub(id).then(setHub).catch(console.error)
   }, [id])
 
-  if (!hub) return <p style={{ color: 'var(--text-muted)' }}>Loading…</p>
+  if (!hub) return <p className="list-item__meta">Loading…</p>
 
   const { course, announcements, memory_facts, recent_files, stats } = hub
 
   return (
     <div>
-      <div style={{ marginBottom: '1rem' }}>
-        <h1 className="page-title" style={{ marginBottom: '0.25rem' }}>
-          {course.code} · {course.name}
-        </h1>
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-          {course.term}
-          {course.is_pilot ? ' · Pilot' : ''}
-          {course.last_sync_at ? ` · Synced ${new Date(course.last_sync_at).toLocaleDateString('en-CA')}` : ''}
-          <Link to="/sync" style={{ marginLeft: '1rem' }}>Sync course</Link>
-        </p>
-      </div>
+      <header className="page-header">
+        <div>
+          <h1 className="page-header__title">{course.code}</h1>
+          <p className="page-header__subtitle">
+            {course.name} · {course.term}
+            {course.is_pilot ? ' · Pilot' : ''}
+            {course.last_sync_at ? ` · Synced ${new Date(course.last_sync_at).toLocaleDateString('en-CA')}` : ''}
+          </p>
+        </div>
+        <Button to="/sync" variant="secondary" size="sm">Sync course</Button>
+      </header>
 
-      <div className="card" style={{ marginBottom: '1rem' }}>
-        <h3>Course calendar — next 7 days</h3>
+      <Card title="Next 7 days">
         <CalendarStrip courseId={id} />
-      </div>
+      </Card>
 
-      <div className="card" style={{ marginBottom: '1rem' }}>
-        <h3>Announcements</h3>
+      <Card title="Announcements">
         {announcements.length === 0 ? (
-          <p className="empty-state">No announcements</p>
+          <EmptyState compact>No announcements</EmptyState>
         ) : (
           announcements.map((a) => (
             <div key={a.id} className="list-item">
-              <div className="title">{a.title}</div>
-              <div className="meta">{a.posted_at ? new Date(a.posted_at).toLocaleDateString('en-CA') : ''}</div>
-              {a.body && <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>{a.body}</p>}
+              <div className="list-item__title">{a.title}</div>
+              <div className="list-item__meta">
+                {a.posted_at ? new Date(a.posted_at).toLocaleDateString('en-CA') : ''}
+              </div>
+              {a.body && <p className="list-item__body">{a.body}</p>}
             </div>
           ))
         )}
-      </div>
+      </Card>
 
-      <div className="grid-2" style={{ marginBottom: '1rem' }}>
-        <div className="card">
-          <h3>At a glance</h3>
-          <p style={{ fontSize: '0.85rem' }}>{stats.assignment_count} assignments</p>
-          <p style={{ fontSize: '0.85rem' }}>{stats.file_count} files · {stats.processed_files} processed</p>
-          <Link to={`/courses/${id}/assignments`} style={{ fontSize: '0.85rem' }}>View assignments →</Link>
-        </div>
-        <div className="card">
-          <h3>Memory highlights</h3>
+      <div className="grid-2">
+        <Card title="At a glance">
+          <p className="list-item__body" style={{ marginTop: 0 }}>{stats.assignment_count} assignments</p>
+          <p className="list-item__body">{stats.file_count} files · {stats.processed_files} processed</p>
+          <Link to={`/courses/${id}/assignments`} className="text-link">View assignments →</Link>
+        </Card>
+        <Card title="Memory">
           {memory_facts.length === 0 ? (
-            <p className="empty-state" style={{ padding: '0.5rem' }}>No facts yet</p>
+            <EmptyState compact>No facts yet</EmptyState>
           ) : (
             memory_facts.map((f) => (
-              <p key={f.id} style={{ fontSize: '0.85rem', marginBottom: '0.35rem' }}>· {f.fact}</p>
+              <p key={f.id} className="list-item__body" style={{ marginTop: 0 }}>· {f.fact}</p>
             ))
           )}
-          <button className="secondary" style={{ marginTop: '0.5rem', fontSize: '0.8rem' }} onClick={async () => {
-            const m = await api.memoryCard(id)
-            setMemoryMd(m.markdown)
-            setMemoryOpen(true)
-          }}>
-            View memory card
-          </button>
-        </div>
+          <div className="card-actions">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={async () => {
+                const m = await api.memoryCard(id)
+                setMemoryMd(m.markdown)
+                setMemoryOpen(true)
+              }}
+            >
+              View memory card
+            </Button>
+          </div>
+        </Card>
       </div>
 
-      <div className="card">
-        <h3>Recent files</h3>
+      <Card title="Recent files">
         {recent_files.length === 0 ? (
-          <p className="empty-state">No files</p>
+          <EmptyState compact>No files</EmptyState>
         ) : (
           recent_files.map((f) => (
             <div key={f.id} className="list-item">
-              <div className="title">{f.path.split('/').pop()}</div>
-              <div className="meta">
-                {f.kind}
-                {f.processed ? <span className="badge processed" style={{ marginLeft: '0.5rem' }}>processed</span> : null}
-              </div>
+              <div className="list-item__title">{f.path.split('/').pop()}</div>
+              <div className="list-item__meta">{f.kind}{f.processed ? ' · processed' : ''}</div>
             </div>
           ))
         )}
-        <Link to={`/courses/${id}/content`} style={{ fontSize: '0.85rem' }}>Browse content →</Link>
-      </div>
+        <Link to={`/courses/${id}/content`} className="text-link">Browse content →</Link>
+      </Card>
 
       {memoryOpen && (
-        <div className="card" style={{ marginTop: '1rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <h3>Memory card</h3>
-            <button className="secondary" onClick={() => setMemoryOpen(false)}>Close</button>
-          </div>
-          <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.85rem', color: 'var(--text-muted)' }}>{memoryMd}</pre>
-        </div>
+        <Card
+          title="Memory card"
+          action={<Button variant="ghost" size="sm" onClick={() => setMemoryOpen(false)}>Close</Button>}
+        >
+          <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.8125rem', color: 'var(--text-secondary)', fontFamily: 'inherit', lineHeight: 1.55 }}>
+            {memoryMd}
+          </pre>
+        </Card>
       )}
     </div>
   )
