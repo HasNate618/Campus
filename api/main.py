@@ -8,8 +8,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from api.db import db_available
+from api.db import db_available, ensure_wal
 from api.routers import chat, courses, data, digest, sync
+
+ensure_wal()  # WAL so API readers never block the sync writer
 
 app = FastAPI(title="HippoCampus", version="0.3.0")
 

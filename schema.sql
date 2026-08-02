@@ -161,6 +161,25 @@ CREATE TABLE IF NOT EXISTS announcements (
 -- The notes table was migrated out (see tools/migrate_notes.py) and dropped.
 -- File writes are audited via audit_log (actor=ai, head_sha before/after).
 
+-- ── Chat sessions + messages (Phase 3, server-side persistence) ─────────
+CREATE TABLE IF NOT EXISTS chat_sessions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    course_id   INTEGER REFERENCES courses(id) ON DELETE CASCADE, -- NULL = general
+    title       TEXT NOT NULL DEFAULT 'New chat',
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  INTEGER NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+    role        TEXT NOT NULL CHECK (role IN ('user','assistant','tool')),
+    content     TEXT NOT NULL DEFAULT '',
+    tool_name   TEXT,                       -- set when role='tool'
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id);
+
 -- ── AI-extracted durable facts ("memory") ──────────────────────────────
 -- The AI writes small verifiable facts here after every sync/lecture.
 -- Unified memory: course_id NULL = cross-course fact.

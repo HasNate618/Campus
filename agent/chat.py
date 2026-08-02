@@ -20,7 +20,10 @@ MAX_ITERATIONS = 24
 NUDGE_AT = 22  # after this many rounds, tell the model to stop calling tools
 
 
-def _model_call(cfg: Config, messages: list[dict], model: str | None = None) -> dict:
+def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
+                on_token=None) -> dict:
+    """Streaming chat completion. Accumulates content + tool_calls from SSE
+    deltas; on_token(text) fires per content token (used by the web SSE)."""
     r = httpx.post(
         f"{cfg.bifrost_url}/chat/completions",
         json={
@@ -29,17 +32,62 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None) -> 
             "tools": TOOL_SCHEMAS,
             "tool_choice": "auto",
             "max_tokens": 2000,
+            "stream": True,
         },
-        timeout=180,
+        timeout=300,
     )
     r.raise_for_status()
-    return r.json()["choices"][0]["message"]
+    content = ""
+    reasoning = ""
+    tool_calls: dict[int, dict] = {}
+    for line in r.iter_lines():
+        if not line or not line.startswith("data:"):
+            continue
+        data = line[5:].strip()
+        if data == "[DONE]":
+            break
+        chunk = json.loads(data)
+        delta = chunk.get("choices", [{}])[0].get("delta", {})
+        if delta.get("content"):
+            content += delta["content"]
+            if on_token:
+                on_token(delta["content"])
+        # deepseek thinking mode: reasoning_content MUST be passed back to
+        # the API on subsequent calls or it 400s
+        if delta.get("reasoning_content"):
+            reasoning += delta["reasoning_content"]
+        for tc in delta.get("tool_calls", []):
+            idx = tc.get("index", 0)
+            entry = tool_calls.setdefault(idx, {"id": "", "name": "", "arguments": ""})
+            if tc.get("id"):
+                entry["id"] = tc["id"]
+            fn = tc.get("function", {})
+            if fn.get("name") and not entry["name"]:
+                entry["name"] = fn["name"]
+            if fn.get("arguments"):
+                entry["arguments"] += fn["arguments"]
+    msg: dict = {"role": "assistant", "content": content}
+    if reasoning:
+        msg["reasoning_content"] = reasoning
+    if tool_calls:
+        msg["tool_calls"] = [
+            {"id": e["id"], "type": "function",
+             "function": {"name": e["name"], "arguments": e["arguments"]}}
+            for e in tool_calls.values()]
+    return msg
 
 
 def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = None,
              model: str | None = None, history: list[dict] | None = None,
-             verbose: bool = True) -> tuple[str, list[dict]]:
-    """Run one user turn. Returns (final_answer, full_message_history)."""
+             verbose: bool = True, emit=None) -> tuple[str, list[dict]]:
+    """Run one user turn. Returns (final_answer, full_message_history).
+
+    emit(event, data) is called for SSE streaming:
+      token(event)      -> {"text": ...}
+      tool_start(event) -> {"tool": name, "args": {...}}
+      tool_end(event)   -> {"tool": name, "result": {...}}
+      done(event)       -> {"answer": ...}
+    """
     messages = [{"role": "system", "content": build_system_prompt(cfg, db, course_id)}]
     messages.extend(history or [])
     messages.append({"role": "user", "content": user_message})
@@ -49,10 +97,14 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
             messages.append({"role": "user", "content": (
                 "You have used many tool calls. Answer now based on what you "
                 "have gathered — do not call any more tools.")})
-        msg = _model_call(cfg, messages, model)
+        msg = _model_call(cfg, messages, model,
+                          on_token=(lambda t: emit("token", {"text": t}) if emit else None))
         if not msg.get("tool_calls"):
             messages.append({"role": "assistant", "content": msg.get("content", "")})
-            return msg.get("content", ""), messages
+            answer = msg.get("content", "")
+            if emit:
+                emit("done", {"answer": answer})
+            return answer, messages
 
         # assistant message with tool calls goes into history as-is
         messages.append(msg)
@@ -64,14 +116,21 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
                 args = {}
             if verbose:
                 print(f"  [tool] {name}({json.dumps(args)[:160]})", flush=True)
+            if emit:
+                emit("tool_start", {"tool": name, "args": args})
             result = execute_tool(name, args, db, cfg)
+            if emit:
+                emit("tool_end", {"tool": name, "result": result})
             messages.append({
                 "role": "tool",
                 "tool_call_id": tc["id"],
                 "content": json.dumps(result, default=str)[:6000],
             })
 
-    return "(stopped: tool-call iteration limit reached)", messages
+    answer = "(stopped: tool-call iteration limit reached)"
+    if emit:
+        emit("done", {"answer": answer})
+    return answer, messages
 
 
 def chat_repl(cfg: Config, db: DB, course_code: str | None = None,

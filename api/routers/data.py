@@ -39,4 +39,16 @@ def file_content(file_id: int):
     content = services.get_file_content(file_id)
     if content is None:
         raise HTTPException(404, "File not found")
-    return {"content": content, "format": "markdown"}
+    return content
+
+
+@router.get("/files/{file_id}/raw")
+def file_raw(file_id: int):
+    """Raw bytes (PDFs for pdf.js). Path-guarded to SCHOOL_ROOT."""
+    from fastapi.responses import FileResponse
+    p = services.get_file_raw_path(file_id)
+    if not p:
+        raise HTTPException(404, "File not found")
+    if p.resolve().is_relative_to(services.SCHOOL_ROOT.resolve()):
+        return FileResponse(p)
+    raise HTTPException(403, "Forbidden")
