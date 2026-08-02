@@ -1,113 +1,147 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { api } from '@/api/client'
-import { AppCard as Card } from '@/components/AppCard'
-import { PageHeader } from '@/components/ui/PageHeader'
-import { Button } from '@/components/ui/button'
-import { EmptyState } from '@/components/ui/EmptyState'
-import { Segmented } from '@/components/ui/segmented'
+import { dayKey, eventDayKey, fmtDateTime, fmtTime } from '@/lib/format'
 import type { Event } from '@/types'
 
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+interface Cell {
+  date: Date
+  otherMonth: boolean
+}
+
+function monthCells(year: number, month: number): Cell[] {
+  const first = new Date(year, month, 1)
+  // Monday-first offset
+  const offset = (first.getDay() + 6) % 7
+  const start = new Date(year, month, 1 - offset)
+  return Array.from({ length: 42 }, (_, i) => {
+    const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i)
+    return { date: d, otherMonth: d.getMonth() !== month }
+  })
+}
+
 export function CalendarPage() {
+  const now = new Date()
+  const [view, setView] = useState({ year: now.getFullYear(), month: now.getMonth() })
+  const [selected, setSelected] = useState(dayKey(now))
   const [events, setEvents] = useState<Event[]>([])
-  const [view, setView] = useState<'month' | 'agenda'>('agenda')
-  const [selected, setSelected] = useState<Event | null>(null)
 
   useEffect(() => {
-    const now = new Date()
-    const end = new Date(now)
-    end.setDate(end.getDate() + 30)
-    api.events({ from_dt: now.toISOString(), to_dt: end.toISOString() }).then(setEvents).catch(console.error)
-  }, [])
+    const from = new Date(view.year, view.month, 1)
+    const to = new Date(view.year, view.month + 1, 0, 23, 59, 59)
+    api
+      .events({ from_dt: from.toISOString(), to_dt: to.toISOString() })
+      .then(setEvents)
+      .catch(console.error)
+  }, [view])
+
+  const byDay = useMemo(() => {
+    const m = new Map<string, Event[]>()
+    for (const e of events) {
+      const k = eventDayKey(e)
+      if (!m.has(k)) m.set(k, [])
+      m.get(k)!.push(e)
+    }
+    return m
+  }, [events])
+
+  const shift = (delta: number) => {
+    setView((v) => {
+      const d = new Date(v.year, v.month + delta, 1)
+      return { year: d.getFullYear(), month: d.getMonth() }
+    })
+  }
+
+  const todayKey = dayKey(now)
+  const selectedEvents = byDay.get(selected) ?? []
+  const monthLabel = new Date(view.year, view.month, 1).toLocaleDateString(undefined, {
+    month: 'long',
+    year: 'numeric',
+  })
 
   return (
     <div className="page">
-      <PageHeader
-        title="Calendar"
-        action={
-          <div className="filter-bar filter-bar--flush">
-            <Segmented
-              options={[
-                { value: 'agenda', label: 'Agenda' },
-                { value: 'month', label: 'Month' },
-              ]}
-              value={view}
-              onChange={setView}
-            />
-            <Button variant="secondary" size="sm" disabled title="Coming in Phase 4">Export ICS</Button>
+      <div className="page-col">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <h1 className="page-title">{monthLabel}</h1>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="btn btn-outline btn-sm" onClick={() => shift(-1)} aria-label="Previous month">
+              <ChevronLeft size={15} />
+            </button>
+            <button
+              className="btn btn-outline btn-sm"
+              onClick={() => {
+                setView({ year: now.getFullYear(), month: now.getMonth() })
+                setSelected(todayKey)
+              }}
+            >
+              Today
+            </button>
+            <button className="btn btn-outline btn-sm" onClick={() => shift(1)} aria-label="Next month">
+              <ChevronRight size={15} />
+            </button>
           </div>
-        }
-      />
+        </div>
 
-      {view === 'agenda' ? (
-        <Card title="Upcoming">
-          {events.length === 0 ? (
-            <EmptyState>No upcoming events. Pilot course deadlines are in the past.</EmptyState>
-          ) : (
-            events.map((e) => (
-              <div key={e.id} className="list-item list-item--clickable" onClick={() => setSelected(e)}>
-                <div className="list-item__title">{e.title}</div>
-                <div className="list-item__meta">
-                  {e.course_code} · {new Date(e.starts_at).toLocaleString('en-CA')}
-                  {e.notes ? ` · ${e.notes}` : ''}
+        <div className="card">
+          <div className="cal-grid">
+            {WEEKDAYS.map((d) => (
+              <div className="cal-head" key={d}>
+                {d}
+              </div>
+            ))}
+            {monthCells(view.year, view.month).map(({ date, otherMonth }) => {
+              const k = dayKey(date)
+              const count = byDay.get(k)?.length ?? 0
+              const cls = [
+                'cal-cell',
+                otherMonth && 'other-month',
+                k === todayKey && 'today',
+                k === selected && 'selected',
+              ]
+                .filter(Boolean)
+                .join(' ')
+              return (
+                <button key={k} className={cls} onClick={() => setSelected(k)}>
+                  {date.getDate()}
+                  <span className="cal-dots">
+                    {Array.from({ length: Math.min(count, 3) }, (_, i) => (
+                      <span className="cal-dot" key={i} />
+                    ))}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="card">
+          <p className="card-title">
+            {new Date(`${selected}T12:00`).toLocaleDateString(undefined, {
+              weekday: 'long',
+              month: 'long',
+              day: 'numeric',
+            })}
+          </p>
+          {selectedEvents.length === 0 && <div className="empty compact">Nothing scheduled.</div>}
+          {selectedEvents.map((e) => (
+            <div className="row" key={e.id}>
+              <div className="row-main">
+                <div className="row-title">{e.title}</div>
+                <div className="row-sub">
+                  {e.course_code ?? ''}
+                  {e.ends_at
+                    ? ` · ${fmtTime(e.starts_at)}–${fmtTime(e.ends_at)}`
+                    : ` · ${fmtDateTime(e.starts_at)}`}
                 </div>
               </div>
-            ))
-          )}
-        </Card>
-      ) : (
-        <MonthGrid events={events} onSelect={setSelected} />
-      )}
-
-      {selected && (
-        <Card title={selected.title}>
-          <p className="list-item__meta event-detail__meta">
-            {selected.course_code} · {selected.kind} · {new Date(selected.starts_at).toLocaleString('en-CA')}
-          </p>
-          {selected.notes && <p className="list-item__body">{selected.notes}</p>}
-        </Card>
-      )}
-    </div>
-  )
-}
-
-function MonthGrid({ events, onSelect }: { events: Event[]; onSelect: (e: Event) => void }) {
-  const today = new Date()
-  const year = today.getFullYear()
-  const month = today.getMonth()
-  const firstDay = new Date(year, month, 1).getDay()
-  const daysInMonth = new Date(year, month + 1, 0).getDate()
-  const cells: (number | null)[] = Array(firstDay).fill(null)
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d)
-
-  const eventsOnDay = (day: number) => {
-    const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-    return events.filter((e) => e.starts_at.startsWith(key))
-  }
-
-  return (
-    <Card title={today.toLocaleDateString('en-CA', { month: 'long', year: 'numeric' })}>
-      <div className="month-grid">
-        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
-          <div key={d} className="month-grid__head">{d}</div>
-        ))}
-        {cells.map((day, i) => (
-          <div
-            key={i}
-            className={`month-grid__cell${day === today.getDate() ? ' month-grid__cell--today' : ''}`}
-          >
-            {day && (
-              <>
-                <div className="month-grid__day-num">{day}</div>
-                {eventsOnDay(day).slice(0, 2).map((e) => (
-                  <div key={e.id} className="month-grid__event" onClick={() => onSelect(e)}>
-                    {e.title}
-                  </div>
-                ))}
-              </>
-            )}
-          </div>
-        ))}
+              <span className="chip">{e.kind}</span>
+            </div>
+          ))}
+        </div>
       </div>
-    </Card>
+    </div>
   )
 }

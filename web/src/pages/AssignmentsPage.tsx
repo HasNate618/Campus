@@ -1,73 +1,58 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
+import { ClipboardList } from 'lucide-react'
 import { api } from '@/api/client'
-import { AppCard as Card } from '@/components/AppCard'
-import { PageHeader } from '@/components/ui/PageHeader'
-import { Badge } from '@/components/ui/badge'
-import { EmptyState } from '@/components/ui/EmptyState'
-import { Segmented } from '@/components/ui/segmented'
+import { fmtDue, isPast } from '@/lib/format'
 import type { Assignment } from '@/types'
+
+function statusChip(a: Assignment): { cls: string; label: string } {
+  if (a.status === 'submitted' || a.status === 'graded') return { cls: 'chip green', label: a.status }
+  if (a.due_at && isPast(a.due_at)) return { cls: 'chip red', label: 'overdue' }
+  return { cls: 'chip violet', label: a.status || 'pending' }
+}
 
 export function AssignmentsPage() {
   const { courseId } = useParams()
-  const id = Number(courseId)
+  const cid = Number(courseId)
   const [assignments, setAssignments] = useState<Assignment[]>([])
-  const [filter, setFilter] = useState<'all' | 'upcoming' | 'past'>('all')
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    api.assignments(id).then(setAssignments).catch(console.error)
-  }, [id])
+    setLoading(true)
+    api
+      .assignments(cid)
+      .then(setAssignments)
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [cid])
 
-  const now = new Date().toISOString()
-  const filtered = assignments.filter((a) => {
-    if (filter === 'upcoming') return a.due_at && a.due_at > now && !['submitted', 'graded'].includes(a.status)
-    if (filter === 'past') return a.due_at && a.due_at <= now
-    return true
-  })
+  const sorted = [...assignments].sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? ''))
 
   return (
-    <div>
-      <PageHeader title="Assignments" />
-      <div className="filter-bar">
-        <Segmented
-          options={[
-            { value: 'all', label: 'All' },
-            { value: 'upcoming', label: 'Upcoming' },
-            { value: 'past', label: 'Past' },
-          ]}
-          value={filter}
-          onChange={setFilter}
-        />
-      </div>
-
-      {filtered.length === 0 ? (
-        <EmptyState>
-          {filter === 'upcoming'
-            ? 'No upcoming assignments. Term may be complete or not synced.'
-            : 'No assignments found.'}
-        </EmptyState>
-      ) : (
-        filtered.map((a) => (
-          <Card key={a.id} padding="sm" className="assignment-card">
-            <div className="assignment-card__title">{a.title}</div>
-            {a.due_at && (
-              <div className="assignment-card__meta">
-                Due {new Date(a.due_at).toLocaleString('en-CA')}
-                {a.due_at < now ? ' · Past' : ''}
-                {a.weight != null ? ` · ${a.weight}%` : ''}
-              </div>
-            )}
-            <div className="assignment-card__badge">
-              <Badge variant="outline">{a.status}</Badge>
-            </div>
-            {a.description && <p className="list-item__body">{a.description}</p>}
-            {a.notes && <p className="assignment-card__notes">{a.notes}</p>}
-            <Link to="/chat" className="text-link assignment-card__link">
-              Ask in chat →
-            </Link>
-          </Card>
-        ))
+    <div className="card">
+      <p className="card-title">
+        <ClipboardList size={14} /> Assignments
+      </p>
+      {loading && <div className="empty compact">Loading…</div>}
+      {!loading && sorted.length === 0 && (
+        <div className="empty compact">No assignments synced for this course.</div>
       )}
+      {sorted.map((a) => {
+        const s = statusChip(a)
+        return (
+          <div className="row" key={a.id}>
+            <div className="row-main">
+              <div className="row-title">{a.title}</div>
+              <div className="row-sub">
+                {fmtDue(a.due_at)}
+                {a.weight != null ? ` · ${a.weight}%` : ''}
+                {a.notes ? ` · ${a.notes}` : ''}
+              </div>
+            </div>
+            <span className={s.cls}>{s.label}</span>
+          </div>
+        )
+      })}
     </div>
   )
 }

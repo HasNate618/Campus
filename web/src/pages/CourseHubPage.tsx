@@ -1,143 +1,133 @@
-import { Link, NavLink, Outlet, useParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
+import { NavLink, Outlet, useParams } from 'react-router-dom'
+import { Bell, CalendarDays } from 'lucide-react'
 import { api } from '@/api/client'
-import { CalendarStrip } from '@/components/CalendarStrip'
-import { AppCard as Card } from '@/components/AppCard'
-import { Button } from '@/components/ui/button'
-import { EmptyState } from '@/components/ui/EmptyState'
-import type { CourseHub } from '@/types'
+import { courseColor } from '@/lib/courses'
+import { fmtDateTime, fmtRelative } from '@/lib/format'
+import type { Course, CourseHub } from '@/types'
 
 export function CourseLayout() {
   const { courseId } = useParams()
-  const id = Number(courseId)
+  const cid = Number(courseId)
+  const [course, setCourse] = useState<Course | null>(null)
+
+  useEffect(() => {
+    setCourse(null)
+    api.course(cid).then(setCourse).catch(console.error)
+  }, [cid])
 
   return (
-    <div className="page page--wide">
-      <nav className="tabs">
-        <NavLink to={`/courses/${id}`} end>Overview</NavLink>
-        <NavLink to={`/courses/${id}/content`}>Content</NavLink>
-        <NavLink to={`/courses/${id}/assignments`}>Assignments</NavLink>
-      </nav>
-      <Outlet />
+    <div className="page">
+      <div className="page-col">
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {course && (
+              <span className="dot" style={{ background: courseColor(course), width: 10, height: 10 }} />
+            )}
+            <h1 className="page-title">{course?.code ?? '…'}</h1>
+            {course && <span className="chip">{course.term}</span>}
+          </div>
+          <p className="page-sub">{course?.name ?? ''}</p>
+        </div>
+
+        <nav className="tabs">
+          <NavLink to={`/courses/${cid}`} end className={({ isActive }) => `tab-link${isActive ? ' active' : ''}`}>
+            Overview
+          </NavLink>
+          <NavLink to={`/courses/${cid}/content`} className={({ isActive }) => `tab-link${isActive ? ' active' : ''}`}>
+            Content
+          </NavLink>
+          <NavLink to={`/courses/${cid}/assignments`} className={({ isActive }) => `tab-link${isActive ? ' active' : ''}`}>
+            Assignments
+          </NavLink>
+        </nav>
+
+        <Outlet />
+      </div>
     </div>
   )
 }
 
 export function CourseHubPage() {
   const { courseId } = useParams()
-  const id = Number(courseId)
+  const cid = Number(courseId)
   const [hub, setHub] = useState<CourseHub | null>(null)
-  const [memoryOpen, setMemoryOpen] = useState(false)
-  const [memoryMd, setMemoryMd] = useState('')
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    api.courseHub(id).then(setHub).catch(console.error)
-  }, [id])
+    setHub(null)
+    api
+      .courseHub(cid)
+      .then(setHub)
+      .catch((e) => setError(String(e)))
+  }, [cid])
 
-  if (!hub) return <p className="list-item__meta">Loading…</p>
-
-  const { course, announcements, memory_facts, recent_files, stats } = hub
+  if (error) return <div className="card">Failed to load: {error}</div>
+  if (!hub) return <div className="card"><div className="empty compact">Loading…</div></div>
 
   return (
-    <div>
-      <header className="page-header">
-        <div>
-          <h1 className="page-header__title">{course.code}</h1>
-          <p className="page-header__subtitle">
-            {course.name} · {course.term}
-            {course.is_pilot ? ' · Pilot' : ''}
-            {course.last_sync_at ? ` · Synced ${new Date(course.last_sync_at).toLocaleDateString('en-CA')}` : ''}
-          </p>
-        </div>
-        <Button asChild variant="secondary" size="sm">
-          <Link to="/sync">Sync course</Link>
-        </Button>
-      </header>
-
-      <Card title="Next 7 days">
-        <CalendarStrip courseId={id} />
-      </Card>
-
-      <Card title="Announcements">
-        {announcements.length === 0 ? (
-          <EmptyState compact>No announcements</EmptyState>
-        ) : (
-          announcements.map((a) => (
-            <div key={a.id} className="list-item">
-              <div className="list-item__title">{a.title}</div>
-              <div className="list-item__meta">
-                {a.posted_at ? new Date(a.posted_at).toLocaleDateString('en-CA') : ''}
-              </div>
-              {a.body && <p className="list-item__body">{a.body}</p>}
-            </div>
-          ))
-        )}
-      </Card>
-
-      <div className="grid-2">
-        <Card title="At a glance">
-          <div className="stat-row">
-            <div className="stat">
-              <div className="stat__value">{stats.assignment_count}</div>
-              <div className="stat__label">Assignments</div>
-            </div>
-            <div className="stat">
-              <div className="stat__value">{stats.file_count}</div>
-              <div className="stat__label">Files</div>
-            </div>
-            <div className="stat">
-              <div className="stat__value">{stats.processed_files}</div>
-              <div className="stat__label">Processed</div>
-            </div>
-          </div>
-          <Link to={`/courses/${id}/assignments`} className="text-link">View assignments →</Link>
-        </Card>
-        <Card title="Memory">
-          {memory_facts.length === 0 ? (
-            <EmptyState compact>No facts yet</EmptyState>
-          ) : (
-            memory_facts.map((f) => (
-              <p key={f.id} className="memory-fact">{f.fact}</p>
-            ))
-          )}
-          <div className="card-actions">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={async () => {
-                const m = await api.memoryCard(id)
-                setMemoryMd(m.markdown)
-                setMemoryOpen(true)
-              }}
-            >
-              View memory card
-            </Button>
-          </div>
-        </Card>
+    <>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <span className="chip">{hub.stats.file_count} files</span>
+        <span className="chip">{hub.stats.processed_files} processed</span>
+        <span className="chip">{hub.stats.assignment_count} assignments</span>
       </div>
 
-      <Card title="Recent files">
-        {recent_files.length === 0 ? (
-          <EmptyState compact>No files</EmptyState>
-        ) : (
-          recent_files.map((f) => (
-            <div key={f.id} className="list-item">
-              <div className="list-item__title">{f.path.split('/').pop()}</div>
-              <div className="list-item__meta">{f.kind}{f.processed ? ' · processed' : ''}</div>
-            </div>
-          ))
+      <div className="card">
+        <p className="card-title">
+          <Bell size={14} /> Announcements
+        </p>
+        {hub.announcements.length === 0 && (
+          <div className="empty compact">No announcements.</div>
         )}
-        <Link to={`/courses/${id}/content`} className="text-link">Browse content →</Link>
-      </Card>
+        {hub.announcements.map((a) => (
+          <div className="row" key={a.id} style={{ alignItems: 'flex-start' }}>
+            <div className="row-main">
+              <div className="row-title">{a.title}</div>
+              {a.body && (
+                <div className="row-sub" style={{
+                  display: '-webkit-box',
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
+                }}>
+                  {a.body}
+                </div>
+              )}
+            </div>
+            <span className="chip" title={a.posted_at ?? undefined}>
+              {fmtRelative(a.posted_at)}
+            </span>
+          </div>
+        ))}
+      </div>
 
-      {memoryOpen && (
-        <Card
-          title="Memory card"
-          action={<Button variant="ghost" size="sm" onClick={() => setMemoryOpen(false)}>Close</Button>}
-        >
-          <pre className="memory-pre">{memoryMd}</pre>
-        </Card>
-      )}
-    </div>
+      <div className="card">
+        <p className="card-title">
+          <CalendarDays size={14} /> Upcoming
+        </p>
+        {hub.events.length === 0 && (
+          <div className="empty compact">No upcoming events — the pilot term has ended.</div>
+        )}
+        {hub.events.map((e) => (
+          <div className="row" key={e.id}>
+            <div className="row-main">
+              <div className="row-title">{e.title}</div>
+              <div className="row-sub">{fmtDateTime(e.starts_at)}</div>
+            </div>
+            <span className="chip">{e.kind}</span>
+          </div>
+        ))}
+        {hub.assignments_upcoming.map((a) => (
+          <div className="row" key={`a-${a.id}`}>
+            <div className="row-main">
+              <div className="row-title">{a.title}</div>
+              <div className="row-sub">due {fmtDateTime(a.due_at)}</div>
+            </div>
+            <span className="chip violet">assignment</span>
+          </div>
+        ))}
+      </div>
+    </>
   )
 }

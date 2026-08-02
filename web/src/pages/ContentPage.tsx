@@ -1,12 +1,8 @@
 import { Link, useParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
+import { ArrowLeft, FileText } from 'lucide-react'
 import { api } from '@/api/client'
-import { AppCard as Card } from '@/components/AppCard'
-import { PageHeader } from '@/components/ui/PageHeader'
-import { Badge } from '@/components/ui/badge'
-import { EmptyState } from '@/components/ui/EmptyState'
-import { Segmented } from '@/components/ui/segmented'
 import type { ContentNode, FileRecord } from '@/types'
 
 export function ContentPage() {
@@ -16,103 +12,94 @@ export function ContentPage() {
   const [nodes, setNodes] = useState<ContentNode[]>([])
   const [files, setFiles] = useState<FileRecord[]>([])
   const [content, setContent] = useState('')
-  const [tab, setTab] = useState<'markdown' | 'pdf'>('markdown')
-  const [selectedNode, setSelectedNode] = useState<ContentNode | null>(null)
-  const [selectedFile, setSelectedFile] = useState<FileRecord | null>(null)
+  const [loadingContent, setLoadingContent] = useState(false)
 
   useEffect(() => {
-    api.contentTree(cid).then(({ nodes: n, files: f }) => {
-      setNodes(n)
-      setFiles(f)
-    }).catch(console.error)
+    setNodes([])
+    setFiles([])
+    api
+      .contentTree(cid)
+      .then(({ nodes: n, files: f }) => {
+        setNodes(n)
+        setFiles(f)
+      })
+      .catch(console.error)
   }, [cid])
 
+  const selectedNode = nid != null ? nodes.find((n) => n.id === nid) ?? null : null
+  const selectedFile = nid != null ? files.find((f) => f.content_node_id === nid) ?? null : null
+
   useEffect(() => {
-    if (!nid) {
-      setSelectedNode(null)
-      setSelectedFile(null)
+    if (!selectedFile?.processed) {
       setContent('')
       return
     }
-    const node = nodes.find((n) => n.id === nid) ?? null
-    setSelectedNode(node)
-    const file = files.find((f) => f.content_node_id === nid) ?? null
-    setSelectedFile(file)
-    if (file?.processed) {
-      api.fileContent(file.id).then((c) => setContent(c.content)).catch(console.error)
-    } else {
-      setContent('')
-    }
-  }, [nid, nodes, files])
+    setLoadingContent(true)
+    api
+      .fileContent(selectedFile.id)
+      .then((c) => setContent(c.content))
+      .catch(console.error)
+      .finally(() => setLoadingContent(false))
+  }, [selectedFile?.id, selectedFile?.processed])
 
   const modules = nodes.filter((n) => n.parent_id === null)
   const children = (parentId: number) => nodes.filter((n) => n.parent_id === parentId)
-  const fileForNode = (nodeId: number) => files.find((f) => f.content_node_id === nodeId)
+  const fileForNode = (id: number) => files.find((f) => f.content_node_id === id)
 
   return (
-    <div>
-      <PageHeader title="Content" />
-      <div className="content-split">
-        <Card padding="sm">
-          {modules.map((mod) => (
-            <div key={mod.id}>
-              <div className="tree-node module">{mod.title}</div>
-              {children(mod.id).map((topic) => {
-                const f = fileForNode(topic.id)
-                return (
-                  <Link
-                    key={topic.id}
-                    to={`/courses/${cid}/content/${topic.id}`}
-                    className={`tree-node topic${nid === topic.id ? ' selected' : ''}`}
-                  >
+    <div className="split">
+      <div className="card" style={{ padding: '10px 8px', maxHeight: '70vh', overflowY: 'auto' }}>
+        {modules.length === 0 && <div className="empty compact">No content synced.</div>}
+        {modules.map((mod) => (
+          <div key={mod.id}>
+            <div className="tree-module">{mod.title}</div>
+            {children(mod.id).map((topic) => {
+              const f = fileForNode(topic.id)
+              return (
+                <Link
+                  key={topic.id}
+                  to={`/courses/${cid}/content/${topic.id}`}
+                  className={`tree-topic${nid === topic.id ? ' selected' : ''}`}
+                >
+                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {topic.title}
-                    {f?.processed && <Badge variant="secondary" className="ml-1.5">md</Badge>}
-                  </Link>
-                )
-              })}
-            </div>
-          ))}
-          {modules.length === 0 && <EmptyState compact>No content synced</EmptyState>}
-        </Card>
+                  </span>
+                  {f?.processed ? <span className="chip" style={{ padding: '1px 6px' }}>md</span> : null}
+                </Link>
+              )
+            })}
+          </div>
+        ))}
+      </div>
 
-        <Card>
-          {!selectedNode ? (
-            <EmptyState>Select a topic from the tree</EmptyState>
-          ) : (
-            <>
-              <div className="content-viewer__head">
-                <div className="content-viewer__title">{selectedNode.title}</div>
-                {selectedFile && (
-                  <div className="content-viewer__path">{selectedFile.path}</div>
-                )}
+      <div className="card" style={{ minHeight: 300 }}>
+        {!selectedNode ? (
+          <div className="empty">Select a topic from the tree.</div>
+        ) : (
+          <>
+            <div className="viewer-head">
+              <Link to={`/courses/${cid}/content`} className="mobile-only" style={{ color: 'var(--violet)', fontSize: 13, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8 }}>
+                <ArrowLeft size={13} /> All topics
+              </Link>
+              <div className="viewer-title">{selectedNode.title}</div>
+              {selectedFile && <div className="viewer-path">{selectedFile.path}</div>}
+            </div>
+            {!selectedFile ? (
+              <div className="empty compact">No file attached to this topic.</div>
+            ) : loadingContent ? (
+              <div className="empty compact">Loading…</div>
+            ) : content ? (
+              <div className="md">
+                <ReactMarkdown>{content}</ReactMarkdown>
               </div>
-              {selectedFile ? (
-                <>
-                  <Segmented
-                    className="viewer-tabs"
-                    options={[
-                      { value: 'markdown', label: 'Markdown' },
-                      { value: 'pdf', label: 'PDF' },
-                    ]}
-                    value={tab}
-                    onChange={setTab}
-                  />
-                  {tab === 'markdown' ? (
-                    content ? (
-                      <div className="markdown-body"><ReactMarkdown>{content}</ReactMarkdown></div>
-                    ) : (
-                      <EmptyState compact>Processing… try the PDF tab.</EmptyState>
-                    )
-                  ) : (
-                    <EmptyState compact>PDF viewer (pdf.js) — stub for {selectedFile.path}</EmptyState>
-                  )}
-                </>
-              ) : (
-                <EmptyState compact>No file attached to this topic</EmptyState>
-              )}
-            </>
-          )}
-        </Card>
+            ) : (
+              <div className="empty compact">
+                <FileText size={16} style={{ display: 'block', margin: '0 auto 6px' }} />
+                This file hasn&apos;t been processed yet — markdown extraction pending.
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   )

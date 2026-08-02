@@ -1,54 +1,58 @@
-import { Link } from 'react-router-dom'
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '@/api/client'
-import { AppCard as Card } from '@/components/AppCard'
-import { PageHeader } from '@/components/ui/PageHeader'
-import { Badge } from '@/components/ui/badge'
+import { courseColor } from '@/lib/courses'
+import { fmtRelative } from '@/lib/format'
 import type { Course } from '@/types'
 
 export function CoursesPage() {
   const [courses, setCourses] = useState<Course[]>([])
-  const [showInactive, setShowInactive] = useState(false)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    api.courses(!showInactive).then(setCourses).catch(console.error)
-  }, [showInactive])
+    api
+      .courses()
+      .then(setCourses)
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
 
   return (
     <div className="page">
-      <PageHeader
-        title="Courses"
-        action={
-          <label className="checkbox-label">
-            <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
-            Show inactive
-          </label>
-        }
-      />
+      <div className="page-col">
+        <div>
+          <h1 className="page-title">Courses</h1>
+          <p className="page-sub">{loading ? 'Loading…' : `${courses.length} active`}</p>
+        </div>
 
-      {courses.map((c) => (
-        <Link key={c.id} to={`/courses/${c.id}`} className="course-card">
-          <Card padding="sm">
-            <div className="course-card__top">
-              <div>
-                <div className="course-card__title">{c.code} · {c.name}</div>
-                <div className="course-card__subtitle">
-                  {c.term}{c.instructor ? ` · ${c.instructor}` : ''}
+        {!loading && courses.length === 0 && (
+          <div className="card">
+            <div className="empty">No courses synced yet — run a sync first.</div>
+          </div>
+        )}
+
+        {courses.map((c) => (
+          <Link
+            key={c.id}
+            to={`/courses/${c.id}`}
+            className="card"
+            style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span className="dot" style={{ background: courseColor(c) }} />
+              <div className="row-main">
+                <div className="row-title">{c.code}</div>
+                <div className="row-sub">
+                  {c.name} · {c.term}
                 </div>
               </div>
-              <div className="course-card__badges">
-                {c.is_pilot ? <Badge variant="secondary">Pilot</Badge> : null}
-                {!c.last_sync_at && <Badge variant="outline">Not synced</Badge>}
-              </div>
+              <span className="chip">{c.file_count ?? 0} files</span>
+              <span className="chip">{c.assignment_count ?? 0} assignments</span>
+              {c.last_sync_at && <span className="chip">{fmtRelative(c.last_sync_at)}</span>}
             </div>
-            <div className="course-card__footer">
-              {c.last_sync_at
-                ? `Last sync ${new Date(c.last_sync_at).toLocaleDateString('en-CA')} · ${c.file_count ?? 0} files · ${c.assignment_count ?? 0} assignments`
-                : 'Not synced yet'}
-            </div>
-          </Card>
-        </Link>
-      ))}
+          </Link>
+        ))}
+      </div>
     </div>
   )
 }
