@@ -21,9 +21,10 @@ NUDGE_AT = 22  # after this many rounds, tell the model to stop calling tools
 
 
 def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
-                on_token=None) -> dict:
+                on_token=None, on_reasoning=None) -> dict:
     """Streaming chat completion. Accumulates content + tool_calls from SSE
-    deltas; on_token(text) fires per content token (used by the web SSE)."""
+    deltas; on_token(text) fires per content token and on_reasoning(text)
+    per chain-of-thought chunk (both used by the web SSE)."""
     r = httpx.post(
         f"{cfg.bifrost_url}/chat/completions",
         json={
@@ -52,10 +53,15 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
             content += delta["content"]
             if on_token:
                 on_token(delta["content"])
-        # deepseek thinking mode: reasoning_content MUST be passed back to
-        # the API on subsequent calls or it 400s
-        if delta.get("reasoning_content"):
-            reasoning += delta["reasoning_content"]
+        # chain-of-thought: bifrost streams it as delta['reasoning'];
+        # deepseek's native thinking mode uses reasoning_content. Surface
+        # both live and keep them on the message (reasoning_content MUST be
+        # passed back to the API on subsequent calls or it 400s).
+        rchunk = delta.get("reasoning") or delta.get("reasoning_content")
+        if rchunk:
+            reasoning += rchunk
+            if on_reasoning:
+                on_reasoning(rchunk)
         for tc in delta.get("tool_calls", []):
             idx = tc.get("index", 0)
             entry = tool_calls.setdefault(idx, {"id": "", "name": "", "arguments": ""})
@@ -68,7 +74,8 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
                 entry["arguments"] += fn["arguments"]
     msg: dict = {"role": "assistant", "content": content}
     if reasoning:
-        msg["reasoning_content"] = reasoning
+        msg["reasoning"] = reasoning
+        msg["reasoning_content"] = reasoning  # provider passback requirement
     if tool_calls:
         msg["tool_calls"] = [
             {"id": e["id"], "type": "function",
@@ -83,6 +90,7 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
     """Run one user turn. Returns (final_answer, full_message_history).
 
     emit(event, data) is called for SSE streaming:
+      reasoning(event)  -> {"text": ...}  (chain-of-thought chunk, pre-answer)
       token(event)      -> {"text": ...}
       tool_start(event) -> {"tool": name, "args": {...}}
       tool_end(event)   -> {"tool": name, "result": {...}}
@@ -98,9 +106,13 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
                 "You have used many tool calls. Answer now based on what you "
                 "have gathered — do not call any more tools.")})
         msg = _model_call(cfg, messages, model,
-                          on_token=(lambda t: emit("token", {"text": t}) if emit else None))
+                          on_token=(lambda t: emit("token", {"text": t}) if emit else None),
+                          on_reasoning=(lambda t: emit("reasoning", {"text": t}) if emit else None))
         if not msg.get("tool_calls"):
-            messages.append({"role": "assistant", "content": msg.get("content", "")})
+            final: dict = {"role": "assistant", "content": msg.get("content", "")}
+            if msg.get("reasoning"):
+                final["reasoning"] = msg["reasoning"]
+            messages.append(final)
             answer = msg.get("content", "")
             if emit:
                 emit("done", {"answer": answer})

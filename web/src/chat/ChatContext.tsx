@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -11,8 +12,25 @@ import { streamChat } from '@/api/client'
 
 export type ChatMsg =
   | { role: 'user'; content: string }
-  | { role: 'assistant'; content: string; streaming: boolean }
-  | { role: 'tool'; tool: string; args?: string; result?: string; done: boolean; open: boolean }
+  | {
+      role: 'assistant'
+      content: string
+      streaming: boolean
+      /** Chain-of-thought streamed via the SSE 'reasoning' event. */
+      thinking?: string
+      /** True once the turn's answer started streaming or finished. */
+      thinkingDone?: boolean
+    }
+  | {
+      role: 'tool'
+      tool: string
+      args?: string
+      result?: string
+      done: boolean
+      open: boolean
+      /** Groups consecutive tool calls of one turn for collapse. */
+      turnId?: number
+    }
 
 export interface ChatSession {
   id: string
@@ -28,7 +46,7 @@ const LAST_COURSE_KEY = 'hc.chat.lastCourse'
 const MAX_SESSIONS = 50
 
 function stripUiFlags(m: ChatMsg): ChatMsg {
-  if (m.role === 'assistant') return { ...m, streaming: false }
+  if (m.role === 'assistant') return { ...m, streaming: false, thinkingDone: true }
   if (m.role === 'tool') return { ...m, open: false }
   return m
 }
@@ -103,6 +121,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<ChatSession[]>(loadSessions)
   const [activeMap, setActiveMap] = useState<Record<number, string>>({})
   const [busy, setBusy] = useState(false)
+  // Monotonic per-turn id so consecutive tool calls of one turn can be
+  // grouped and collapsed together.
+  const turnRef = useRef(0)
   const [lastCourseId, setLastCourseId] = useState<number | null>(() => {
     const raw = localStorage.getItem(LAST_COURSE_KEY)
     return raw ? Number(raw) : null
@@ -199,6 +220,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         messages: [...s.messages, { role: 'user', content: text }],
       }))
 
+      const turnId = turnRef.current + 1
+      turnRef.current = turnId
+
       try {
         const history = (sessions.find((s) => s.id === sid)?.messages ?? [])
           .filter(
@@ -219,6 +243,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                   args: d.args ? JSON.stringify(d.args) : undefined,
                   done: false,
                   open: false,
+                  turnId,
                 },
               ],
             }))
@@ -231,6 +256,35 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                   : m,
               ),
             }))
+          } else if (event === 'reasoning') {
+            updateSession(sid, (s) => {
+              const last = s.messages[s.messages.length - 1]
+              // Append to the in-flight assistant message of this turn (the
+              // previous turn's answer has thinkingDone=true, so it starts a
+              // fresh placeholder).
+              if (last?.role === 'assistant' && !last.thinkingDone) {
+                return {
+                  ...s,
+                  messages: [
+                    ...s.messages.slice(0, -1),
+                    { ...last, thinking: (last.thinking ?? '') + (d.text ?? '') },
+                  ],
+                }
+              }
+              return {
+                ...s,
+                messages: [
+                  ...s.messages,
+                  {
+                    role: 'assistant',
+                    content: '',
+                    streaming: true,
+                    thinking: d.text ?? '',
+                    thinkingDone: false,
+                  },
+                ],
+              }
+            })
           } else if (event === 'token') {
             updateSession(sid, (s) => {
               const last = s.messages[s.messages.length - 1]
@@ -239,14 +293,45 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                   ...s,
                   messages: [
                     ...s.messages.slice(0, -1),
-                    { ...last, content: last.content + (d.text ?? '') },
+                    {
+                      ...last,
+                      content: last.content + (d.text ?? ''),
+                      // The answer is streaming — the thinking phase is over.
+                      thinkingDone: last.thinking ? true : last.thinkingDone,
+                    },
                   ],
                 }
               }
               return {
                 ...s,
-                messages: [...s.messages, { role: 'assistant', content: d.text ?? '', streaming: true }],
+                messages: [
+                  ...s.messages,
+                  { role: 'assistant', content: d.text ?? '', streaming: true, thinkingDone: false },
+                ],
               }
+            })
+          } else if (event === 'done') {
+            updateSession(sid, (s) => {
+              const msgs = s.messages.map((m) =>
+                m.role === 'tool'
+                  ? { ...m, done: true }
+                  : m.role === 'assistant' && m.streaming
+                    ? { ...m, streaming: false, thinkingDone: true }
+                    : m,
+              )
+              const last = msgs[msgs.length - 1]
+              if (last?.role === 'assistant') {
+                msgs[msgs.length - 1] = { ...last, thinkingDone: true }
+              } else {
+                // Nothing streamed at all — surface the final answer directly.
+                msgs.push({
+                  role: 'assistant',
+                  content: (d.answer ?? '') as string,
+                  streaming: false,
+                  thinkingDone: true,
+                })
+              }
+              return { ...s, messages: msgs }
             })
           }
         }, history)
@@ -266,9 +351,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         updateSession(sid, (s) => ({
           ...s,
           updatedAt: Date.now(),
-          messages: s.messages.map((m) =>
-            m.role === 'assistant' && m.streaming ? { ...m, streaming: false } : m,
-          ),
+          messages: s.messages.map((m) => {
+            if (m.role === 'assistant') return { ...m, streaming: false, thinkingDone: true }
+            if (m.role === 'tool' && !m.done) return { ...m, done: true }
+            return m
+          }),
         }))
         setBusy(false)
       }
