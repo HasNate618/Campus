@@ -57,6 +57,17 @@ def file_raw(file_id: int):
     raise HTTPException(403, "Forbidden")
 
 
+@router.get("/assets/{rel_path:path}")
+def asset(rel_path: str):
+    """Serve locally-cached content assets (images downloaded by
+    tools/cache_images.py). Path-guarded to SCHOOL_ROOT."""
+    from fastapi.responses import FileResponse
+    p = (services.SCHOOL_ROOT / rel_path).resolve()
+    if not p.is_relative_to(services.SCHOOL_ROOT.resolve()) or not p.exists() or not p.is_file():
+        raise HTTPException(404, "Asset not found")
+    return FileResponse(p)
+
+
 # Brightspace-hosted images inside html content need an authenticated fetch —
 # the browser has no Brightspace session, so we proxy through the API token.
 _ALLOWED_PROXY_HOSTS = ("westernu.brightspace.com", "s.brightspace.com")

@@ -200,6 +200,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       }))
 
       try {
+        const history = (sessions.find((s) => s.id === sid)?.messages ?? [])
+          .filter(
+            (m): m is Extract<ChatMsg, { role: 'user' | 'assistant' }> =>
+              m.role !== 'tool' && !(m.role === 'assistant' && m.streaming),
+          )
+          .map((m) => ({ role: m.role, content: m.content }))
         await streamChat(text, courseId, (event, data) => {
           const d = data as Record<string, string>
           if (event === 'tool_start') {
@@ -243,7 +249,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               }
             })
           }
-        })
+        }, history)
       } catch (err) {
         updateSession(sid, (s) => ({
           ...s,
