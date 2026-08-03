@@ -176,15 +176,36 @@ function migrateV2(raw: ChatSessionV2[]): ChatSession[] {
   })
 }
 
+/** Zombie nodes are assistant messages whose stream died mid-turn (page
+ *  reload/close before done) — they were persisted as 'Thinking…' forever.
+ *  Normalize them so a reloaded chat never shows a spinner that never ends. */
+function normalizeZombies(s: ChatSession): ChatSession {
+  let changed = false
+  const nodes = s.nodes.map((n) => {
+    if (n.role !== 'assistant') return n
+    if (n.streaming || (n.thinking && !n.thinkingDone)) {
+      changed = true
+      return {
+        ...n,
+        streaming: false,
+        thinkingDone: true,
+        content: n.content || '⚠ The response was cut short (the page reloaded mid-turn). Try again.',
+      }
+    }
+    return n
+  })
+  return changed ? { ...s, nodes } : s
+}
+
 function loadSessions(): ChatSession[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return JSON.parse(raw) as ChatSession[]
+    if (raw) return (JSON.parse(raw) as ChatSession[]).map(normalizeZombies)
     const v2 = localStorage.getItem(V2_KEY)
     if (v2) {
       const migrated = migrateV2(JSON.parse(v2) as ChatSessionV2[])
       localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated.map(stripUiFlags)))
-      return migrated
+      return migrated.map(normalizeZombies)
     }
   } catch {
     /* ignore corrupt storage */
@@ -262,7 +283,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   function toLocalSession(srv: ChatServerSession): ChatSession {
     const ts = new Date(srv.updatedAt.replace(' ', 'T')).getTime()
-    return {
+    return normalizeZombies({
       id: makeUuid(), // fresh client id — server id lives in serverId
       serverId: srv.id,
       courseId: srv.courseId ?? 0,
@@ -271,7 +292,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       updatedAt: Number.isFinite(ts) ? ts : Date.now(),
       nodes: (srv.nodes ?? []) as MsgNode[],
       activeNodeId: srv.activeNodeId ?? null,
-    }
+    })
   }
 
   // Load server-side sessions once on mount (source of truth; localStorage is
