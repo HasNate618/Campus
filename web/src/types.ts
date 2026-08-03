@@ -40,9 +40,20 @@ export interface ContentNode {
   node_type: 'module' | 'topic'
   topic_type?: string | null
   title: string
+  /** Modules carry Brightspace landing-page HTML; link topics carry the external URL. */
+  description?: string | null
+  url?: string | null
   sort_order: number
   is_hidden?: number
   is_locked?: number
+}
+
+export type FileFormat = 'markdown' | 'html' | 'code' | 'pdf' | 'download'
+
+export interface FileContent {
+  content: string
+  format: FileFormat
+  rawUrl: string | null
 }
 
 export interface FileRecord {

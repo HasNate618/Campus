@@ -7,7 +7,48 @@ import { useChat } from '@/chat/ChatContext'
 import { SplitPane } from '@/components/SplitPane'
 import { courseColor } from '@/lib/courses'
 import { fmtDateTime, fmtRelative } from '@/lib/format'
-import type { Course, CourseHub } from '@/types'
+import type { Announcement, Course, CourseHub } from '@/types'
+
+const ANNOUNCE_CLAMP_LEN = 180
+
+function AnnouncementRow({ a }: { a: Announcement }) {
+  const [expanded, setExpanded] = useState(false)
+  const long = (a.body?.length ?? 0) > ANNOUNCE_CLAMP_LEN
+  return (
+    <div className="row" style={{ alignItems: 'flex-start' }}>
+      <div className="row-main">
+        <div className="row-title">{a.title}</div>
+        {a.body && (
+          <>
+            <div
+              className="row-sub"
+              style={
+                expanded
+                  ? undefined
+                  : {
+                      display: '-webkit-box',
+                      WebkitLineClamp: 3,
+                      WebkitBoxOrient: 'vertical',
+                      overflow: 'hidden',
+                    }
+              }
+            >
+              {a.body}
+            </div>
+            {long && (
+              <button className="ann-toggle" onClick={() => setExpanded((e) => !e)}>
+                {expanded ? 'Show less' : 'Show more'}
+              </button>
+            )}
+          </>
+        )}
+      </div>
+      <span className="chip" title={a.posted_at ?? undefined}>
+        {fmtRelative(a.posted_at)}
+      </span>
+    </div>
+  )
+}
 
 export function CourseLayout() {
   const { courseId } = useParams()
@@ -94,24 +135,7 @@ export function CourseHubPage() {
           <div className="empty compact">No announcements.</div>
         )}
         {hub.announcements.map((a) => (
-          <div className="row" key={a.id} style={{ alignItems: 'flex-start' }}>
-            <div className="row-main">
-              <div className="row-title">{a.title}</div>
-              {a.body && (
-                <div className="row-sub" style={{
-                  display: '-webkit-box',
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: 'vertical',
-                  overflow: 'hidden',
-                }}>
-                  {a.body}
-                </div>
-              )}
-            </div>
-            <span className="chip" title={a.posted_at ?? undefined}>
-              {fmtRelative(a.posted_at)}
-            </span>
-          </div>
+          <AnnouncementRow key={a.id} a={a} />
         ))}
       </div>
 

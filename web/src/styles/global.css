@@ -348,6 +348,35 @@
     font-size: 12.5px;
   }
 
+  .ann-toggle {
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--violet);
+    background: none;
+    border: none;
+    padding: 4px 0 0;
+    cursor: pointer;
+  }
+
+  .ann-toggle:hover {
+    text-decoration: underline;
+  }
+
+  /* course cards: title row + wrapping chips row (chips never squeeze the title) */
+  .course-card-top {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .course-card-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+  }
+
   .chip {
     font-size: 11.5px;
     font-weight: 600;
@@ -925,23 +954,59 @@
 
   .split {
     display: grid;
-    grid-template-columns: 300px 1fr;
+    grid-template-columns: 300px minmax(0, 1fr);
     gap: 16px;
     align-items: start;
+    min-width: 0;
+  }
+
+  .split > * {
+    min-width: 0;
+  }
+
+  .split-tree {
+    max-height: 70vh;
+    overflow-y: auto;
   }
 
   .tree-module {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-weight: 700;
     font-size: 13px;
-    padding: 10px 8px 4px;
+    padding: 9px 8px 5px;
+    border-radius: 8px;
     color: var(--text-1);
+    text-decoration: none;
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease;
+  }
+
+  .tree-module:hover {
+    background: var(--glass-bg-strong);
+  }
+
+  .tree-module.selected {
+    color: var(--violet);
+  }
+
+  .tree-module-chevron {
+    flex-shrink: 0;
+    color: var(--text-3);
+    transition: transform 140ms ease;
+  }
+
+  .tree-module.selected .tree-module-chevron {
+    transform: rotate(90deg);
+    color: var(--violet);
   }
 
   .tree-topic {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 7px 8px 7px 20px;
+    padding: 7px 8px 7px 26px;
     border-radius: 8px;
     color: var(--text-2);
     text-decoration: none;
@@ -975,6 +1040,63 @@
     color: var(--text-3);
     margin-top: 2px;
     word-break: break-all;
+  }
+
+  /* per-format file viewers */
+  .code-view {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text-1);
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-ctl);
+    padding: 12px 14px;
+    max-width: 100%;
+    overflow-x: auto;
+    margin: 0;
+  }
+
+  .pdf-view {
+    display: block;
+    width: 100%;
+    height: 72vh;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-ctl);
+    background: #1a1a20;
+  }
+
+  .viewer-note {
+    font-size: 12.5px;
+    color: var(--amber);
+    margin: 0 0 10px;
+  }
+
+  .viewer-actions {
+    margin-top: 14px;
+  }
+
+  /* keep wide Brightspace HTML inside the pane, never the viewport */
+  .md {
+    overflow-wrap: break-word;
+    min-width: 0;
+  }
+
+  .md table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .md img {
+    max-width: 100%;
+    height: auto;
+  }
+
+  .md iframe {
+    max-width: 100%;
   }
 
   /* ---------- sync log ---------- */
@@ -1216,6 +1338,31 @@
     margin: 5px 6px;
   }
 
+  /* course picker: compact rows, scrolls instead of overflowing the phone */
+  .course-picker {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    min-width: 220px;
+    max-width: min(320px, calc(100vw - 32px));
+    max-height: min(60vh, 420px);
+    overflow-y: auto;
+  }
+
+  .course-picker .popover-item {
+    gap: 8px;
+    font-size: 12.5px;
+  }
+
+  .course-picker .popover-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+  }
+
   .popover-row {
     display: flex;
     align-items: center;
@@ -1300,6 +1447,28 @@
 
     .split {
       grid-template-columns: 1fr;
+    }
+
+    /* content page: one pane at a time — list, or viewer with a back link */
+    .split-tree {
+      max-height: none;
+      overflow: visible;
+    }
+
+    .split-viewer {
+      display: none;
+    }
+
+    .split.has-selection .split-tree {
+      display: none;
+    }
+
+    .split.has-selection .split-viewer {
+      display: block;
+    }
+
+    .pdf-view {
+      height: 62vh;
     }
 
     .tabbar {

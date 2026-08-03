@@ -35,10 +35,10 @@ export function CoursesPage() {
           <Link
             key={c.id}
             to={`/courses/${c.id}`}
-            className="card"
+            className="card course-card"
             style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div className="course-card-top">
               <span className="dot" style={{ background: courseColor(c) }} />
               <div className="row-main">
                 <div className="row-title">{c.code}</div>
@@ -46,6 +46,8 @@ export function CoursesPage() {
                   {c.name} · {c.term}
                 </div>
               </div>
+            </div>
+            <div className="course-card-chips">
               <span className="chip">{c.file_count ?? 0} files</span>
               <span className="chip">{c.assignment_count ?? 0} assignments</span>
               {c.last_sync_at && <span className="chip">{fmtRelative(c.last_sync_at)}</span>}
