@@ -18,6 +18,9 @@ function fileExt(path: string): string {
   return i >= 0 ? path.slice(i + 1).toLowerCase() : ''
 }
 
+/** Content page view modes: two-pane desktop layout vs single-panel. */
+type ViewMode = 'sideBySide' | 'fullWidth'
+
 /** Per-kind chip for the tree + viewer, derived from the file path/format. */
 function kindChip(file: FileRecord, format?: FileFormat): { label: string; cls: string } {
   const ext = fileExt(file.path)
@@ -147,7 +150,7 @@ function FileBody({
       )
     case 'pdf':
       return (
-        <>
+        <div className="pdf-zen">
           {(rawUrl || content) && (
             <div className="viewer-actions" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
               {rawUrl && (
@@ -161,15 +164,19 @@ function FileBody({
             </div>
           )}
           {showMd && content ? (
-            <ZenMarkdown content={content} />
+            <div className="pdf-text-view">
+              <ZenMarkdown content={content} />
+            </div>
           ) : rawUrl ? (
             <PdfViewer src={rawUrl} />
           ) : content ? (
-            <ZenMarkdown content={content} />
+            <div className="pdf-text-view">
+              <ZenMarkdown content={content} />
+            </div>
           ) : (
             <div className="empty compact">PDF unavailable.</div>
           )}
-        </>
+        </div>
       )
     case 'download':
       return (
@@ -242,9 +249,27 @@ export function ContentPage() {
   const children = (parentId: number) => nodes.filter((n) => n.parent_id === parentId)
   const fileForNode = (id: number) => files.find((f) => f.content_node_id === id)
 
-  // Collapsible tree (per-module). View mode is single-panel: the URL drives
-  // it — no node selected = tree full-width; node selected = content
-  // full-width with the All-topics back button.
+  // View mode: 'fullWidth' (default) = single panel — the URL drives it;
+  // no node selected = tree full-width, node selected = content full-width
+  // with the All-topics back button. 'sideBySide' = two-pane desktop layout,
+  // tree always visible beside the viewer (empty-state hint when nothing is
+  // selected). Persisted per-browser.
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    try {
+      return localStorage.getItem('hc.content.viewMode') === 'sideBySide' ? 'sideBySide' : 'fullWidth'
+    } catch {
+      return 'fullWidth'
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem('hc.content.viewMode', viewMode)
+    } catch {
+      /* storage unavailable — keep in-memory only */
+    }
+  }, [viewMode])
+
+  // Collapsible tree (per-module).
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
   const toggleModule = (id: number) =>
     setCollapsed((prev) => {
@@ -256,9 +281,16 @@ export function ContentPage() {
   const allCollapsed = modules.length > 0 && modules.every((m) => collapsed.has(m.id))
 
   return (
-    <div className={`split${nid != null ? ' has-selection' : ''}`}>
+    <div className={`split split-mode-${viewMode}${nid != null ? ' has-selection' : ''}`}>
       <div className="card split-tree">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 4px 6px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '0 4px 6px' }}>
+          <button
+            className="btn btn-outline btn-sm"
+            onClick={() => setViewMode((m) => (m === 'fullWidth' ? 'sideBySide' : 'fullWidth'))}
+            title={viewMode === 'fullWidth' ? 'Show the content tree beside the viewer' : 'Show one panel at a time'}
+          >
+            {viewMode === 'fullWidth' ? 'Side by side' : 'Full width'}
+          </button>
           <button
             className="btn btn-outline btn-sm"
             onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(modules.map((m) => m.id)))}
@@ -305,7 +337,7 @@ export function ContentPage() {
         ))}
       </div>
 
-      <div className="card split-viewer" style={{ minHeight: 300 }}>
+      <div className={`card split-viewer${contentInfo?.format === 'pdf' ? ' pdf-mode' : ''}`} style={{ minHeight: 300 }}>
         {!selectedNode ? (
           <div className="empty">Select a topic from the tree.</div>
         ) : (

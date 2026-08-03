@@ -960,16 +960,22 @@
     min-width: 0;
   }
 
-  /* single-panel view mode: tree XOR content, full width each */
-  .split.has-selection {
+  /* View modes (driven by .split-mode-* on the .split element):
+     - split-mode-full (default): single panel — tree XOR content, each full
+       width. The tree spans the whole row when nothing is selected (no empty
+       gutter beside it); the viewer hides until a node is picked.
+     - split-mode-split: two-pane desktop layout — 300px tree always visible
+       beside the viewer (which shows an empty-state hint until a node is
+       picked). */
+  .split.split-mode-full {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .split.has-selection .split-tree {
+  .split.split-mode-full.has-selection .split-tree {
     display: none;
   }
 
-  .split:not(.has-selection) .split-viewer {
+  .split.split-mode-full:not(.has-selection) .split-viewer {
     display: none;
   }
 
@@ -1106,6 +1112,69 @@
 
   .viewer-actions {
     margin-top: 14px;
+  }
+
+  /* ---------- PDF: zen full-bleed surface ----------
+     When a pdf file is open, .split-viewer.pdf-mode drops the glass-card
+     chrome (padding/background/border) so the document sits on its own
+     github-dark zen surface (.pdf-zen) spanning the full column instead of
+     being boxed inside the app card. */
+  .split-viewer.pdf-mode {
+    padding: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .split-viewer.pdf-mode .viewer-head {
+    padding: 0 18px 16px;
+    margin-bottom: 0;
+  }
+
+  .pdf-zen {
+    width: 100%;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: var(--radius-card);
+    padding: 18px 16px 16px;
+  }
+
+  /* controls on the dark frame: keep btn-outline shape, github-dark chrome */
+  .pdf-zen .viewer-actions {
+    margin-top: 0;
+    margin-bottom: 10px;
+  }
+
+  .pdf-zen .btn-outline {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: #30363d;
+    color: var(--text-1);
+  }
+
+  .pdf-zen .btn-outline:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.09);
+    border-color: #484f58;
+  }
+
+  .pdf-zen .viewer-note {
+    color: var(--amber);
+  }
+
+  /* extracted-text fallback rendered on the same zen surface */
+  .pdf-zen .pdf-text-view {
+    padding: 2px 4px 6px;
+  }
+
+  /* pdf.js pages float on the zen surface (canvas itself stays transparent) */
+  .pdf-viewer {
+    width: 100%;
+  }
+
+  .pdf-viewer canvas {
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+    border-radius: 4px;
   }
 
   /* keep wide Brightspace HTML inside the pane, never the viewport */
@@ -1475,8 +1544,12 @@
       padding-bottom: 86px;
     }
 
-    .split {
-      grid-template-columns: 1fr;
+    /* mobile: one column in BOTH view modes (side-by-side is pointless on
+       phones) — the mode-specific grid rules below must keep the single
+       column, so override both modes explicitly */
+    .split.split-mode-full,
+    .split.split-mode-split {
+      grid-template-columns: minmax(0, 1fr);
     }
 
     /* content page: one pane at a time — list, or viewer with a back link */
