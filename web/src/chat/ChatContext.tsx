@@ -81,7 +81,7 @@ interface ChatContextValue {
   openSession: (courseId: number, sessionId: string) => void
   newChat: (courseId: number) => void
   deleteSession: (sessionId: string) => void
-  send: (courseId: number, text: string) => void
+  send: (courseId: number, text: string) => boolean
   regenerate: (sessionId: string, nodeId: string) => void
   editMessage: (sessionId: string, nodeId: string, newText: string) => void
   deleteMessage: (sessionId: string, nodeId: string) => void
@@ -311,6 +311,18 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           const created = await api.chatSessionCreate(s.courseId, s.title)
           const serverId = String(created.id)
           setSessions((ss) => ss.map((x) => (x.id === s.id ? { ...x, id: serverId } : x)))
+          // keep the active-map pointing at this session through the id swap
+          setActiveMap((m) => {
+            let changed = false
+            const next = { ...m }
+            for (const [k, v] of Object.entries(next)) {
+              if (v === s.id) {
+                next[Number(k)] = serverId
+                changed = true
+              }
+            }
+            return changed ? next : m
+          })
           await api.chatSessionSave(created.id, payload)
         }
       }
@@ -356,7 +368,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const activeFor = useCallback(
     (courseId: number) => {
       const id = activeMap[courseId]
-      return sessions.find((s) => s.id === id) ?? null
+      const found = id ? sessions.find((s) => s.id === id) : undefined
+      if (found) return found
+      // stale/missing active (e.g. after an id promotion) — fall back to the
+      // most recently updated session for the course instead of a blank chat
+      return (
+        sessions
+          .filter((s) => s.courseId === courseId)
+          .sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null
+      )
     },
     [sessions, activeMap],
   )
@@ -541,8 +561,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   )
 
   const send = useCallback(
-    (courseId: number, text: string) => {
-      if (busyRef.current || !text.trim()) return
+    (courseId: number, text: string): boolean => {
+      if (busyRef.current || !text.trim()) return false
       let sid = activeFor(courseId)?.id
       if (!sid) {
         // first message of a new session — create it inline (async newChat
@@ -582,6 +602,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       setBusy(true)
       setLastCourse(courseId)
       streamTurn(sid, userNodeId, text, courseId, history)
+      return true
     },
     [activeFor, sessions, setLastCourse, streamTurn],
   )
