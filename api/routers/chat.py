@@ -31,15 +31,15 @@ def _inject_reasoning(history: list[dict], key: tuple) -> list[dict]:
     out = list(history)
     for m in reversed(out):
         if m.get("role") == "assistant":
-            m["reasoning_content"] = cached
+            m["reasoning_content"] = cached  # provider passback requirement
             break
     return out
 
 
 def _store_reasoning(history: list[dict], key: tuple) -> None:
     for m in reversed(history):
-        if m.get("role") == "assistant" and m.get("reasoning_content"):
-            _reasoning_cache[key] = m["reasoning_content"]
+        if m.get("role") == "assistant" and (m.get("reasoning") or m.get("reasoning_content")):
+            _reasoning_cache[key] = m.get("reasoning") or m.get("reasoning_content")
             return
 
 

@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { motion } from 'framer-motion'
-import ReactMarkdown from 'react-markdown'
 import {
   ArrowUp,
+  Brain,
   Check,
   ChevronDown,
   GraduationCap,
@@ -14,8 +14,11 @@ import {
 } from 'lucide-react'
 import { courseColor } from '@/lib/courses'
 import { fmtRelative } from '@/lib/format'
-import { useChat } from './ChatContext'
+import { ZenMarkdown } from '@/lib/ZenMarkdown'
+import { useChat, type ChatMsg } from './ChatContext'
 import type { Course } from '@/types'
+
+type ToolMsg = Extract<ChatMsg, { role: 'tool' }>
 
 const SUGGESTIONS = [
   "What's due this week?",
@@ -54,6 +57,10 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
   const [input, setInput] = useState('')
   const [historyOpen, setHistoryOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
+  // Per-turn tool-group expansion and per-message thinking-block expansion
+  // (ephemeral UI state — deliberately not persisted).
+  const [expandedTurns, setExpandedTurns] = useState<Record<number, boolean>>({})
+  const [expandedThinking, setExpandedThinking] = useState<Record<string, boolean>>({})
   const scrollRef = useRef<HTMLDivElement>(null)
   const historyRef = useRef<HTMLDivElement>(null)
   const pickerRef = useRef<HTMLDivElement>(null)
@@ -63,8 +70,151 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 
   useEffect(() => {
     const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [session?.messages, session?.id])
+    if (!el) return
+    // Follow the stream while busy; otherwise only keep pinned to the bottom
+    // when the user is already near it (don't yank them out of old content).
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120
+    if (busy || nearBottom) el.scrollTop = el.scrollHeight
+  }, [session?.messages, session?.id, busy])
+
+  const toggleTurn = (groupKey: number) =>
+    setExpandedTurns((t) => ({ ...t, [groupKey]: !t[groupKey] }))
+
+  const renderMessages = (): ReactNode[] => {
+    if (!session) return []
+    const msgs = session.messages
+    const out: ReactNode[] = []
+    for (let i = 0; i < msgs.length; i++) {
+      const m = msgs[i]
+      const key = `${session.id}-${i}`
+      if (m.role === 'tool') {
+        // Group consecutive tool messages of the same turn; once every call
+        // in the group finished, collapse them into one summary row.
+        let j = i
+        const group: { m: ToolMsg; idx: number }[] = []
+        while (j < msgs.length && msgs[j].role === 'tool') {
+          group.push({ m: msgs[j] as ToolMsg, idx: j })
+          j++
+        }
+        const allDone = group.every((g) => g.m.done)
+        const groupKey = group[0].m.turnId ?? group[0].idx
+        if (allDone && !expandedTurns[groupKey]) {
+          out.push(
+            <motion.div
+              key={key}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.18 }}
+            >
+              <button
+                className="tool-chip"
+                onClick={() => toggleTurn(groupKey)}
+                title="Expand tool calls"
+                style={{ color: 'var(--text-3)' }}
+              >
+                <Wrench size={13} />
+                {group.length} tool call{group.length === 1 ? '' : 's'}
+                <ChevronDown size={12} style={{ opacity: 0.6 }} />
+              </button>
+            </motion.div>,
+          )
+        } else {
+          group.forEach((g) => {
+            out.push(
+              <motion.div
+                key={`${session.id}-${g.idx}`}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.18 }}
+                style={{ display: 'flex', flexDirection: 'column' }}
+              >
+                <button className="tool-chip" onClick={() => toggleTool(session.id, g.idx)}>
+                  {g.m.done ? <Check size={13} /> : <Loader2 size={13} className="animate-spin" />}
+                  <Wrench size={13} />
+                  {g.m.tool}
+                  <span style={{ opacity: 0.6 }}>{g.m.done ? '· done' : '· running'}</span>
+                </button>
+                {g.m.open && (
+                  <div className="tool-detail">
+                    {g.m.args && `args:   ${g.m.args}\n`}
+                    {g.m.done ? `result: ${g.m.result ?? '—'}` : 'running…'}
+                  </div>
+                )}
+              </motion.div>,
+            )
+          })
+        }
+        i = j - 1
+        continue
+      }
+
+      if (m.role === 'user') {
+        out.push(
+          <motion.div
+            key={key}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.18 }}
+          >
+            <div className="msg-user">{m.content}</div>
+          </motion.div>,
+        )
+        continue
+      }
+
+      // assistant: chain-of-thought block (collapsed once done, live while
+      // streaming) + zen-rendered markdown + stream cursor
+      const thinkingOpen = !!(m.thinking && (!m.thinkingDone || expandedThinking[key]))
+      out.push(
+        <motion.div
+          key={key}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.18 }}
+          style={{ display: 'flex', flexDirection: 'column' }}
+        >
+          <div className="msg-assistant">
+            {m.thinking ? (
+              <div style={{ marginBottom: 8 }}>
+                <button
+                  className="tool-chip"
+                  onClick={() => setExpandedThinking((t) => ({ ...t, [key]: !t[key] }))}
+                  style={{ color: 'var(--text-3)', fontFamily: 'inherit', fontSize: 12 }}
+                  title={m.thinkingDone ? 'Show chain-of-thought' : 'Chain-of-thought streaming'}
+                >
+                  {m.thinkingDone ? (
+                    <Brain size={12} />
+                  ) : (
+                    <Loader2 size={12} className="animate-spin" />
+                  )}
+                  <span>{m.thinkingDone ? 'Thought' : 'Thinking…'}</span>
+                  <ChevronDown
+                    size={12}
+                    style={{
+                      transform: thinkingOpen ? 'rotate(180deg)' : 'none',
+                      transition: 'transform 120ms ease',
+                      opacity: 0.6,
+                    }}
+                  />
+                </button>
+                {thinkingOpen && (
+                  <div
+                    className="tool-detail"
+                    style={{ fontStyle: 'italic', maxHeight: 'min(40vh, 320px)', overflowY: 'auto' }}
+                  >
+                    {m.thinking}
+                  </div>
+                )}
+              </div>
+            ) : null}
+            <ZenMarkdown content={m.content} />
+            {m.streaming && <span className="stream-cursor" />}
+          </div>
+        </motion.div>,
+      )
+    }
+    return out
+  }
 
   useEffect(() => {
     if (!historyOpen && !pickerOpen) return
@@ -202,41 +352,30 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
               </div>
             </div>
           ) : (
-            session.messages.map((m, i) => (
-              <motion.div
-                key={`${session.id}-${i}`}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.18 }}
-                style={{ display: 'flex', flexDirection: 'column' }}
-              >
-                {m.role === 'user' && <div className="msg-user">{m.content}</div>}
-                {m.role === 'assistant' && (
-                  <div className="msg-assistant">
-                    <div className="md" style={{ display: 'inline' }}>
-                      <ReactMarkdown>{m.content}</ReactMarkdown>
-                    </div>
-                    {m.streaming && <span className="stream-cursor" />}
+            <>
+              {renderMessages()}
+              {busy && session?.messages[session.messages.length - 1]?.role === 'user' && (
+                <motion.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.18 }}
+                >
+                  <div
+                    className="msg-assistant"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      fontSize: 13,
+                      color: 'var(--text-2)',
+                    }}
+                  >
+                    <Loader2 size={14} className="animate-spin" style={{ color: 'var(--violet)' }} />
+                    Thinking…
                   </div>
-                )}
-                {m.role === 'tool' && (
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <button className="tool-chip" onClick={() => toggleTool(session.id, i)}>
-                      {m.done ? <Check size={13} /> : <Loader2 size={13} className="animate-spin" />}
-                      <Wrench size={13} />
-                      {m.tool}
-                      <span style={{ opacity: 0.6 }}>{m.done ? '· done' : '· running'}</span>
-                    </button>
-                    {m.open && (
-                      <div className="tool-detail">
-                        {m.args && `args:   ${m.args}\n`}
-                        {m.done ? `result: ${m.result ?? '—'}` : 'running…'}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </motion.div>
-            ))
+                </motion.div>
+              )}
+            </>
           )}
         </div>
       </div>
