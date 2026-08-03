@@ -171,7 +171,7 @@ def chat_repl(cfg: Config, db: DB, course_code: str | None = None,
             print(f"Scoped to course: {course_code}")
         else:
             print(f"Unknown course: {course_code} — continuing unscoped")
-    print("HippoCampus chat. Type 'exit' to quit. (model: %s)" % (model or cfg.bifrost_model))
+    print("Campus chat. Type 'exit' to quit. (model: %s)" % (model or cfg.bifrost_model))
     history: list[dict] = []
     while True:
         try:
@@ -184,7 +184,7 @@ def chat_repl(cfg: Config, db: DB, course_code: str | None = None,
         if q.lower() in ("exit", "quit"):
             break
         answer, history = run_turn(cfg, db, q, course_id=course_id, model=model, history=history)
-        print(f"\nhippo> {answer}")
+        print(f"\ncampus> {answer}")
         # keep history bounded (drop system + oldest user/assistant pairs)
         if len(history) > 24:
             history = history[-20:]
@@ -196,7 +196,7 @@ def main() -> int:
 
     from sync.token_store import TokenStore
 
-    ap = argparse.ArgumentParser(description="HippoCampus agent chat")
+    ap = argparse.ArgumentParser(description="Campus agent chat")
     ap.add_argument("--one", help="single question, no REPL")
     ap.add_argument("--course", help="course code scope, e.g. 'SE 2250B'")
     ap.add_argument("--model", help="bifrost model override")

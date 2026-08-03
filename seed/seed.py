@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Seed the hippocampus database with courses + schedule from seed/courses.json.
+"""Seed the campus database with courses + schedule from seed/courses.json.
 
 Usage: python3 seed/seed.py [--db PATH] [--reset]
 """

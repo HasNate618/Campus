@@ -278,7 +278,7 @@ def _trawl_call(cfg: Config, tool: str, args: dict) -> dict:
 
 
 # ── terminal ────────────────────────────────────────────────────────────
-# Runs inside the hippo container (the jail): no docker socket, no host
+# Runs inside the campus container (the jail): no docker socket, no host
 # secrets, no /etc/nixos, no mounts outside the workspace. Blocklist +
 # audit are accident-prevention and visibility, not a security boundary —
 # the container IS the boundary.

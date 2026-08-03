@@ -21,7 +21,7 @@ it changed and revert.
 
 ```
 ┌────────────┐   ┌──────────────┐   ┌─────────────────┐
-│ Android    │──▶│  hippocampus (1 container, proxy net)  │
+│ Android    │──▶│  campus (1 container, proxy net)  │
 │ recorder   │   │              │   │                 │
 └────────────┘   │  FastAPI      │──▶ bifrost (LLM: digests, chat, facts)
                  │  + SQLite     │──▶ cohere transcribe (whisper:8086)

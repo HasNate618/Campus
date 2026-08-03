@@ -85,7 +85,7 @@ def proxy(url: str):
         raise HTTPException(403, "Scheme not allowed")
     try:
         import httpx
-        headers = {"User-Agent": "HippoCampus/0.1"}
+        headers = {"User-Agent": "Campus/0.1"}
         # enforced-content URLs need the browser session — use the cookies
         # captured at auth time when available
         cookie_file = Path(cfg.token_dir) / "cookies.json"

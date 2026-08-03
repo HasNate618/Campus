@@ -1,4 +1,4 @@
-"""HippoCampus FastAPI application."""
+"""Campus FastAPI application."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from api.routers import chat, courses, data, digest, sync
 
 ensure_wal()  # WAL so API readers never block the sync writer
 
-app = FastAPI(title="HippoCampus", version="0.3.0")
+app = FastAPI(title="Campus", version="0.3.0")
 
 app.add_middleware(
     CORSMiddleware,

@@ -24,7 +24,7 @@ HOSTS = ("westernu.brightspace.com", "s.brightspace.com")
 
 def _session_headers(cfg: Config) -> dict:
     cookie_file = Path(cfg.token_dir) / "cookies.json"
-    headers = {"User-Agent": "HippoCampus/0.1"}
+    headers = {"User-Agent": "Campus/0.1"}
     if cookie_file.exists():
         try:
             data = json.loads(cookie_file.read_text())

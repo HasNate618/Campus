@@ -23,7 +23,7 @@ export function MorePage() {
       sub: lastRun ? `Last run ${fmtRelative(lastRun.started_at)} · ${lastRun.status}` : 'Never synced',
     },
     { to: '/more', icon: Settings, label: 'Settings', sub: 'Appearance, courses, memory — coming soon' },
-    { to: '/more', icon: Info, label: 'About', sub: 'HippoCampus · personal AI study system' },
+    { to: '/more', icon: Info, label: 'About', sub: 'Campus · personal AI study system' },
   ]
 
   return (

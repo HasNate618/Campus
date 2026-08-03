@@ -1,7 +1,7 @@
 {
   "id": "/today",
-  "name": "HippoCampus",
-  "short_name": "Hippo",
+  "name": "Campus",
+  "short_name": "Campus",
   "description": "Personal AI study system for Western SE",
   "start_url": "/today",
   "scope": "/",

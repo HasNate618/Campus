@@ -45,7 +45,7 @@ export function Sidebar() {
         <div className="logo-mark">
           <GraduationCap size={17} />
         </div>
-        <span className="brand-name side-label">HippoCampus</span>
+        <span className="brand-name side-label">Campus</span>
       </div>
 
       <div className="sidebar-scroll">

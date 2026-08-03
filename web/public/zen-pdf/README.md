@@ -1,6 +1,6 @@
 # Zen PDF Viewer (vendored)
 
-This directory is the HippoCampus-embedded copy of Nate's
+This directory is the Campus-embedded copy of Nate's
 [zen-pdf-viewer](https://github.com/HasNate618/zen-pdf-viewer) single-file
 viewer, served statically from `/zen-pdf/*` and embedded by the content page
 in an `<iframe>`:

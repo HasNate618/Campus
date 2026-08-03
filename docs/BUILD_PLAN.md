@@ -1,4 +1,4 @@
-# HippoCampus — Build Plan
+# Campus — Build Plan
 
 Status: planning complete, decisions locked. No implementation yet beyond the
 existing H1 sync engine + agent harness (both working on host).
@@ -7,7 +7,7 @@ existing H1 sync engine + agent harness (both working on host).
 
 | Decision | Choice |
 |----------|--------|
-| Container | One container `hippo`, proxy network, NixOS module, Caddy school.home.lab |
+| Container | One container `campus`, proxy network, NixOS module, Caddy school.home.lab |
 | Terminal network | Full network inside container |
 | Web app auth | NONE — plain Caddy route on LAN/Tailscale (no Authelia) |
 | Loop timing | Nudge at 22, hard stop at 24 |
@@ -82,7 +82,7 @@ regens only on diff (quiet sync → no regen).
 
 ## Phase 1 — Container (the sandbox)
 
-- NixOS module `hippo` on proxy network; image: python3 + node + git + rg
+- NixOS module `campus` on proxy network; image: python3 + node + git + rg
   (+ dotnet SDK when a course needs it).
 - Volumes: /srv/homelab/school (rw), data/harness.db, ~/.hippocampus
   (token + browser profile — sync keeps working from the container).

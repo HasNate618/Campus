@@ -65,8 +65,8 @@ def main() -> int:
         # one completion ping (the sync's own ntfy already fired)
         try:
             import httpx as _h
-            _h.post(f"{cfg.ntfy_url}/hippocampus",
-                    json={"topic": "hippocampus", "message": f"Extraction done — {n} PDFs extracted",
+            _h.post(f"{cfg.ntfy_url}/campus",
+                    json={"topic": "campus", "message": f"Extraction done — {n} PDFs extracted",
                           "priority": "default"}, timeout=10)
         except Exception:
             pass

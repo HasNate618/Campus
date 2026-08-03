@@ -1,4 +1,4 @@
-# HippoCampus runtime image — multi-stage: build the React PWA, then run the
+# Campus runtime image — multi-stage: build the React PWA, then run the
 # FastAPI backend (api/) + harness (agent/, sync/) with Playwright for auth.
 # Runs as nate (uid 1000): cap-drop ALL strips CAP_DAC_OVERRIDE, so the
 # container must run as the owner of the mounted paths, not root.
@@ -40,8 +40,8 @@ COPY agent/ ./agent/
 COPY sync/ ./sync/
 COPY --from=web-build /app/web/dist ./web/dist
 
-ENV HIPPO_DB=/app/data/harness.db
+ENV CAMPUS_DB=/app/data/harness.db
 EXPOSE 8000
 # seed only when the DB is missing (prod data comes from sync, not seeds);
 # pilot_data.py is a dev-only mock, never run here
-CMD ["sh", "-c", "test -f $HIPPO_DB || python seed/seed.py 2>/dev/null || true; uvicorn api.main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "test -f $CAMPUS_DB || python seed/seed.py 2>/dev/null || true; uvicorn api.main:app --host 0.0.0.0 --port 8000"]

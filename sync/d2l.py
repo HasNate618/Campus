@@ -12,7 +12,7 @@ import time
 
 import httpx
 
-UA = "HippoCampus/0.1 (personal sync; nate@uwo.ca)"
+UA = "Campus/0.1 (personal sync; nate@uwo.ca)"
 
 
 class D2LError(Exception):

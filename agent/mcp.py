@@ -45,7 +45,7 @@ class MCPClient:
     def connect(self) -> None:
         self._post({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
             "protocolVersion": "2025-03-26", "capabilities": {},
-            "clientInfo": {"name": "hippocampus-agent", "version": "0.1"}}})
+            "clientInfo": {"name": "campus-agent", "version": "0.1"}}})
         self._post({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
 
     def call_tool(self, name: str, arguments: dict | None = None) -> dict:

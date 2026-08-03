@@ -1,4 +1,4 @@
-"""HippoCampus sync — deterministic Brightspace pull (H1 pilot).
+"""Campus sync — deterministic Brightspace pull (H1 pilot).
 
 Usage:  python -m sync  [--code SE 2250B] [--dry-run]
 
@@ -516,16 +516,16 @@ class SyncEngine:
 
     def _notify(self, message: str, priority: str = "default") -> None:
         try:
-            httpx.post(f"{self.cfg.ntfy_url}/hippocampus",
+            httpx.post(f"{self.cfg.ntfy_url}/campus",
                        data=message.encode(),
-                       headers={"Priority": priority, "Title": "HippoCampus"},
+                       headers={"Priority": priority, "Title": "Campus"},
                        timeout=10)
         except Exception:
             pass
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="HippoCampus Brightspace sync (H1 pilot)")
+    ap = argparse.ArgumentParser(description="Campus Brightspace sync (H1 pilot)")
     ap.add_argument("--code", help="course code to sync (default: all is_pilot)")
     ap.add_argument("--dry-run", action="store_true", help="enrollments + match only")
     ap.add_argument("--model", help="bifrost model for the digest (default: config)")

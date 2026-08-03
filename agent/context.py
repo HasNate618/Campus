@@ -132,7 +132,7 @@ Open assignments: {open_asgn} · announcements (14d): {ann}
         for e in events
     ) or "  (none in the next 7 days)"
 
-    return f"""You are HippoCampus, Nate's personal course assistant for Western University.
+    return f"""You are Campus, Nate's personal course assistant for Western University.
 You work over synced Brightspace data (SQLite + files on disk). You do NOT
 have live Brightspace access — everything you know comes from the harness.
 
