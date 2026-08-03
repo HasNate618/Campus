@@ -54,20 +54,34 @@ class ChatRequest(BaseModel):
 
 @router.get("/sessions")
 def list_sessions(course_id: int | None = None):
-    """Light session list (no tree) for the history popover."""
+    """Session list with full trees (the client restores chats from this)."""
     from sync.db import DB
     from sync.config import Config
+    import json
     cfg = Config.load()
     db = DB(cfg.db_path)
     try:
         if course_id:
             rows = db.conn.execute(
-                "SELECT id, course_id, title, updated_at FROM chat_sessions WHERE course_id=? ORDER BY updated_at DESC",
+                "SELECT id, course_id, title, nodes_json, updated_at FROM chat_sessions WHERE course_id=? ORDER BY updated_at DESC",
                 (course_id,)).fetchall()
         else:
             rows = db.conn.execute(
-                "SELECT id, course_id, title, updated_at FROM chat_sessions ORDER BY updated_at DESC").fetchall()
-        return [{"id": r["id"], "courseId": r["course_id"], "title": r["title"], "updatedAt": r["updated_at"]} for r in rows]
+                "SELECT id, course_id, title, nodes_json, updated_at FROM chat_sessions ORDER BY updated_at DESC").fetchall()
+        out = []
+        for r in rows:
+            tree = {}
+            if r["nodes_json"]:
+                try:
+                    tree = json.loads(r["nodes_json"])
+                except json.JSONDecodeError:
+                    tree = {}
+            out.append({
+                "id": r["id"], "courseId": r["course_id"], "title": r["title"],
+                "updatedAt": r["updated_at"],
+                "nodes": tree.get("nodes", []), "activeNodeId": tree.get("activeNodeId"),
+            })
+        return out
     finally:
         db.close()
 

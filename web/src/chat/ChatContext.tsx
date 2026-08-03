@@ -38,6 +38,10 @@ export interface MsgNode {
 
 export interface ChatSession {
   id: string
+  /** Server row id once persisted (the client id NEVER changes — the stream
+   *  callbacks target it, so an id swap mid-stream would silently drop
+   *  every event that arrives after the swap). */
+  serverId?: number
   courseId: number
   title: string
   createdAt: number
@@ -244,7 +248,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   function toLocalSession(srv: ChatServerSession): ChatSession {
     const ts = new Date(srv.updatedAt.replace(' ', 'T')).getTime()
     return {
-      id: String(srv.id),
+      id: makeUuid(), // fresh client id — server id lives in serverId
+      serverId: srv.id,
       courseId: srv.courseId ?? 0,
       title: srv.title,
       createdAt: Number.isFinite(ts) ? ts : Date.now(),
@@ -299,30 +304,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     try {
       for (const s of sessionsRef.current) {
         if (s.nodes.length === 0) continue // never persist empty drafts
-        const numeric = /^\d+$/.test(s.id)
         const payload = {
           title: s.title,
           nodes: stripUiFlags(s).nodes,
           activeNodeId: s.activeNodeId,
         }
-        if (numeric) {
-          await api.chatSessionSave(Number(s.id), payload)
+        if (s.serverId != null) {
+          await api.chatSessionSave(s.serverId, payload)
         } else {
           const created = await api.chatSessionCreate(s.courseId, s.title)
-          const serverId = String(created.id)
-          setSessions((ss) => ss.map((x) => (x.id === s.id ? { ...x, id: serverId } : x)))
-          // keep the active-map pointing at this session through the id swap
-          setActiveMap((m) => {
-            let changed = false
-            const next = { ...m }
-            for (const [k, v] of Object.entries(next)) {
-              if (v === s.id) {
-                next[Number(k)] = serverId
-                changed = true
-              }
-            }
-            return changed ? next : m
-          })
+          // only set serverId — the client id stays put so in-flight streams
+          // keep targeting the right session
+          setSessions((ss) =>
+            ss.map((x) => (x.id === s.id ? { ...x, serverId: created.id } : x)),
+          )
           await api.chatSessionSave(created.id, payload)
         }
       }
@@ -392,8 +387,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const deleteSession = useCallback((sessionId: string) => {
-    if (/^\d+$/.test(sessionId)) {
-      api.chatSessionDelete(Number(sessionId)).catch((e) => console.error('[chat-sync] delete failed:', e))
+    const srv = sessionsRef.current.find((s) => s.id === sessionId)
+    if (srv?.serverId != null) {
+      api.chatSessionDelete(srv.serverId).catch((e) => console.error('[chat-sync] delete failed:', e))
     }
     setSessions((ss) => ss.filter((s) => s.id !== sessionId))
     setActiveMap((m) => {
