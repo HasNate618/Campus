@@ -169,6 +169,27 @@ def _extract_cookie_token(context, base_url: str) -> str | None:
     return "cookie:" + "; ".join(f"{c['name']}={c['value']}" for c in relevant)
 
 
+def _save_session_cookies(context, cfg: Config) -> None:
+    """Persist the browser session cookies (d2lSessionVal etc.) to a sidecar
+    so the /api/proxy can fetch Brightspace-hosted images — enforced-content
+    URLs (/content/enforced/...) need the web session, not the API token."""
+    try:
+        cookies = context.cookies()
+        keep = [
+            {"name": c["name"], "value": c["value"], "domain": c.get("domain", "")}
+            for c in cookies
+            if c["name"].startswith("d2l") and "brightspace.com" in (c.get("domain") or "")
+        ]
+        if not keep:
+            return
+        path = cfg.token_dir / "cookies.json"
+        path.write_text(json.dumps({"captured_at": int(time.time()),
+                                    "cookies": keep}))
+        _log(f"Saved {len(keep)} session cookies for content proxy")
+    except Exception as e:
+        _log(f"Cookie capture failed: {e}")
+
+
 def _validate_token(token: str, cfg: Config, versions) -> bool:
     """Validate via /d2l/api/lp/{v}/users/whoami."""
     import httpx
@@ -227,6 +248,7 @@ def auth(cfg: Config, store) -> bool:
             if token and _validate_token(token, cfg, versions):
                 _log("Extracted valid Bearer token from localStorage")
                 store.save(store.build(token, source="browser"))
+                _save_session_cookies(context, cfg)
                 context.storage_state(path=str(storage_path))
                 return True
 
@@ -238,6 +260,7 @@ def auth(cfg: Config, store) -> bool:
                 if token and _validate_token(token, cfg, versions):
                     _log("Extracted valid Bearer token after API nudge")
                     store.save(store.build(token, source="browser"))
+                    _save_session_cookies(context, cfg)
                     context.storage_state(path=str(storage_path))
                     return True
             except Exception:
@@ -248,6 +271,7 @@ def auth(cfg: Config, store) -> bool:
             if cookie_token and _validate_token(cookie_token, cfg, versions):
                 _log("Extracted valid session cookie for API auth")
                 store.save(store.build(cookie_token, source="cookie"))
+                _save_session_cookies(context, cfg)
                 return True
 
             _log("All token extraction strategies failed")
