@@ -62,6 +62,14 @@ def main() -> int:
             return 0 if ok else 1
         n = engine.run_extraction_queue(course_id)
         print(f"extraction queue done: {n} extracted")
+        # one completion ping (the sync's own ntfy already fired)
+        try:
+            import httpx as _h
+            _h.post(f"{cfg.ntfy_url}/hippocampus",
+                    json={"topic": "hippocampus", "message": f"Extraction done — {n} PDFs extracted",
+                          "priority": "default"}, timeout=10)
+        except Exception:
+            pass
         return 0
     finally:
         client.close()
