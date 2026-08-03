@@ -276,8 +276,14 @@ class SyncEngine:
             self.db.mark_processed(file_row["id"])
             return False
         try:
+            # Long PDFs (e-books, big slide decks) need a long PUT — the
+            # worker is a single VLM at ~10s/page; a 148-page book takes
+            # ~25 min. The old fixed 120s timed out and the pdf-extractor
+            # dropped the in-flight job, so big files never extracted.
+            size_mb = path.stat().st_size / (1024 * 1024)
+            timeout = 3600 if size_mb > 2 else 120
             r = httpx.put(f"{self.cfg.pdf_extractor_url}/process",
-                          content=path.read_bytes(), timeout=120)
+                          content=path.read_bytes(), timeout=timeout)
             r.raise_for_status()
             data = r.json()
             content = data.get("page_content", "")
