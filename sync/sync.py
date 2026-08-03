@@ -425,11 +425,13 @@ class SyncEngine:
                            json={"model": self.model,
                                  "messages": [{"role": "user", "content": prompt}]},
                            timeout=120)
-            content = r.json()["choices"][0]["message"]["content"]
+            r.raise_for_status()
+            data = r.json()
+            content = data["choices"][0]["message"]["content"]
             content = content[content.find("{"):content.rfind("}") + 1]
             result = json.loads(content)
         except Exception as e:
-            print(f"  digest failed: {e}")
+            print(f"  digest failed: {e} — body: {r.text[:200] if 'r' in dir() else 'no response'}")
             return
 
         allowed = {"general", "scheduling", "grading", "course-policy",

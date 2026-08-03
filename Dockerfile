@@ -25,10 +25,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY requirements.txt ./
 COPY api/requirements.txt ./api/requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt -r api/requirements.txt
-RUN playwright install chromium || true
-RUN playwright install-deps chromium || true
+# must be set BEFORE playwright install — browsers land in /opt/ms-playwright
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN pip install --no-cache-dir -r requirements.txt -r api/requirements.txt
+RUN playwright install chromium
+RUN playwright install-deps chromium || true
 
 # code mounts from the repo (ro) in the homelab deployment — these copies
 # make the image self-contained for other environments
