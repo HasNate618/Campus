@@ -34,6 +34,12 @@ export function useZenPostProcess(ref: RefObject<HTMLElement | null>, deps: unkn
     const root = ref.current
     if (!root) return
 
+    // The heavy DOM scanning below is trailing-debounced (~250ms): during
+    // token streaming the text renders at frame rate and the decorations
+    // (copy buttons, mermaid) settle right after the message stops growing.
+    const scanTimer = window.setTimeout(() => {
+    if (!root.isConnected) return
+
     // 1. Mermaid blocks → SVG diagrams
     const mermaidBlocks = Array.from(
       root.querySelectorAll<HTMLElement>('pre > code.language-mermaid:not([data-zen-processed])'),
@@ -109,6 +115,7 @@ export function useZenPostProcess(ref: RefObject<HTMLElement | null>, deps: unkn
       pre.prepend(header)
     })
     // 3. Mermaid zoom-on-click: click a rendered diagram → fullscreen overlay
+    }, 250)
     const onClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement
       const wrap = target.closest('.mermaid-wrap')
@@ -125,7 +132,10 @@ export function useZenPostProcess(ref: RefObject<HTMLElement | null>, deps: unkn
       document.body.appendChild(overlay)
     }
     root.addEventListener('click', onClick)
-    return () => root.removeEventListener('click', onClick)
+    return () => {
+      root.removeEventListener('click', onClick)
+      window.clearTimeout(scanTimer)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
 }
