@@ -343,12 +343,21 @@ export function ContentPage() {
         ) : (
           <>
             <div className="viewer-head">
-              <Link
-                to={`/courses/${cid}/content`}
-                style={{ color: 'var(--violet)', fontSize: 13, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8, width: 'fit-content' }}
-              >
-                <ArrowLeft size={13} /> All topics
-              </Link>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%' }}>
+                <Link
+                  to={`/courses/${cid}/content`}
+                  style={{ color: 'var(--violet)', fontSize: 13, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4, width: 'fit-content' }}
+                >
+                  <ArrowLeft size={13} /> All topics
+                </Link>
+                <button
+                  className="btn btn-outline btn-sm"
+                  onClick={() => setViewMode((m) => (m === 'fullWidth' ? 'sideBySide' : 'fullWidth'))}
+                  title={viewMode === 'fullWidth' ? 'Show the content tree beside the viewer' : 'Show one panel at a time'}
+                >
+                  {viewMode === 'fullWidth' ? 'Side by side' : 'Full width'}
+                </button>
+              </div>
               <div className="viewer-title">{selectedNode.title}</div>
               {selectedFile && <div className="viewer-path">{selectedFile.path}</div>}
             </div>

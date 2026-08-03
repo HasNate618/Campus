@@ -1135,9 +1135,8 @@
 
   .pdf-zen {
     width: 100%;
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: var(--radius-card);
+    background: transparent;
+    border: none;
     padding: 18px 16px 16px;
   }
 
