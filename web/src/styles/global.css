@@ -761,6 +761,14 @@
     padding: 4px;
   }
 
+  /* touch devices have no hover — never hide the actions (opacity-0 buttons
+     were still clickable and caused accidental deletes) */
+  @media (hover: none) {
+    .msg-actions {
+      opacity: 1;
+    }
+  }
+
   .branch-chips {
     display: flex;
     gap: 6px;

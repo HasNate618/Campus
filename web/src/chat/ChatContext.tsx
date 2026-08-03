@@ -90,6 +90,7 @@ interface ChatContextValue {
 
 const STORAGE_KEY = 'hc.chat.sessions.v3'
 const V2_KEY = 'hc.chat.sessions.v2'
+const ACTIVE_KEY = 'hc.chat.active'
 const LAST_COURSE_KEY = 'hc.chat.lastCourse'
 const MODEL_KEY = 'hc.chat.model'
 const MAX_SESSIONS = 50
@@ -208,7 +209,13 @@ const ChatContext = createContext<ChatContextValue | null>(null)
 
 export function ChatProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<ChatSession[]>(loadSessions)
-  const [activeMap, setActiveMap] = useState<Record<number, string>>({})
+  const [activeMap, setActiveMap] = useState<Record<number, string>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(ACTIVE_KEY) || '{}') as Record<number, string>
+    } catch {
+      return {}
+    }
+  })
   const [busy, setBusy] = useState(false)
   const [lastCourseId, setLastCourseId] = useState<number | null>(() => {
     try {
@@ -230,6 +237,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   modelRef.current = model
 
   useEffect(() => persist(sessions), [sessions])
+
+  // Persist the active session per course so a reload reopens the same chat
+  // instead of starting a fresh one.
+  useEffect(() => {
+    try {
+      localStorage.setItem(ACTIVE_KEY, JSON.stringify(activeMap))
+    } catch {
+      /* ignore */
+    }
+  }, [activeMap])
 
   const setLastCourse = useCallback((courseId: number) => {
     setLastCourseId(courseId)
@@ -387,9 +404,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         history,
         modelRef.current ?? undefined,
         userNodeId,
-      ).catch(() => {
-        patchNode(sid, assistantId ?? userNodeId, (n) => ({ ...n, streaming: false }))
-      })
+      )
+        .catch(() => {
+          patchNode(sid, assistantId ?? userNodeId, (n) => ({ ...n, streaming: false }))
+        })
+        .finally(() => {
+          busyRef.current = false
+          setBusy(false)
+        })
     },
     [sessions, patchNode, setActiveNode],
   )
@@ -503,18 +525,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         const doomed = collectSubtree(s.nodes, nodeId)
         const target = s.nodes.find((n) => n.id === nodeId)
         const activeDoomed = s.activeNodeId ? doomed.has(s.activeNodeId) : false
-        return {
-          ...s,
-          updatedAt: Date.now(),
-          activeNodeId: activeDoomed ? (target?.parentId ?? null) : s.activeNodeId,
-          nodes: s.nodes
-            .filter((n) => !doomed.has(n.id))
-            .map((n) =>
-              n.children.some((c) => doomed.has(c))
-                ? { ...n, children: n.children.filter((c) => !doomed.has(c)) }
-                : n,
-            ),
+        const nodes = s.nodes
+          .filter((n) => !doomed.has(n.id))
+          .map((n) =>
+            n.children.some((c) => doomed.has(c))
+              ? { ...n, children: n.children.filter((c) => !doomed.has(c)) }
+              : n,
+          )
+        let activeNodeId = activeDoomed ? (target?.parentId ?? null) : s.activeNodeId
+        // safety: never leave the path rooted at a missing node
+        if (activeNodeId && !nodes.some((n) => n.id === activeNodeId)) {
+          activeNodeId = nodes[nodes.length - 1]?.id ?? null
         }
+        return { ...s, updatedAt: Date.now(), activeNodeId, nodes }
       }),
     )
   }, [])
