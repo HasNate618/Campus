@@ -1,4 +1,4 @@
-"""HippoCampus agent CLI — `python -m agent <args>`.
+"""Campus agent CLI — `python -m agent <args>`.
 
 Examples:
   python -m agent --one "What's due soon in SE 2250B?" --course "SE 2250B"

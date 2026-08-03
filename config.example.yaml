@@ -1,9 +1,9 @@
-# HippoCampus config — copy to config.yaml (gitignored) and fill in.
-# Secrets prefer env vars: HIPPO_USERNAME, HIPPO_BRIGHTSPACE_PASSWORD.
+# Campus config — copy to config.yaml (gitignored) and fill in.
+# Secrets prefer env vars: CAMPUS_USERNAME, CAMPUS_BRIGHTSPACE_PASSWORD.
 
 base_url: "https://westernu.brightspace.com"
 username: "user@example.com"
-# password: ""            # use env HIPPO_BRIGHTSPACE_PASSWORD instead
+# password: ""            # use env CAMPUS_BRIGHTSPACE_PASSWORD instead
 
 # paths
 data_root: "{data_root}"     # prod; dev: ./school

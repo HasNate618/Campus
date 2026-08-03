@@ -1,4 +1,4 @@
-# HippoCampus / School Harness — Design
+# Campus / School Harness — Design
 
 Personal AI course brain for Western SE. Priority: **explain content** → **grounded course facts** → **help with work**.
 

@@ -1,4 +1,4 @@
-"""HippoCampus sync engine — deterministic Brightspace sync (H1).
+"""Campus sync engine — deterministic Brightspace sync (H1).
 
 Custom sync: Playwright + Duo auth, own token store (survives restarts),
 D2L REST API pulls. Chat/AI never calls Brightspace live — only this

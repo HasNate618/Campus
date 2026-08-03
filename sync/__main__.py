@@ -1,4 +1,4 @@
-"""HippoCampus CLI — `python -m sync <command>`.
+"""Campus CLI — `python -m sync <command>`.
 
 Commands:
   auth [--status]      Brightspace login (Duo push) or token status check

@@ -55,7 +55,7 @@ def _handle_campus_selector(page) -> None:
 def _enter_microsoft_credentials(page, cfg: Config) -> None:
     username, password = cfg.username, cfg.password
     if not username or not password:
-        raise RuntimeError("HIPPO_USERNAME / HIPPO_BRIGHTSPACE_PASSWORD not set")
+        raise RuntimeError("CAMPUS_USERNAME / CAMPUS_BRIGHTSPACE_PASSWORD not set")
     _log("Entering Microsoft email")
     email = page.locator("input[type='email']")
     email.wait_for(state="visible", timeout=30_000)
@@ -124,7 +124,7 @@ def _handle_mfa_and_finish(page) -> None:
         page.wait_for_timeout(1000)
     # self-diagnose on timeout: what was the MFA page actually showing?
     try:
-        page.screenshot(path="/tmp/hippo-mfa-timeout.png")
+        page.screenshot(path="/tmp/campus-mfa-timeout.png")
         text = page.inner_text("body")[:800]
         _log(f"TIMEOUT page text: {text}")
     except Exception:
@@ -194,7 +194,7 @@ def _validate_token(token: str, cfg: Config, versions) -> bool:
     """Validate via /d2l/api/lp/{v}/users/whoami."""
     import httpx
 
-    headers = {"User-Agent": "HippoCampus/0.1"}
+    headers = {"User-Agent": "Campus/0.1"}
     if token.startswith("cookie:"):
         headers["Cookie"] = token[len("cookie:"):]
     else:
@@ -281,7 +281,7 @@ def auth(cfg: Config, store) -> bool:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="HippoCampus Brightspace auth")
+    ap = argparse.ArgumentParser(description="Campus Brightspace auth")
     ap.add_argument("--status", action="store_true", help="check stored token validity")
     args = ap.parse_args()
 
@@ -300,7 +300,7 @@ def main() -> int:
         return 0
 
     if not cfg.username:
-        print("Set HIPPO_USERNAME and HIPPO_BRIGHTSPACE_PASSWORD (env or config.yaml)")
+        print("Set CAMPUS_USERNAME and CAMPUS_BRIGHTSPACE_PASSWORD (env or config.yaml)")
         return 1
 
     _log(f"Authenticating as {cfg.username}")

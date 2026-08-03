@@ -1,10 +1,10 @@
-/* HippoCampus service worker — app-shell cache.
+/* Campus service worker — app-shell cache.
  * - /api/* is NEVER cached (SSE chat + live data must stay network-only)
  * - hashed build assets are cache-first (immutable)
  * - navigations are network-first with an offline fallback to the shell
  * Bump VERSION to invalidate the cache on a new deploy.
  */
-const VERSION = 'hippo-v1'
+const VERSION = 'campus-v1'
 
 self.addEventListener('install', (e) => {
   e.waitUntil(

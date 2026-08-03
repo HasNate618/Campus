@@ -1,4 +1,4 @@
-"""Configuration for HippoCampus sync engine.
+"""Configuration for Campus sync engine.
 
 Config precedence: defaults < config.yaml (local, gitignored) < env vars.
 Secrets (password, API keys) come from env or sops — never from git.
@@ -19,7 +19,7 @@ DEFAULT_CONFIG_PATH = REPO_ROOT / "config.yaml"
 class Config:
     base_url: str = "https://westernu.brightspace.com"
     username: str = ""
-    password: str = ""  # from env HIPPO_BRIGHTSPACE_PASSWORD, never config file
+    password: str = ""  # from env CAMPUS_BRIGHTSPACE_PASSWORD, never config file
 
     # paths
     data_root: Path = field(default_factory=lambda: Path("{data_root}"))
@@ -57,18 +57,18 @@ class Config:
                 if hasattr(cfg, k) and v is not None:
                     setattr(cfg, k, v)
         # env overrides
-        cfg.username = os.environ.get("HIPPO_USERNAME", cfg.username)
-        cfg.password = os.environ.get("HIPPO_BRIGHTSPACE_PASSWORD", cfg.password)
+        cfg.username = os.environ.get("CAMPUS_USERNAME", cfg.username)
+        cfg.password = os.environ.get("CAMPUS_BRIGHTSPACE_PASSWORD", cfg.password)
         for env_key, attr in [
-            ("HIPPO_BASE_URL", "base_url"),
-            ("HIPPO_DATA_ROOT", "data_root"),
-            ("HIPPO_DB_PATH", "db_path"),
-            ("HIPPO_TOKEN_DIR", "token_dir"),
-            ("HIPPO_BIFROST_URL", "bifrost_url"),
-            ("HIPPO_MODEL", "bifrost_model"),
-            ("HIPPO_PDF_EXTRACTOR_URL", "pdf_extractor_url"),
-            ("HIPPO_NTFY_URL", "ntfy_url"),
-            ("HIPPO_TRAWL_URL", "trawl_url"),
+            ("CAMPUS_BASE_URL", "base_url"),
+            ("CAMPUS_DATA_ROOT", "data_root"),
+            ("CAMPUS_DB_PATH", "db_path"),
+            ("CAMPUS_TOKEN_DIR", "token_dir"),
+            ("CAMPUS_BIFROST_URL", "bifrost_url"),
+            ("CAMPUS_MODEL", "bifrost_model"),
+            ("CAMPUS_PDF_EXTRACTOR_URL", "pdf_extractor_url"),
+            ("CAMPUS_NTFY_URL", "ntfy_url"),
+            ("CAMPUS_TRAWL_URL", "trawl_url"),
         ]:
             if os.environ.get(env_key):
                 setattr(cfg, attr, os.environ[env_key])

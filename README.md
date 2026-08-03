@@ -1,4 +1,4 @@
-# HippoCampus
+# Campus
 
 Personal AI study/org system for Western SE — Brightspace sync, structured
 memory, calendar, files, and a course-scoped AI chat. The model harness is
@@ -39,15 +39,15 @@ python -m agent --one "What's due in SE 2250B?" --course "SE 2250B"
 
 ## Production (homelab)
 
-The `hippo` Docker container runs everything (NixOS module
-`modules/server/ai/hippo.nix`): code mounted ro from `/home/nate/hippocampus`,
+The `campus` Docker container runs everything (NixOS module
+`modules/server/ai/campus.nix`): code mounted ro from `/home/nate/campus`,
 DB + token mounted rw, on the proxy network, running as uid 1000 with
 `--cap-drop ALL`. Web app binds `:8000` → `127.0.0.1:8087` →
 `http://campus.local` (no auth — LAN/Tailscale only).
 
 ```bash
-docker exec hippo python -m sync sync
-docker exec hippo python -m agent --one "question" --course "SE 2250B"
+docker exec campus python -m sync sync
+docker exec campus python -m agent --one "question" --course "SE 2250B"
 ```
 
 ## Rules
