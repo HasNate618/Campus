@@ -1,24 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+import { applyZenFilter } from './zenPdf'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
 
 /**
- * Canvas-based PDF viewer (pdf.js) styled after the user's zen-pdf-viewer:
- * pageless continuous scroll, every page on a transparent shell (no colored
- * background — the app surface shows through), subtle page shadows, zen
- * toolbar. Android Chrome has no built-in PDF renderer, so iframes would
- * just download — canvas rendering works everywhere.
+ * Canvas-based PDF viewer (pdf.js) styled after the user's zen-pdf-viewer.
+ * Zen mode: per-pixel luma inversion (dark-on-light PDFs become light-on-dark)
+ * with the paper dropped to transparency (pageless) or a dark shade (paged).
+ * Toggles: Zen (inverted) and Pageless (continuous scroll vs one page).
+ * Android Chrome has no built-in PDF renderer, so iframes would download —
+ * canvas rendering works everywhere.
  */
 
 interface PageCanvasProps {
   doc: pdfjsLib.PDFDocumentProxy
   pageNumber: number
   width: number
+  zen: boolean
+  pageless: boolean
 }
 
-function PageCanvas({ doc, pageNumber, width }: PageCanvasProps) {
+function PageCanvas({ doc, pageNumber, width, zen, pageless }: PageCanvasProps) {
   const ref = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -37,13 +41,15 @@ function PageCanvas({ doc, pageNumber, width }: PageCanvasProps) {
         canvas.height = Math.floor(vp.height * dpr)
         canvas.style.width = `${Math.floor(vp.width)}px`
         canvas.style.height = `${Math.floor(vp.height)}px`
-        page.render({ canvas, viewport: vp }).promise.catch(() => undefined)
+        return page.render({ canvas, viewport: vp }).promise.then(() => {
+          if (!cancelled && zen) applyZenFilter(canvas, pageless, true)
+        })
       })
       .catch(() => undefined)
     return () => {
       cancelled = true
     }
-  }, [doc, pageNumber, width])
+  }, [doc, pageNumber, width, zen, pageless])
 
   return (
     <div
@@ -63,6 +69,9 @@ export function PdfViewer({ src }: { src: string }) {
   const [zoom, setZoom] = useState(1)
   const [fitWidth, setFitWidth] = useState(800)
   const [pages, setPages] = useState<number[]>([])
+  const [zen, setZen] = useState(true)
+  const [pageless, setPageless] = useState(true)
+  const [page, setPage] = useState(1)
   const taskRef = useRef<pdfjsLib.PDFDocumentLoadingTask | null>(null)
 
   // Load the document; render pages progressively (visible ones first).
@@ -72,6 +81,7 @@ export function PdfViewer({ src }: { src: string }) {
     setNumPages(0)
     setError('')
     setZoom(1)
+    setPage(1)
     setPages([])
     taskRef.current?.destroy()
     taskRef.current = null
@@ -82,9 +92,7 @@ export function PdfViewer({ src }: { src: string }) {
         if (cancelled) return
         setDoc(d)
         setNumPages(d.numPages)
-        // seed the first page immediately, then fill the rest
-        const first: number[] = [1]
-        setPages(first)
+        setPages([1])
         let n = 1
         const timer = window.setInterval(() => {
           n += 1
@@ -105,7 +113,7 @@ export function PdfViewer({ src }: { src: string }) {
     }
   }, [src])
 
-  // Track the container width for fit-width rendering (debounced via rAF).
+  // Track the container width for fit-width rendering.
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
@@ -120,14 +128,26 @@ export function PdfViewer({ src }: { src: string }) {
 
   if (error) return <div className="empty compact">Couldn&apos;t render PDF: {error}</div>
 
+  const toggleCls = (on: boolean) =>
+    `btn btn-outline btn-sm${on ? ' zen-active' : ''}`
+
   return (
     <div className="pdf-viewer" ref={containerRef}>
-      <div className="viewer-actions" style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>
+      <div
+        className="viewer-actions"
+        style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center', marginBottom: 10, flexWrap: 'wrap' }}
+      >
+        <button className={toggleCls(zen)} onClick={() => setZen((v) => !v)} title="Inverted dark look">
+          Zen
+        </button>
+        <button className={toggleCls(pageless)} onClick={() => setPageless((v) => !v)} title="Continuous scroll vs one page at a time">
+          Pageless
+        </button>
         <button className="btn btn-outline btn-sm" onClick={() => setZoom((z) => Math.max(0.5, +(z - 0.25).toFixed(2)))} title="Zoom out">
           −
         </button>
-        <span style={{ fontSize: 13, color: 'var(--text-2)' }} title="Scroll to read">
-          {numPages} page{numPages === 1 ? '' : 's'}
+        <span style={{ fontSize: 13, color: 'var(--text-2)' }}>
+          {pageless ? `${numPages} page${numPages === 1 ? '' : 's'}` : `${page} / ${numPages}`}
         </span>
         <button className="btn btn-outline btn-sm" onClick={() => setZoom((z) => Math.min(4, +(z + 0.25).toFixed(2)))} title="Zoom in">
           +
@@ -138,12 +158,43 @@ export function PdfViewer({ src }: { src: string }) {
           </button>
         )}
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {doc &&
-          pages.map((n) => (
-            <PageCanvas key={n} doc={doc} pageNumber={n} width={Math.floor(fitWidth * zoom)} />
-          ))}
-      </div>
+
+      {pageless ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {doc &&
+            pages.map((n) => (
+              <PageCanvas
+                key={`${n}-${zen}-${pageless}`}
+                doc={doc}
+                pageNumber={n}
+                width={Math.floor(fitWidth * zoom)}
+                zen={zen}
+                pageless
+              />
+            ))}
+        </div>
+      ) : (
+        <>
+          {doc && (
+            <PageCanvas
+              key={`${page}-${zen}-${pageless}`}
+              doc={doc}
+              pageNumber={page}
+              width={Math.floor(fitWidth * zoom)}
+              zen={zen}
+              pageless={false}
+            />
+          )}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center', marginTop: 10 }}>
+            <button className="btn btn-outline btn-sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+              ‹ Prev
+            </button>
+            <button className="btn btn-outline btn-sm" disabled={page >= numPages} onClick={() => setPage((p) => p + 1)}>
+              Next ›
+            </button>
+          </div>
+        </>
+      )}
     </div>
   )
 }

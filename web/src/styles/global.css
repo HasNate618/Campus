@@ -1176,6 +1176,12 @@
     border-radius: 4px;
   }
 
+  .pdf-viewer .zen-active {
+    background: var(--violet);
+    border-color: var(--violet);
+    color: #fff;
+  }
+
   /* keep wide Brightspace HTML inside the pane, never the viewport */
   .md {
     overflow-wrap: break-word;
