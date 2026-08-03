@@ -336,6 +336,16 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
             transition={{ duration: 0.18 }}
             style={{ display: 'flex', flexDirection: 'column' }}
           >
+              {tools.length > 0 &&
+                (toolsDone && !expandedTools[node.id] ? (
+                  <button className="tool-chip" onClick={() => toggleTools(node.id)} title="Expand tool calls" style={{ color: 'var(--text-3)' }}>
+                    <Wrench size={13} />
+                    {tools.length} tool call{tools.length === 1 ? '' : 's'}
+                    <ChevronDown size={12} style={{ opacity: 0.6 }} />
+                  </button>
+                ) : (
+                  tools.map((t) => renderToolRow(t, `${session.id}-tool-${t.id}`))
+                ))}
               <div className="msg-assistant">
               {node.thinking ? (
                 <div style={{ marginBottom: 8 }}>
@@ -373,17 +383,6 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
               <ChatMd content={node.content} />
               {node.streaming && <span className="stream-cursor" />}
             </div>
-
-            {tools.length > 0 &&
-              (toolsDone && !expandedTools[node.id] ? (
-                <button className="tool-chip" onClick={() => toggleTools(node.id)} title="Expand tool calls" style={{ color: 'var(--text-3)' }}>
-                  <Wrench size={13} />
-                  {tools.length} tool call{tools.length === 1 ? '' : 's'}
-                  <ChevronDown size={12} style={{ opacity: 0.6 }} />
-                </button>
-              ) : (
-                tools.map((t) => renderToolRow(t, `${session.id}-tool-${t.id}`))
-              ))}
 
             <div className="msg-actions">
               {!busy && node.thinkingDone && (

@@ -201,7 +201,11 @@ function normalizeZombies(s: ChatSession): ChatSession {
 function loadSessions(): ChatSession[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return (JSON.parse(raw) as ChatSession[]).map(normalizeZombies)
+    if (raw) {
+      return (JSON.parse(raw) as ChatSession[])
+        .filter((s) => s.nodes.some((n) => n.role !== 'tool'))
+        .map(normalizeZombies)
+    }
     const v2 = localStorage.getItem(V2_KEY)
     if (v2) {
       const migrated = migrateV2(JSON.parse(v2) as ChatSessionV2[])
@@ -223,7 +227,10 @@ function stripUiFlags(s: ChatSession): ChatSession {
 
 function persist(sessions: ChatSession[]): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions.map(stripUiFlags)))
+    // only sessions with actual messages survive — 'New chat' drafts are
+    // in-memory only and vanish on reload
+    const real = sessions.filter((s) => s.nodes.some((n) => n.role !== 'tool'))
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(real.map(stripUiFlags)))
   } catch {
     /* quota — keep in-memory */
   }
@@ -761,6 +768,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const target = session.nodes.find((n) => n.id === nodeId)
       if (!target || target.role !== 'user') return
       const doomed = collectSubtree(session.nodes, nodeId)
+      // the user message itself survives (rewritten) — only its DESCENDANTS
+      // are deleted. Removing the node too left the re-sent turn streaming
+      // into a ghost parent: the user message vanished and only the new
+      // assistant response rendered.
+      doomed.delete(nodeId)
       const history = pathFor(session)
         .filter((n) => n.id !== nodeId && !doomed.has(n.id) && n.role !== 'tool' && !(n.role === 'assistant' && n.intermediate))
         .map((n) => ({ role: n.role as 'user' | 'assistant', content: n.content }))
