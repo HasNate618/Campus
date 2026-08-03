@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { streamChat } from '@/api/client'
+import { streamChat, api, type ChatServerSession } from '@/api/client'
 
 /** Chat message tree (Open WebUI-style): a flat node store linked by
  *  parentId/children. The visible conversation is the path from the root
@@ -235,6 +235,91 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const busyRef = useRef(false)
   const modelRef = useRef(model)
   modelRef.current = model
+  const serverReadyRef = useRef(false)
+  const savingRef = useRef(false)
+  const saveTimer = useRef<number | null>(null)
+  const sessionsRef = useRef(sessions)
+  sessionsRef.current = sessions
+
+  function toLocalSession(srv: ChatServerSession): ChatSession {
+    const ts = new Date(srv.updatedAt.replace(' ', 'T')).getTime()
+    return {
+      id: String(srv.id),
+      courseId: srv.courseId ?? 0,
+      title: srv.title,
+      createdAt: Number.isFinite(ts) ? ts : Date.now(),
+      updatedAt: Number.isFinite(ts) ? ts : Date.now(),
+      nodes: (srv.nodes ?? []) as MsgNode[],
+      activeNodeId: srv.activeNodeId ?? null,
+    }
+  }
+
+  // Load server-side sessions once on mount (source of truth; localStorage is
+  // only an offline cache now).
+  useEffect(() => {
+    let cancelled = false
+    api
+      .chatSessions()
+      .then((list) => {
+        if (cancelled) return
+        setSessions((prev) => {
+          const byId = new Map(list.map((s) => [String(s.id), s]))
+          const merged = prev.map((local) => {
+            const srv = byId.get(local.id)
+            if (!srv) return local
+            byId.delete(local.id)
+            return toLocalSession(srv)
+          })
+          for (const srv of byId.values()) merged.push(toLocalSession(srv))
+          return merged
+        })
+      })
+      .catch((e) => console.error('[chat-sync] load failed:', e))
+      .finally(() => {
+        if (!cancelled) serverReadyRef.current = true
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Debounced save: every change pushes the tree to the server.
+  useEffect(() => {
+    if (!serverReadyRef.current) return
+    if (saveTimer.current) window.clearTimeout(saveTimer.current)
+    saveTimer.current = window.setTimeout(() => {
+      void saveSessions()
+    }, 900)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions])
+
+  async function saveSessions(): Promise<void> {
+    if (savingRef.current) return
+    savingRef.current = true
+    try {
+      for (const s of sessionsRef.current) {
+        if (s.nodes.length === 0) continue // never persist empty drafts
+        const numeric = /^\d+$/.test(s.id)
+        const payload = {
+          title: s.title,
+          nodes: stripUiFlags(s).nodes,
+          activeNodeId: s.activeNodeId,
+        }
+        if (numeric) {
+          await api.chatSessionSave(Number(s.id), payload)
+        } else {
+          const created = await api.chatSessionCreate(s.courseId, s.title)
+          const serverId = String(created.id)
+          setSessions((ss) => ss.map((x) => (x.id === s.id ? { ...x, id: serverId } : x)))
+          await api.chatSessionSave(created.id, payload)
+        }
+      }
+    } catch (e) {
+      console.error('[chat-sync] save failed:', e)
+    } finally {
+      savingRef.current = false
+    }
+  }
 
   useEffect(() => persist(sessions), [sessions])
 
@@ -287,6 +372,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const deleteSession = useCallback((sessionId: string) => {
+    if (/^\d+$/.test(sessionId)) {
+      api.chatSessionDelete(Number(sessionId)).catch((e) => console.error('[chat-sync] delete failed:', e))
+    }
     setSessions((ss) => ss.filter((s) => s.id !== sessionId))
     setActiveMap((m) => {
       const next: Record<number, string> = {}

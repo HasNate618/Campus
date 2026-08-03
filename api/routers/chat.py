@@ -52,6 +52,120 @@ class ChatRequest(BaseModel):
     branch: str | None = None  # user-node id that starts this turn (fork key)
 
 
+@router.get("/sessions")
+def list_sessions(course_id: int | None = None):
+    """Light session list (no tree) for the history popover."""
+    from sync.db import DB
+    from sync.config import Config
+    cfg = Config.load()
+    db = DB(cfg.db_path)
+    try:
+        if course_id:
+            rows = db.conn.execute(
+                "SELECT id, course_id, title, updated_at FROM chat_sessions WHERE course_id=? ORDER BY updated_at DESC",
+                (course_id,)).fetchall()
+        else:
+            rows = db.conn.execute(
+                "SELECT id, course_id, title, updated_at FROM chat_sessions ORDER BY updated_at DESC").fetchall()
+        return [{"id": r["id"], "courseId": r["course_id"], "title": r["title"], "updatedAt": r["updated_at"]} for r in rows]
+    finally:
+        db.close()
+
+
+class SessionCreate(BaseModel):
+    course_id: int | None = None
+    title: str = "New chat"
+
+
+class SessionUpdate(BaseModel):
+    title: str | None = None
+    nodes: list | None = None
+    activeNodeId: str | None = None
+
+
+@router.post("/sessions")
+def create_session(body: SessionCreate):
+    from sync.db import DB
+    from sync.config import Config
+    cfg = Config.load()
+    db = DB(cfg.db_path)
+    try:
+        cur = db.conn.execute(
+            "INSERT INTO chat_sessions (course_id, title, nodes_json) VALUES (?,?,?)",
+            (body.course_id, body.title, "{}"))
+        db.conn.commit()
+        sid = cur.lastrowid
+        row = db.conn.execute(
+            "SELECT id, course_id, title, updated_at FROM chat_sessions WHERE id=?", (sid,)).fetchone()
+        return {"id": row["id"], "courseId": row["course_id"], "title": row["title"],
+                "updatedAt": row["updated_at"], "nodes": [], "activeNodeId": None}
+    finally:
+        db.close()
+
+
+@router.get("/sessions/{sid}")
+def get_session(sid: int):
+    from sync.db import DB
+    from sync.config import Config
+    import json
+    cfg = Config.load()
+    db = DB(cfg.db_path)
+    try:
+        row = db.conn.execute(
+            "SELECT id, course_id, title, nodes_json, updated_at FROM chat_sessions WHERE id=?",
+            (sid,)).fetchone()
+        if not row:
+            raise HTTPException(404, "session not found")
+        tree = {}
+        if row["nodes_json"]:
+            try:
+                tree = json.loads(row["nodes_json"])
+            except json.JSONDecodeError:
+                tree = {}
+        return {"id": row["id"], "courseId": row["course_id"], "title": row["title"],
+                "updatedAt": row["updated_at"],
+                "nodes": tree.get("nodes", []), "activeNodeId": tree.get("activeNodeId")}
+    finally:
+        db.close()
+
+
+@router.put("/sessions/{sid}")
+def put_session(sid: int, body: SessionUpdate):
+    from sync.db import DB
+    from sync.config import Config
+    import json
+    cfg = Config.load()
+    db = DB(cfg.db_path)
+    try:
+        row = db.conn.execute("SELECT id FROM chat_sessions WHERE id=?", (sid,)).fetchone()
+        if not row:
+            raise HTTPException(404, "session not found")
+        tree = json.dumps({"nodes": body.nodes or [], "activeNodeId": body.activeNodeId},
+                          default=str)
+        db.conn.execute(
+            "UPDATE chat_sessions SET title=COALESCE(?, title), nodes_json=?, "
+            "updated_at=datetime('now') WHERE id=?",
+            (body.title, tree, sid))
+        db.conn.commit()
+        return {"ok": True, "id": sid}
+    finally:
+        db.close()
+
+
+@router.delete("/sessions/{sid}")
+def delete_session(sid: int):
+    from sync.db import DB
+    from sync.config import Config
+    cfg = Config.load()
+    db = DB(cfg.db_path)
+    try:
+        db.conn.execute("DELETE FROM chat_sessions WHERE id=?", (sid,))
+        db.conn.commit()
+        return {"ok": True}
+    finally:
+        db.close()
+
+
 @router.get("/models")
 def list_models():
     """Bifrost model list for the UI model selector."""

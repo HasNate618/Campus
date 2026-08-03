@@ -41,10 +41,17 @@ function formatDetail(v: unknown): string {
 }
 
 /** Chat markdown uses the SITE's .md styling (matches announcements, etc.)
- *  + the shared zen post-process (mermaid, copy buttons). */
+ *  + the shared zen post-process (mermaid, copy buttons). Renders are
+ *  rAF-throttled so token-by-token streaming stays smooth (content updates
+ *  coalesce to one re-render per frame instead of one per token). */
 function ChatMd({ content }: { content: string }) {
   const ref = useRef<HTMLDivElement>(null)
-  const html = useMemo(() => (marked.parse(content ?? '') as string) || '', [content])
+  const [rendered, setRendered] = useState(content)
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setRendered(content))
+    return () => cancelAnimationFrame(raf)
+  }, [content])
+  const html = useMemo(() => (marked.parse(rendered) as string) || '', [rendered])
   useZenPostProcess(ref, [html])
   return <div ref={ref} className="md" dangerouslySetInnerHTML={{ __html: html }} />
 }
@@ -555,15 +562,23 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
       </div>
 
       <div className="input-dock">
-        {lastAssistant?.model && (
+        {lastAssistant && (
           <div className="context-bar">
-            <span>{shortModel(lastAssistant.model)}</span>
-            {lastAssistant.tokens?.total_tokens ? (
-              <span>
-                · {fmtTokens(lastAssistant.tokens.completion_tokens)} out ·{' '}
-                {fmtTokens(lastAssistant.tokens.total_tokens)} this turn
+            {lastAssistant.streaming ? (
+              <span style={{ color: 'var(--violet)' }}>
+                ⟳ streaming {lastAssistant.content.length.toLocaleString()} chars…
               </span>
-            ) : null}
+            ) : (
+              <>
+                <span>{lastAssistant.model ? shortModel(lastAssistant.model) : '—'}</span>
+                {lastAssistant.tokens?.total_tokens ? (
+                  <span>
+                    · {fmtTokens(lastAssistant.tokens.completion_tokens)} out ·{' '}
+                    {fmtTokens(lastAssistant.tokens.total_tokens)} this turn
+                  </span>
+                ) : null}
+              </>
+            )}
           </div>
         )}
         <div className="chat-input">

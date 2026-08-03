@@ -166,6 +166,7 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     course_id   INTEGER REFERENCES courses(id) ON DELETE CASCADE, -- NULL = general
     title       TEXT NOT NULL DEFAULT 'New chat',
+    nodes_json  TEXT,                       -- full message tree (JSON blob)
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
