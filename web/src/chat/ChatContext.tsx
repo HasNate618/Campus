@@ -440,6 +440,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const activeFor = useCallback(
     (courseId: number) => {
       const id = activeMap[courseId]
+      // '' = explicit empty-chat state (New chat pressed) — show the blank
+      // screen instead of falling back to the most recent session
+      if (id === '') return null
       const found = id ? sessions.find((s) => s.id === id) : undefined
       if (found) return found
       // stale/missing active (e.g. after an id promotion) — fall back to the
@@ -458,9 +461,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const newChat = useCallback((courseId: number) => {
-    const s = makeSession(courseId)
-    setSessions((ss) => [s, ...ss].slice(0, MAX_SESSIONS))
-    setActiveMap((m) => ({ ...m, [courseId]: s.id }))
+    // Reset to the EMPTY chat state without creating a session — the session
+    // materializes on the first message (send creates it inline). Empty
+    // 'New chat' drafts no longer accumulate in memory or the session list.
+    setActiveMap((m) => ({ ...m, [courseId]: '' }))
   }, [])
 
   const deleteSession = useCallback((sessionId: string) => {
