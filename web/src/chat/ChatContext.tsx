@@ -542,7 +542,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               intermediate: false,
             }))
           } else if (event === 'tool_start') {
-            if (assistantId) patchNode(sid, assistantId, (n) => ({ ...n, intermediate: true, streaming: false }))
+            // keep the assistant node VISIBLE (its tool chips render live as
+            // each tool starts: running → done) — hiding it made every tool
+            // call invisible until the final answer began
             const toolId = makeUuid()
             appendNode(sid, {
               id: toolId, parentId: assistantId ?? userNodeId, children: [], role: 'tool',
@@ -699,7 +701,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         .map((n) => ({ role: n.role as 'user' | 'assistant', content: n.content }))
 
       const userNodeId = makeUuid()
-      const isNew = session.nodes.length === 0
       setSessions((ss) =>
         ss.map((s) => {
           if (s.id !== sid) return s
@@ -712,7 +713,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             : s.nodes
           return {
             ...s,
-            title: isNew ? text.slice(0, 42) : s.title,
+            title: s.nodes.length === 0 ? text.slice(0, 42) : s.title,
             updatedAt: Date.now(),
             activeNodeId: userNodeId,
             nodes: [...nodes, userNode],
