@@ -1,0 +1,2024 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Zen PDF Viewer</title>
+<style>
+:root { color-scheme: dark; }
+html, body {
+  height: 100%;
+  margin: 0;
+  background: transparent;
+  color: #dcfce7;
+  font-family: "Inter", "JetBrainsMono Nerd Font", sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* keyboard-only controls */
+#viewerContainer {
+  padding: 8px 8px 12px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.keybinds-panel {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  z-index: 1001;
+  padding: clamp(8px, 3vw, 40px);
+  box-sizing: border-box;
+}
+.keybinds-panel[hidden] { display: none; }
+.keybinds-panel-inner {
+  position: relative;
+  background: rgba(14, 14, 18, 0.94);
+  color: inherit;
+  padding: 20px 24px;
+  border-radius: 14px;
+  width: min(1100px, 100%);
+  max-height: 88vh;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 30px rgba(2, 6, 23, 0.55);
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+}
+.keybinds-panel h2 { margin-top: 0; margin-bottom: 12px; font-size: 18px; font-weight: 600; color: #f1f5f9; }
+.keybinds-grid { display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 0 20px; width: 100%; }
+@media (max-width: 640px) {
+  .keybinds-grid { grid-template-columns: auto 1fr; }
+  /* In single-column mode every key+desc pair is row n; remove border only from first row */
+  .keybinds-grid > .keybind-key { border-top: 1px solid rgba(255,255,255,0.03); }
+  .keybinds-grid > .keybind-desc { border-top: 1px solid rgba(255,255,255,0.03); }
+  .keybinds-grid > .keybind-key:first-child { border-top: none; }
+  .keybinds-grid > .keybind-desc:nth-child(2) { border-top: none; }
+}
+.keybind-key { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 7px 8px 7px 0; border-top: 1px solid rgba(255,255,255,0.03); }
+.keybind-key:nth-child(4n+1), .keybind-key:nth-child(4n+2) { border-top: none; }
+/* Remove top border from first four children (first row) */
+.keybinds-grid > .keybind-key:nth-child(-n+4) { border-top: none; }
+.keybind-desc { color: #e6eef0; font-size:14px; line-height:1.45; opacity:0.95; padding: 7px 8px 7px 0; border-top: 1px solid rgba(255,255,255,0.03); display: flex; align-items: center; }
+.keybinds-grid > .keybind-desc:nth-child(-n+4) { border-top: none; }
+.keycap { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', monospace; font-weight: 700; color: #fff; font-size: 13px; background: rgba(255,255,255,0.09); border: 1px solid rgba(255,255,255,0.14); padding: 3px 8px; border-radius: 6px; display: inline-block; white-space: nowrap; }
+.keybinds-panel .close { position: absolute; top: 8px; right: 8px; background: transparent; color: #e6eef0; border: 0; font-size: 20px; cursor: pointer; padding: 6px 8px; border-radius: 6px; }
+.keybinds-panel .close:hover { background: rgba(255,255,255,0.05); }
+
+
+.pageless #viewerContainer {
+  padding: 8px 0 54px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: max-content;
+  min-width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.dual-mode #viewerContainer {
+  padding: 8px 8px 12px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, max-content));
+  gap: 8px;
+  justify-content: center;
+  justify-items: center;
+  align-items: start;
+  width: 100%;
+}
+
+.dual-mode .pageShell {
+  margin: 0;
+}
+.pageShell {
+  position: relative;
+  margin: 14px auto;
+  border-radius: 8px;
+  overflow: hidden;
+  background: transparent;
+}
+
+.pageless .pageShell {
+  margin: 0 auto;
+  border-radius: 0;
+}
+.pageCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+}
+.pageSvg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: transparent;
+}
+.textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  line-height: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.textLayer span,
+.textLayer br {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.textLayer ::selection { background: rgba(74, 222, 127, 0.35); }
+.annotationLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.annotationLayer a {
+  position: absolute;
+  display: block;
+  pointer-events: auto;
+  background: transparent;
+  text-decoration: none;
+  color: transparent;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+button,
+input,
+label { color: inherit; font: inherit; }
+label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+button {
+  background: rgba(18, 17, 17, 0.45);
+  border: 1px solid rgba(220, 252, 231, 0.2);
+  border-radius: 6px;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+input[type="number"] {
+  width: 50px;
+  background: rgba(18, 17, 17, 0.45);
+  border: 1px solid rgba(220, 252, 231, 0.2);
+  border-radius: 6px;
+  padding: 4px;
+}
+input[type="range"] { accent-color: #4ade7f; }
+#error {
+  margin: 90px auto 0;
+  max-width: 720px;
+  background: rgba(185, 28, 28, 0.2);
+  border: 1px solid rgba(185, 28, 28, 0.5);
+  border-radius: 10px;
+  padding: 12px;
+  display: none;
+}
+</style>
+</head>
+<body>
+<div id="keybindsOverlay" class="keybinds-panel" hidden>
+  <div class="keybinds-panel-inner">
+    <button id="keybindsClose" class="close" aria-label="Close">×</button>
+    <h2>Keybindings</h2>
+    <div id="keybindsText" class="keybinds-grid" role="grid" aria-label="Keybindings">
+      <div class="keybind-key">J, PgDn</div><div class="keybind-desc">Go to the next page</div><div class="keybind-key">K, PgUp</div><div class="keybind-desc">Go to the previous page</div>
+      <div class="keybind-key">h, j, k, l</div><div class="keybind-desc">Scroll left, down, up or right</div><div class="keybind-key">Left, Down, Up, Right</div><div class="keybind-desc">Scroll left, down, up or right</div>
+      <div class="keybind-key">^t, ^d, ^u, ^y</div><div class="keybind-desc">Scroll a half page left, down, up or right</div><div class="keybind-key">space, b</div><div class="keybind-desc">Page down / page up</div>
+      <div class="keybind-key">g, G</div><div class="keybind-desc">Goto first or last page</div><div class="keybind-key">P</div><div class="keybind-desc">Snap to the current page</div>
+      <div class="keybind-key">H, L</div><div class="keybind-desc">Goto top or bottom of current page</div><div class="keybind-key">^o, ^i</div><div class="keybind-desc">Move backward/forward through jump list</div>
+      <div class="keybind-key">Escape, ?</div><div class="keybind-desc">Open/close keybinds viewer</div><div class="keybind-key">:</div><div class="keybind-desc">Goto page number</div>
+      <div class="keybind-key">1-9</div><div class="keybind-desc">Go to bookmark slots (default pages 1-9)</div><div class="keybind-key">Alt+1-9</div><div class="keybind-desc">Assign the current viewport position to a bookmark slot</div>
+      <div class="keybind-key">r</div><div class="keybind-desc">Rotate by 90 degrees</div><div class="keybind-key">z</div><div class="keybind-desc">Toggle Zen mode</div>
+      <div class="keybind-key">c</div><div class="keybind-desc">Toggle color in Zen mode</div><div class="keybind-key">f</div><div class="keybind-desc">Find in document</div>
+      <div class="keybind-key">p</div><div class="keybind-desc">Toggle pageless & compression</div><div class="keybind-key">d</div><div class="keybind-desc">Toggle dual page view</div>
+      <div class="keybind-key">F11</div><div class="keybind-desc">Toggle fullscreen mode</div><div class="keybind-key">=, -</div><div class="keybind-desc">Zoom in / out</div>
+      <div class="keybind-key">0</div><div class="keybind-desc">Reset zoom to fit the page width</div>
+      <div class="keybind-key">R</div><div class="keybind-desc">Reload document</div><div class="keybind-key">q</div><div class="keybind-desc">Quit</div>
+    </div>
+    <div style="text-align:right; margin-top:8px"><button id="keybindsCloseBtn">Close</button></div>
+  </div>
+</div>
+<div id="error"></div>
+<div id="viewerContainer"></div>
+
+<script src="./pdf.min.js"></script>
+<script>
+(() => {
+  const params = new URLSearchParams(location.search);
+  const file = params.get("file") || "";
+  const theme = {
+    fg: params.get("fg") || "#e6e6e6",
+    toolbarBg: params.get("bg") || "rgba(0,0,0,0.45)",
+  };
+
+  const perf = {
+    renderBehind: 12,
+    renderAhead: 16,
+    maxCachePages: 24,
+    largeDocPages: 300,
+    largeDocMaxDpr: 1.75,
+    smallDocThreshold: 150,
+    maxRenderedPages: 50,
+  };
+
+  const layout = {
+    preferredPortraitDpi: 120,
+    pdfPointDpi: 72,
+    pageShellMarginX: 28,
+  };
+
+  const zen = {
+    pageShade: 18,
+    paperLumaMin: 232,
+    paperChromaMax: 16,
+    haloLumaMin: 205,
+    haloChromaMax: 32,
+    bgEdgeCoverageMin: 0.5,
+    bgRgbTol: 38,
+    bgLumaTol: 32,
+    bgFringeLuma: 44,
+    filterMono: "grayscale(1) invert(1)",
+    filterKeepHue: "invert(1) hue-rotate(180deg)",
+    filterGrayscale: "grayscale(1)",
+  };
+
+  const state = {
+    scale: 1,
+    pdfDoc: null,
+    zenMode: params.get("zen") !== "0",
+    keepImagesColor: params.get("imgcolor") !== "0",
+    svgEnabled: params.get("svg") !== "0",
+    svgSupported: typeof pdfjsLib !== "undefined" && typeof pdfjsLib.SVGGraphics === "function",
+    svgFallbackLogged: false,
+    dualMode: params.get("dual") === "1",
+    pageless: (params.get("pageless") !== null) ? (params.get("pageless") === "1") : (params.get("zen") !== "0"),
+    compress: false,
+    renderToken: 0,
+    lastOutputScale: 1,
+    lastViewportScale: 1,
+    lastDevicePixelRatio: Math.max(window.devicePixelRatio || 1, 1),
+    baseDevicePixelRatio: Math.max(window.devicePixelRatio || 1, 1),
+    lastSvgOversample: 1,
+    suspendWindowRendering: false,
+    suspendObserverUpdates: false,
+    renderMutationDepth: 0,
+    lastBookmarkCycleSlot: null,
+  };
+
+  const container = document.getElementById("viewerContainer");
+  const errorEl = document.getElementById("error");
+  const keybindsOverlay = document.getElementById("keybindsOverlay");
+  const keybindsClose = document.getElementById("keybindsClose");
+  const keybindsCloseBtn = document.getElementById("keybindsCloseBtn");
+
+  // Apply theme and initial mode
+  if (document.body) document.body.style.color = theme.fg;
+  updateModeClass();
+
+  // viewer state
+  state.currentPage = 1;
+  state.rotation = 0;
+  state.jumpBack = [];
+  state.jumpForward = [];
+  state.pageCache = new Map();
+  state.pageSizes = new Map();
+  state.renderedPages = new Set();
+  state.visiblePages = new Map();
+  state.renderPending = false;
+  state.pageObserver = null;
+  state.baseViewport = null;
+  state.largeDoc = false;
+  state.isSmallDoc = false;
+  state.renderedPagesMru = [];  // MRU list for page cache eviction
+  state.bookmarks = new Map();
+
+  function clamp(v, min, max) {
+    return Math.min(max, Math.max(min, v));
+  }
+
+  function showError(message) {
+    errorEl.textContent = message;
+    errorEl.style.display = "block";
+  }
+
+  function pixelLumaChroma(r, g, b) {
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    return {
+      luma: 0.2126 * r + 0.7152 * g + 0.0722 * b,
+      chroma: max - min,
+    };
+  }
+
+  function rgbToHsl255(r, g, b) {
+    const rn = r / 255;
+    const gn = g / 255;
+    const bn = b / 255;
+    const max = Math.max(rn, gn, bn);
+    const min = Math.min(rn, gn, bn);
+    let h = 0;
+    let s = 0;
+    const l = (max + min) / 2;
+    if (max !== min) {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      switch (max) {
+        case rn: h = (gn - bn) / d + (gn < bn ? 6 : 0); break;
+        case gn: h = (bn - rn) / d + 2; break;
+        default: h = (rn - gn) / d + 4;
+      }
+      h /= 6;
+    }
+    return [h, s, l];
+  }
+
+  function hslToRgb255(h, s, l) {
+    if (s === 0) {
+      const v = Math.round(l * 255);
+      return [v, v, v];
+    }
+    const hue2rgb = (p, q, t) => {
+      let tt = t;
+      if (tt < 0) tt += 1;
+      if (tt > 1) tt -= 1;
+      if (tt < 1 / 6) return p + (q - p) * 6 * tt;
+      if (tt < 1 / 2) return q;
+      if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
+      return p;
+    };
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    return [
+      Math.round(hue2rgb(p, q, h + 1 / 3) * 255),
+      Math.round(hue2rgb(p, q, h) * 255),
+      Math.round(hue2rgb(p, q, h - 1 / 3) * 255),
+    ];
+  }
+
+  function zenRecolorRgb(r, g, b, keepImagesColor, pageBg) {
+    if (pageBg?.isDark) {
+      if (keepImagesColor) return [r, g, b];
+      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+      return [gray, gray, gray];
+    }
+    if (keepImagesColor) {
+      const [h, s, l] = rgbToHsl255(r, g, b);
+      return hslToRgb255(h, s, 1 - l);
+    }
+    const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+    const inv = 255 - gray;
+    return [inv, inv, inv];
+  }
+
+  function rgbDistance(r1, g1, b1, r2, g2, b2) {
+    const dr = r1 - r2;
+    const dg = g1 - g2;
+    const db = b1 - b2;
+    return Math.sqrt(dr * dr + dg * dg + db * db);
+  }
+
+  function medianOf(values) {
+    if (!values.length) return 0;
+    const sorted = values.slice().sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+
+  function detectCanvasBackground(d, w, h) {
+    if (w < 3 || h < 3) return null;
+    const border = Math.max(1, Math.floor(Math.min(w, h) * 0.02));
+    const samples = [];
+    const sampleAt = (x, y) => {
+      const i = (y * w + x) * 4;
+      if (d[i + 3] < 4) return;
+      const r = d[i];
+      const g = d[i + 1];
+      const b = d[i + 2];
+      const { luma, chroma } = pixelLumaChroma(r, g, b);
+      if (chroma > zen.paperChromaMax + 10) return;
+      samples.push({ r, g, b, luma, chroma });
+    };
+
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (x < border || x >= w - border || y < border || y >= h - border) {
+          sampleAt(x, y);
+        }
+      }
+    }
+    if (samples.length < 12) return null;
+
+    const r = Math.round(medianOf(samples.map((s) => s.r)));
+    const g = Math.round(medianOf(samples.map((s) => s.g)));
+    const b = Math.round(medianOf(samples.map((s) => s.b)));
+    const { luma, chroma } = pixelLumaChroma(r, g, b);
+    const isDark = luma < 128;
+    let matching = 0;
+    for (const sample of samples) {
+      if (sample.chroma > zen.paperChromaMax + 6) continue;
+      if (rgbDistance(sample.r, sample.g, sample.b, r, g, b) <= zen.bgRgbTol) matching++;
+    }
+    if (matching / samples.length < zen.bgEdgeCoverageMin) return null;
+
+    return { r, g, b, luma, chroma, isDark };
+  }
+
+  function isBackgroundPixel(r, g, b, a, pageBg) {
+    if (a < 4) return true;
+    const { luma, chroma } = pixelLumaChroma(r, g, b);
+
+    if (pageBg) {
+      if (chroma > zen.paperChromaMax + (pageBg.isDark ? 12 : 4)) return false;
+      if (rgbDistance(r, g, b, pageBg.r, pageBg.g, pageBg.b) > zen.bgRgbTol) return false;
+      if (pageBg.isDark) return luma <= pageBg.luma + zen.bgLumaTol;
+      return luma >= pageBg.luma - zen.bgLumaTol;
+    }
+
+    return luma >= zen.paperLumaMin && chroma <= zen.paperChromaMax;
+  }
+
+  function applyPaperTreatment(data, index) {
+    if (state.pageless) {
+      data[index + 3] = 0;
+      return;
+    }
+    data[index] = zen.pageShade;
+    data[index + 1] = zen.pageShade;
+    data[index + 2] = zen.pageShade;
+    data[index + 3] = 255;
+  }
+
+  function buildBackgroundMask(d, w, h, pageBg) {
+    const mask = new Uint8Array(w * h);
+    for (let p = 0; p < w * h; p++) {
+      const i = p * 4;
+      if (d[i + 3] === 0) continue;
+      if (isBackgroundPixel(d[i], d[i + 1], d[i + 2], d[i + 3], pageBg)) mask[p] = 1;
+    }
+
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const p = y * w + x;
+        if (mask[p]) continue;
+        const i = p * 4;
+        if (d[i + 3] === 0) continue;
+        const { luma, chroma } = pixelLumaChroma(d[i], d[i + 1], d[i + 2]);
+        if (chroma > zen.haloChromaMax) continue;
+
+        let nearBg = false;
+        for (let dy = -2; dy <= 2 && !nearBg; dy++) {
+          for (let dx = -2; dx <= 2; dx++) {
+            if (mask[(y + dy) * w + (x + dx)] === 1) {
+              nearBg = true;
+              break;
+            }
+          }
+        }
+        if (!nearBg) continue;
+
+        if (pageBg?.isDark) {
+          if (luma <= pageBg.luma + zen.bgFringeLuma && chroma <= zen.paperChromaMax + 8) {
+            mask[p] = 1;
+          }
+        } else if (luma >= zen.haloLumaMin && chroma <= zen.haloChromaMax) {
+          mask[p] = 1;
+        }
+      }
+    }
+
+    return mask;
+  }
+
+  function applyZenFilter(ctx, w, h, keepImagesColor) {
+    const img = ctx.getImageData(0, 0, w, h);
+    const d = img.data;
+    const pageBg = detectCanvasBackground(d, w, h);
+
+    if (state.pageless && w > 2 && h > 2) {
+      const bgMask = buildBackgroundMask(d, w, h, pageBg);
+      for (let p = 0; p < w * h; p++) {
+        if (!bgMask[p]) continue;
+        applyPaperTreatment(d, p * 4);
+      }
+    }
+
+    for (let i = 0; i < d.length; i += 4) {
+      const a = d[i + 3];
+      if (a === 0) continue;
+
+      const r = d[i];
+      const g = d[i + 1];
+      const b = d[i + 2];
+
+      if (!state.pageless && isBackgroundPixel(r, g, b, a, pageBg)) {
+        applyPaperTreatment(d, i);
+        continue;
+      }
+
+      const [nr, ng, nb] = zenRecolorRgb(r, g, b, keepImagesColor, pageBg);
+      d[i] = nr;
+      d[i + 1] = ng;
+      d[i + 2] = nb;
+
+      if (state.pageless && !pageBg?.isDark) {
+        const post = pixelLumaChroma(nr, ng, nb);
+        if (post.luma < 14) d[i + 3] = 0;
+      }
+    }
+
+    ctx.putImageData(img, 0, 0);
+  }
+
+  function parseSvgColorComponent(value) {
+    const v = parseFloat(value);
+    if (!Number.isFinite(v)) return null;
+    if (String(value).includes("%")) return Math.round(v * 2.55);
+    return v <= 1 ? Math.round(v * 255) : Math.round(v);
+  }
+
+  function parseSvgPaint(value) {
+    if (!value || value === "none") return null;
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "white") return [255, 255, 255];
+    const hex = normalized.match(/^#([\da-f]{3}|[\da-f]{6})$/i);
+    if (hex) {
+      let h = hex[1];
+      if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+      const n = parseInt(h, 16);
+      return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    }
+    const rgb = normalized.match(/^rgba?\(\s*([^)]+)\)$/);
+    if (rgb) {
+      const parts = rgb[1].split(/[\s,/]+/).filter(Boolean);
+      if (parts.length < 3) return null;
+      const r = parseSvgColorComponent(parts[0]);
+      const g = parseSvgColorComponent(parts[1]);
+      const b = parseSvgColorComponent(parts[2]);
+      if (r === null || g === null || b === null) return null;
+      return [r, g, b];
+    }
+    return null;
+  }
+
+  function paintMatchesBackground(value, pageBg) {
+    const rgb = parseSvgPaint(value);
+    if (!rgb) return false;
+    const [r, g, b] = rgb;
+    return isBackgroundPixel(r, g, b, 255, pageBg);
+  }
+
+  function detectSvgBackground(svg, viewport) {
+    const vw = parseFloat(svg.getAttribute("width")) || viewport?.width || 0;
+    const vh = parseFloat(svg.getAttribute("height")) || viewport?.height || 0;
+    let best = null;
+    let bestArea = 0;
+
+    svg.querySelectorAll("rect").forEach((el) => {
+      if (el.closest("defs")) return;
+      const w = parseFloat(el.getAttribute("width") || 0);
+      const h = parseFloat(el.getAttribute("height") || 0);
+      const area = w * h;
+      if (area <= bestArea || !vw || !vh) return;
+      if (w < vw * 0.7 || h < vh * 0.7) return;
+      const fill = el.getAttribute("fill") || el.style?.fill;
+      const rgb = parseSvgPaint(fill);
+      if (!rgb) return;
+      const { luma, chroma } = pixelLumaChroma(rgb[0], rgb[1], rgb[2]);
+      if (chroma > zen.paperChromaMax + 8) return;
+      bestArea = area;
+      best = { r: rgb[0], g: rgb[1], b: rgb[2], luma, chroma, isDark: luma < 128 };
+    });
+
+    return best;
+  }
+
+  function clearBackgroundSvgPaints(svg, pageBg) {
+    const paintAttrs = ["fill", "stroke"];
+    svg.querySelectorAll("*").forEach((el) => {
+      for (const attr of paintAttrs) {
+        const val = el.getAttribute(attr) || el.style?.[attr];
+        if (!paintMatchesBackground(val, pageBg)) continue;
+        el.setAttribute(attr, "none");
+        if (attr === "fill") el.setAttribute("fill-opacity", "0");
+        if (el.style) el.style[attr] = "none";
+      }
+    });
+  }
+
+  async function applyZenToSvgImages(svg, keepImagesColor) {
+    const images = [...svg.querySelectorAll("image")];
+    await Promise.all(images.map(async (img) => {
+      const href = img.getAttribute("href") || img.getAttribute("xlink:href");
+      if (!href || href.startsWith("#")) return;
+
+      const w = Math.max(1, Math.floor(parseFloat(img.getAttribute("width")) || 0));
+      const h = Math.max(1, Math.floor(parseFloat(img.getAttribute("height")) || 0));
+      if (!w || !h) return;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d", { alpha: true, willReadFrequently: true });
+      const imageEl = new Image();
+      await new Promise((resolve, reject) => {
+        imageEl.onload = resolve;
+        imageEl.onerror = reject;
+        imageEl.src = href;
+      });
+      ctx.drawImage(imageEl, 0, 0, w, h);
+      applyZenFilter(ctx, w, h, keepImagesColor);
+      img.setAttribute("href", canvas.toDataURL("image/png"));
+      img.removeAttribute("xlink:href");
+      img.style.filter = "";
+    }));
+  }
+
+  function applySvgElementFilter(el, filter) {
+    if (!el || el.tagName === "defs") return;
+    el.style.filter = filter;
+  }
+
+  async function applySvgZenStyle(svg, keepImagesColor, viewport) {
+    svg.style.filter = "";
+    const pageBg = detectSvgBackground(svg, viewport);
+    clearBackgroundSvgPaints(svg, pageBg);
+    await applyZenToSvgImages(svg, keepImagesColor);
+
+    const monoFilter = zen.filterMono;
+    const colorFilter = zen.filterKeepHue;
+    const vectorFilter = pageBg?.isDark
+      ? (keepImagesColor ? "" : zen.filterGrayscale)
+      : monoFilter;
+    const imageFilter = keepImagesColor ? colorFilter : monoFilter;
+
+    svg.querySelectorAll("image").forEach((img) => {
+      if (img.getAttribute("href")?.startsWith("data:")) return;
+      if (pageBg?.isDark) {
+        applySvgElementFilter(img, keepImagesColor ? "" : zen.filterGrayscale);
+        return;
+      }
+      applySvgElementFilter(img, imageFilter);
+    });
+
+    const vectorTags = "path, rect, polygon, circle, ellipse, line, polyline, text, tspan, use";
+    svg.querySelectorAll(vectorTags).forEach((el) => {
+      if (el.closest("image")) return;
+      applySvgElementFilter(el, vectorFilter);
+    });
+
+    svg.querySelectorAll("g").forEach((group) => {
+      if (group.closest("defs")) return;
+      if (group.querySelector("image")) return;
+      if (group.querySelector(vectorTags)) return;
+      applySvgElementFilter(group, vectorFilter);
+    });
+  }
+
+  function updateModeClass() {
+    if (state.pageless) document.documentElement.classList.add("pageless");
+    else document.documentElement.classList.remove("pageless");
+    if (state.dualMode) document.documentElement.classList.add("dual-mode");
+    else document.documentElement.classList.remove("dual-mode");
+  }
+
+
+  function compactKeybindsTable() {
+    const grid = document.getElementById('keybindsText');
+    if (!grid || grid.dataset.compact === '1') return;
+
+    function keysToHtml(keyStr) {
+      return keyStr.split(/,\s+/).map(k => `<kbd class="keycap">${k.trim()}</kbd>`).join('');
+    }
+
+    // Apply keycap rendering to all .keybind-key divs already in the DOM
+    grid.querySelectorAll('.keybind-key').forEach(el => {
+      el.innerHTML = keysToHtml(el.textContent.trim());
+    });
+    grid.dataset.compact = '1';
+  }
+
+  function updateCurrentPageFromScroll() {
+    if (!state.pdfDoc) return;
+    if (state.visiblePages.size > 0) {
+      let best = state.currentPage || 1;
+      let bestRatio = -1;
+      for (const [pageNo, ratio] of state.visiblePages.entries()) {
+        if (ratio > bestRatio) {
+          bestRatio = ratio;
+          best = pageNo;
+        }
+      }
+      state.currentPage = best;
+      return;
+    }
+    const centerY = window.scrollY + window.innerHeight / 2;
+    let best = state.currentPage || 1;
+    let dist = Infinity;
+    for (let i = 1; i <= state.pdfDoc.numPages; i++) {
+      const el = document.getElementById(`page-${i}`);
+      if (!el) continue;
+      const pageCenter = el.offsetTop + el.offsetHeight / 2;
+      const d = Math.abs(pageCenter - centerY);
+      if (d < dist) { dist = d; best = i; }
+    }
+    state.currentPage = best;
+  }
+
+  async function renderTextLayer(page, viewport, textLayerDiv) {
+    const textContent = await page.getTextContent();
+    const textDivs = [];
+    const task = pdfjsLib.renderTextLayer({
+      textContent,
+      textContentSource: textContent,
+      container: textLayerDiv,
+      viewport,
+      textDivs,
+      textContentItemsStr: [],
+      enhanceTextSelection: true,
+    });
+    if (task?.promise) {
+      await task.promise;
+    } else {
+      await task;
+    }
+  }
+
+  function viewportRectToCssRect(viewport, rect) {
+    if (!viewport || !Array.isArray(rect) || rect.length < 4) return null;
+    const [x1, y1, x2, y2] = viewport.convertToViewportRectangle(rect);
+    const left = Math.min(x1, x2);
+    const top = Math.min(y1, y2);
+    const width = Math.max(Math.abs(x2 - x1), 1);
+    const height = Math.max(Math.abs(y2 - y1), 1);
+    return { left, top, width, height };
+  }
+
+  function quadPointsToCssRects(viewport, quadPoints) {
+    if (!viewport || !Array.isArray(quadPoints) || quadPoints.length < 8) return [];
+    const rects = [];
+    for (let i = 0; i + 7 < quadPoints.length; i += 8) {
+      const quad = [
+        quadPoints[i],
+        quadPoints[i + 1],
+        quadPoints[i + 2],
+        quadPoints[i + 3],
+        quadPoints[i + 4],
+        quadPoints[i + 5],
+        quadPoints[i + 6],
+        quadPoints[i + 7],
+      ];
+      const points = [];
+      for (let j = 0; j < quad.length; j += 2) {
+        const converted = viewport.convertToViewportPoint(quad[j], quad[j + 1]);
+        points.push(converted[0], converted[1]);
+      }
+      const xs = [];
+      const ys = [];
+      for (let j = 0; j < points.length; j += 2) {
+        xs.push(points[j]);
+        ys.push(points[j + 1]);
+      }
+      const left = Math.min(...xs);
+      const top = Math.min(...ys);
+      const width = Math.max(Math.max(...xs) - left, 1);
+      const height = Math.max(Math.max(...ys) - top, 1);
+      rects.push({ left, top, width, height });
+    }
+    return rects;
+  }
+
+  async function goToAnnotationDestination(dest) {
+    if (!state.pdfDoc || !dest) return;
+    let resolved = dest;
+    if (typeof resolved === "string") {
+      resolved = await state.pdfDoc.getDestination(resolved);
+    }
+    if (!Array.isArray(resolved) || resolved.length === 0) return;
+    const ref = resolved[0];
+    if (!ref || typeof state.pdfDoc.getPageIndex !== "function") return;
+    const pageIndex = await state.pdfDoc.getPageIndex(ref);
+    if (Number.isFinite(pageIndex)) {
+      goToPage(pageIndex + 1);
+    }
+  }
+
+  async function renderAnnotationLayer(page, viewport, shell) {
+    const annotations = await page.getAnnotations({ intent: "display" });
+    const links = annotations.filter((annotation) => annotation && annotation.subtype === "Link");
+    if (links.length === 0) return;
+
+    const annotationLayer = document.createElement("div");
+    annotationLayer.className = "annotationLayer";
+
+    for (const annotation of links) {
+      const url = annotation.url || annotation.unsafeUrl;
+      const rects = annotation.quadPoints && annotation.quadPoints.length >= 8
+        ? quadPointsToCssRects(viewport, annotation.quadPoints)
+        : [viewportRectToCssRect(viewport, annotation.rect)];
+      for (const rect of rects) {
+        if (!rect) continue;
+        const link = document.createElement("a");
+        link.style.left = `${rect.left}px`;
+        link.style.top = `${rect.top}px`;
+        link.style.width = `${rect.width}px`;
+        link.style.height = `${rect.height}px`;
+        link.tabIndex = -1;
+        link.setAttribute("aria-label", annotation.contents || annotation.title || "Link");
+        if (url) {
+          link.href = url;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.title = url;
+        } else if (annotation.dest) {
+          link.href = "#";
+          link.title = annotation.contents || annotation.title || "Link";
+          link.addEventListener("click", async (ev) => {
+            ev.preventDefault();
+            await goToAnnotationDestination(annotation.dest);
+          });
+        } else {
+          continue;
+        }
+        annotationLayer.appendChild(link);
+      }
+    }
+
+    if (annotationLayer.childElementCount > 0) {
+      shell.appendChild(annotationLayer);
+    }
+  }
+
+  async function getPdfPage(pageNumber) {
+    if (state.pageCache.has(pageNumber)) {
+      const cached = state.pageCache.get(pageNumber);
+      state.pageCache.delete(pageNumber);
+      state.pageCache.set(pageNumber, cached);
+      return cached;
+    }
+    const page = await state.pdfDoc.getPage(pageNumber);
+    state.pageCache.set(pageNumber, page);
+    if (state.pageCache.size > perf.maxCachePages) {
+      const firstKey = state.pageCache.keys().next().value;
+      if (firstKey) state.pageCache.delete(firstKey);
+    }
+    return page;
+  }
+
+  function getViewportScale() {
+    const vv = window.visualViewport;
+    if (!vv || !Number.isFinite(vv.scale) || vv.scale <= 0) return 1;
+    return vv.scale;
+  }
+
+  function getEffectiveDevicePixelRatio() {
+    const dpr = Math.max(window.devicePixelRatio || 1, 1);
+    if (getRenderBackend() === "svg") return dpr;
+    const viewportScale = getViewportScale();
+    return Math.max(dpr * viewportScale, 1);
+  }
+
+  function beginRenderMutation() {
+    state.renderMutationDepth += 1;
+    state.suspendWindowRendering = true;
+    state.suspendObserverUpdates = true;
+  }
+
+  function endRenderMutation() {
+    state.renderMutationDepth = Math.max(0, state.renderMutationDepth - 1);
+    const suspended = state.renderMutationDepth > 0;
+    state.suspendWindowRendering = suspended;
+    state.suspendObserverUpdates = suspended;
+  }
+
+  function getRenderBackend() {
+    if (!state.svgEnabled || !state.svgSupported) return "canvas";
+    return "svg";
+  }
+
+  function getOutputScale() {
+    if (state.compress) return 1;
+    const dpr = getEffectiveDevicePixelRatio();
+    const pages = state.pdfDoc?.numPages || 1;
+    if (state.largeDoc) return Math.min(dpr, perf.largeDocMaxDpr);
+    if (pages >= 120) return Math.min(dpr, 1.25);
+    if (pages >= 60) return Math.min(dpr, 1.5);
+    if (pages >= 30) return Math.min(dpr, 2);
+    return Math.min(dpr, 3);
+  }
+
+  function getSvgOversampleScale() {
+    if (state.compress) return 1;
+    const viewportScale = getViewportScale();
+    const dpr = Math.max(window.devicePixelRatio || 1, 1);
+    const baseDpr = Math.max(state.baseDevicePixelRatio || dpr, 1);
+    const dprZoom = dpr / baseDpr;
+    const effectiveZoom = Math.max(viewportScale, dprZoom, 1);
+    if (!Number.isFinite(effectiveZoom) || effectiveZoom <= 1.005) return 1;
+    const cap = getSvgOversampleCap();
+    return clamp(effectiveZoom, 1, cap);
+  }
+
+  function getSvgOversampleCap() {
+    const pages = state.pdfDoc?.numPages || 1;
+    if (state.largeDoc) return state.zenMode ? 2.4 : 2;
+    if (pages >= 120) return state.zenMode ? 3.25 : 2.75;
+    if (pages >= 60) return state.zenMode ? 3.75 : 3.25;
+    return state.zenMode ? 4.5 : 4;
+  }
+
+  function updateDisplayScaleSnapshot() {
+    state.lastOutputScale = getOutputScale();
+    state.lastViewportScale = getViewportScale();
+    state.lastDevicePixelRatio = Math.max(window.devicePixelRatio || 1, 1);
+    state.lastSvgOversample = getSvgOversampleScale();
+  }
+
+  function hasDisplayScaleChange({
+    outputThreshold = 0.08,
+    viewportThreshold = 0.02,
+    dprThreshold = 0.01,
+    svgThreshold = 0.015,
+  } = {}) {
+    const outputChanged = Math.abs(getOutputScale() - state.lastOutputScale) > outputThreshold;
+    const viewportChanged = Math.abs(getViewportScale() - state.lastViewportScale) > viewportThreshold;
+    const dprChanged = Math.abs(Math.max(window.devicePixelRatio || 1, 1) - state.lastDevicePixelRatio) > dprThreshold;
+    const svgOversampleChanged = Math.abs(getSvgOversampleScale() - (state.lastSvgOversample || 1)) > svgThreshold;
+    return outputChanged || viewportChanged || dprChanged || svgOversampleChanged;
+  }
+
+  function buildRenderOrder(total, center) {
+    const order = [center];
+    for (let offset = 1; order.length < total; offset++) {
+      const next = center + offset;
+      const prev = center - offset;
+      if (next <= total) order.push(next);
+      if (prev >= 1) order.push(prev);
+    }
+    return order;
+  }
+
+  function getAvailablePageWidth() {
+    if (!container) return Math.max(100, window.innerWidth - 16);
+    const cs = getComputedStyle(container);
+    const padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+    const shellMarginX = state.pageless ? 0 : layout.pageShellMarginX;
+    return Math.max(100, window.innerWidth - padX - shellMarginX);
+  }
+
+  function getWidthFitScale(viewport, availableW) {
+    return availableW / Math.max(viewport.width, 1);
+  }
+
+  function getPortraitPreferredScale() {
+    return layout.preferredPortraitDpi / layout.pdfPointDpi;
+  }
+
+  async function getModeFitScale({ pageNumber } = {}) {
+    if (!state.pdfDoc) return 1;
+    const pageNo = clamp(
+      Number.isFinite(pageNumber) ? pageNumber : (state.currentPage || 1),
+      1,
+      state.pdfDoc.numPages,
+    );
+    const page = await getPdfPage(pageNo);
+    const vp = page.getViewport({ scale: 1, rotation: state.rotation || 0 });
+    const availableW = getAvailablePageWidth();
+    let nextScale;
+
+    if (state.dualMode) {
+      const gap = 8;
+      const totalWidth = (vp.width * 2) + gap;
+      nextScale = getWidthFitScale({ width: totalWidth }, availableW);
+    } else {
+      const widthFitScale = getWidthFitScale(vp, availableW);
+      const isLandscape = vp.width >= vp.height;
+      nextScale = isLandscape
+        ? widthFitScale
+        : Math.min(getPortraitPreferredScale(), widthFitScale);
+    }
+
+    return Math.max(nextScale, 0.1);
+  }
+
+  async function adjustScaleToMode({ skipWhenZoomedIn = false, pageNumber } = {}) {
+    if (!state.pdfDoc) return false;
+    try {
+      const fitScale = await getModeFitScale({ pageNumber });
+      if (skipWhenZoomedIn && state.scale > fitScale + 0.01) {
+        return false;
+      }
+      const prevScale = state.scale;
+      state.scale = fitScale;
+      return Math.abs(prevScale - state.scale) > 0.01;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function alignFitWidthView() {
+    requestAnimationFrame(() => {
+      window.scrollTo({ left: 0, top: window.scrollY, behavior: 'auto' });
+    });
+  }
+
+  async function resetToFitWidth({ pageNumber } = {}) {
+    await adjustScaleToMode({ pageNumber });
+    await rerenderRenderedPages();
+    alignFitWidthView();
+  }
+
+  function getEstimatedPageSize() {
+    const base = state.baseViewport;
+    const baseWidth = base ? base.width : 612;
+    const baseHeight = base ? base.height : 792;
+    const rotated = (state.rotation || 0) % 180 !== 0;
+    const w = rotated ? baseHeight : baseWidth;
+    const h = rotated ? baseWidth : baseHeight;
+    return { width: w * state.scale, height: h * state.scale };
+  }
+
+  function createPlaceholder(pageNumber) {
+    const shell = document.createElement("div");
+    shell.className = "pageShell";
+    shell.id = `page-${pageNumber}`;
+    shell.dataset.placeholder = "1";
+    const size = state.pageSizes.get(pageNumber) || getEstimatedPageSize();
+    shell.style.width = `${size.width}px`;
+    shell.style.height = `${size.height}px`;
+    return shell;
+  }
+
+  async function renderCanvasLayer(page, viewport, shell) {
+    const canvas = document.createElement("canvas");
+    canvas.className = "pageCanvas";
+    const outputScale = getOutputScale();
+    canvas.width = Math.floor(viewport.width * outputScale);
+    canvas.height = Math.floor(viewport.height * outputScale);
+
+    const ctx = canvas.getContext("2d", {
+      alpha: true,
+      willReadFrequently: state.zenMode,
+    });
+
+    const renderParams = {
+      canvasContext: ctx,
+      viewport,
+      background: state.pageless ? "rgba(0,0,0,0)" : "rgb(255,255,255)",
+      transform: outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null,
+    };
+
+    await page.render(renderParams).promise;
+
+    if (state.zenMode) {
+      applyZenFilter(ctx, canvas.width, canvas.height, state.keepImagesColor);
+    }
+    shell.appendChild(canvas);
+  }
+
+  async function renderSvgLayer(page, viewport, shell) {
+    if (typeof pdfjsLib === "undefined" || typeof pdfjsLib.SVGGraphics !== "function") {
+      throw new Error("PDF.js SVGGraphics is unavailable");
+    }
+    const opList = await page.getOperatorList();
+    const svgGfx = new pdfjsLib.SVGGraphics(page.commonObjs, page.objs);
+    svgGfx.embedFonts = true;
+    const svg = await svgGfx.getSVG(opList, viewport);
+    svg.classList.add("pageSvg");
+    svg.setAttribute("width", `${viewport.width}`);
+    svg.setAttribute("height", `${viewport.height}`);
+    svg.style.width = "100%";
+    svg.style.height = "100%";
+    if (state.zenMode) {
+      await applySvgZenStyle(svg, state.keepImagesColor, viewport);
+    }
+    shell.appendChild(svg);
+  }
+
+  async function renderPage(pageNumber) {
+    const page = await getPdfPage(pageNumber);
+    const rotation = (state.rotation || 0);
+    const layoutViewport = page.getViewport({ scale: state.scale, rotation });
+    const backend = getRenderBackend();
+    const svgOversample = backend === "svg" ? getSvgOversampleScale() : 1;
+    const renderViewport = (backend === "svg" && svgOversample > 1.01)
+      ? page.getViewport({ scale: state.scale * svgOversample, rotation })
+      : layoutViewport;
+    state.pageSizes.set(pageNumber, { width: layoutViewport.width, height: layoutViewport.height });
+
+    const shell = document.createElement("div");
+    shell.className = "pageShell";
+    shell.id = `page-${pageNumber}`;
+    shell.style.width = `${layoutViewport.width}px`;
+    shell.style.height = `${layoutViewport.height}px`;
+
+    const textLayer = document.createElement("div");
+    textLayer.className = "textLayer";
+
+    if (backend === "svg") {
+      try {
+        await renderSvgLayer(page, renderViewport, shell);
+        shell.dataset.renderer = "svg";
+      } catch (err) {
+        state.svgSupported = false;
+        if (!state.svgFallbackLogged) {
+          console.error("SVG rendering failed; falling back to canvas rendering.", err);
+          state.svgFallbackLogged = true;
+        }
+        await renderCanvasLayer(page, layoutViewport, shell);
+        shell.dataset.renderer = "canvas";
+      }
+    } else {
+      await renderCanvasLayer(page, layoutViewport, shell);
+      shell.dataset.renderer = "canvas";
+    }
+
+    await renderTextLayer(page, layoutViewport, textLayer);
+    shell.appendChild(textLayer);
+    await renderAnnotationLayer(page, layoutViewport, shell);
+    return shell;
+  }
+
+  function getViewportAnchor() {
+    if (!state.pdfDoc) return { page: state.currentPage || 1, centerVRatio: 0.5, centerHRatio: 0.5 };
+    const top = window.scrollY;
+    const left = window.scrollX;
+    const centerY = window.scrollY + window.innerHeight / 2;
+    const centerX = window.scrollX + window.innerWidth / 2;
+    let page = state.currentPage || 1;
+    let bestEl = null;
+    let bestDist = Infinity;
+    for (let i = 1; i <= state.pdfDoc.numPages; i++) {
+      const el = document.getElementById(`page-${i}`);
+      if (!el) continue;
+      const pageCenter = el.offsetTop + el.offsetHeight / 2;
+      const dist = Math.abs(pageCenter - centerY);
+      if (dist < bestDist) {
+        bestDist = dist;
+        page = i;
+        bestEl = el;
+      }
+    }
+    const docHeight = Math.max(document.documentElement.scrollHeight - window.innerHeight, 1);
+    const docWidth = Math.max(document.documentElement.scrollWidth - window.innerWidth, 1);
+    if (!bestEl) {
+      return {
+        page,
+        centerVRatio: 0.5,
+        centerHRatio: 0.5,
+        docTopRatio: clamp(top / docHeight, 0, 1),
+        docLeftRatio: clamp(left / docWidth, 0, 1),
+        docCenterYRatio: clamp(centerY / docHeight, 0, 1),
+        docCenterXRatio: clamp(centerX / docWidth, 0, 1),
+      };
+    }
+    const centerVRatio = clamp((centerY - bestEl.offsetTop) / Math.max(bestEl.offsetHeight, 1), 0, 1);
+    const centerHRatio = clamp((centerX - bestEl.offsetLeft) / Math.max(bestEl.offsetWidth, 1), 0, 1);
+    return {
+      page,
+      centerVRatio,
+      centerHRatio,
+      docTopRatio: clamp(top / docHeight, 0, 1),
+      docLeftRatio: clamp(left / docWidth, 0, 1),
+      docCenterYRatio: clamp(centerY / docHeight, 0, 1),
+      docCenterXRatio: clamp(centerX / docWidth, 0, 1),
+    };
+  }
+
+  function restoreViewportAnchor(anchor) {
+    if (!anchor) return;
+    const el = document.getElementById(`page-${anchor.page}`);
+    const maxTop = Math.max(document.documentElement.scrollHeight - window.innerHeight, 0);
+    const maxLeft = Math.max(document.documentElement.scrollWidth - window.innerWidth, 0);
+    if (el) {
+      state.currentPage = anchor.page;
+      const centerVRatio = typeof anchor.centerVRatio === "number"
+        ? clamp(anchor.centerVRatio, 0, 1)
+        : (typeof anchor.topRatio === "number" ? clamp(anchor.topRatio, 0, 1) : 0.5);
+      const centerHRatio = typeof anchor.centerHRatio === "number"
+        ? clamp(anchor.centerHRatio, 0, 1)
+        : (typeof anchor.leftRatio === "number" ? clamp(anchor.leftRatio, 0, 1) : 0.5);
+      const targetCenterY = el.offsetTop + (el.offsetHeight * centerVRatio);
+      const targetCenterX = el.offsetLeft + (el.offsetWidth * centerHRatio);
+      window.scrollTo({
+        top: clamp(targetCenterY - (window.innerHeight / 2), 0, maxTop),
+        left: clamp(targetCenterX - (window.innerWidth / 2), 0, maxLeft),
+        behavior: "auto",
+      });
+      return;
+    }
+    const docTop = typeof anchor.docTopRatio === "number"
+      ? clamp(maxTop * clamp(anchor.docTopRatio, 0, 1), 0, maxTop)
+      : clamp((maxTop * clamp(anchor.docCenterYRatio || 0, 0, 1)) - (window.innerHeight / 2), 0, maxTop);
+    const docLeft = typeof anchor.docLeftRatio === "number"
+      ? clamp(maxLeft * clamp(anchor.docLeftRatio, 0, 1), 0, maxLeft)
+      : clamp((maxLeft * clamp(anchor.docCenterXRatio || 0, 0, 1)) - (window.innerWidth / 2), 0, maxLeft);
+    window.scrollTo({
+      top: docTop,
+      left: docLeft,
+      behavior: "auto",
+    });
+  }
+
+  function restoreViewportAnchorStable(anchor) {
+    if (!anchor) return;
+    restoreViewportAnchor(anchor);
+    requestAnimationFrame(() => {
+      restoreViewportAnchor(anchor);
+    });
+  }
+
+  function replaceWithPlaceholder(pageNumber) {
+    const existing = document.getElementById(`page-${pageNumber}`);
+    if (!existing || existing.parentNode !== container) return;
+    const placeholder = createPlaceholder(pageNumber);
+    container.replaceChild(placeholder, existing);
+    if (state.pageObserver) state.pageObserver.observe(placeholder);
+    state.renderedPages.delete(pageNumber);
+    state.renderedPagesMru = state.renderedPagesMru.filter((p) => p !== pageNumber);
+  }
+
+  function unloadPage(pageNumber) {
+    if (state.renderedPages.has(pageNumber)) {
+      replaceWithPlaceholder(pageNumber);
+    }
+  }
+
+  function getLoadedPages() {
+    return {
+      loaded: Array.from(state.renderedPages).sort((a, b) => a - b),
+      maxCacheSize: perf.maxRenderedPages,
+      currentLoad: state.renderedPages.size
+    };
+  }
+
+  function buildPlaceholders() {
+    // Preserve the currently visible page to avoid flash
+    const centerY = window.scrollY + window.innerHeight / 2;
+    let centerPage = null;
+    let minDist = Infinity;
+    
+    for (let i = 1; i <= (state.pdfDoc?.numPages || 0); i++) {
+      const el = document.getElementById(`page-${i}`);
+      if (!el) continue;
+      const pageCenter = el.offsetTop + el.offsetHeight / 2;
+      const dist = Math.abs(pageCenter - centerY);
+      if (dist < minDist) {
+        minDist = dist;
+        centerPage = i;
+      }
+    }
+    
+    container.innerHTML = "";
+    state.renderedPages.clear();
+    state.renderedPagesMru = [];
+    state.visiblePages.clear();
+    const total = state.pdfDoc?.numPages || 0;
+    const frag = document.createDocumentFragment();
+    for (let i = 1; i <= total; i++) {
+      frag.appendChild(createPlaceholder(i));
+    }
+    container.appendChild(frag);
+  }
+
+  function scheduleRenderWindow() {
+    if (state.suspendWindowRendering) return;
+    if (state.renderPending) return;
+    state.renderPending = true;
+    requestAnimationFrame(() => {
+      state.renderPending = false;
+      if (state.suspendWindowRendering) return;
+      renderWindow();
+    });
+  }
+
+  async function renderWindow() {
+    if (!state.pdfDoc) return;
+    const token = ++state.renderToken;
+    const total = state.pdfDoc.numPages;
+    const center = clamp(state.currentPage || 1, 1, total);
+    const start = clamp(center - perf.renderBehind, 1, total);
+    const end = clamp(center + perf.renderAhead, 1, total);
+    const order = buildRenderOrder(end - start + 1, center - start + 1)
+      .map((idx) => idx + start - 1);
+
+    for (const pageNo of order) {
+      if (token !== state.renderToken) return;
+      if (state.renderedPages.has(pageNo)) {
+        // Move to end of MRU list (most recently used)
+        state.renderedPagesMru = state.renderedPagesMru.filter((p) => p !== pageNo);
+        state.renderedPagesMru.push(pageNo);
+        continue;
+      }
+      const pageNode = await renderPage(pageNo);
+      if (token !== state.renderToken) return;
+      const existing = document.getElementById(`page-${pageNo}`);
+      if (existing && existing.parentNode === container) {
+        container.replaceChild(pageNode, existing);
+      }
+      if (state.pageObserver) state.pageObserver.observe(pageNode);
+      state.renderedPages.add(pageNo);
+      state.renderedPagesMru.push(pageNo);
+
+      // Enforce cache limit with LRU eviction
+      while (state.renderedPages.size > perf.maxRenderedPages && state.renderedPagesMru.length > 0) {
+        const lruPage = state.renderedPagesMru.shift();
+        if (state.renderedPages.has(lruPage)) {
+          replaceWithPlaceholder(lruPage);
+        }
+      }
+    }
+
+    // For small docs, never auto-unload; for large docs, respect the cache limit
+    if (!state.isSmallDoc && state.renderedPages.size > perf.maxRenderedPages) {
+      while (state.renderedPages.size > perf.maxRenderedPages && state.renderedPagesMru.length > 0) {
+        const lruPage = state.renderedPagesMru.shift();
+        if (state.renderedPages.has(lruPage)) {
+          replaceWithPlaceholder(lruPage);
+        }
+      }
+    }
+  }
+
+  async function renderAllPages() {
+    if (!state.pdfDoc) return;
+    const token = ++state.renderToken;
+    const total = state.pdfDoc.numPages;
+    const center = clamp(state.currentPage || 1, 1, total);
+    const order = buildRenderOrder(total, center);
+
+    for (const pageNo of order) {
+      if (token !== state.renderToken) return;
+      if (state.renderedPages.has(pageNo)) continue;
+      const pageNode = await renderPage(pageNo);
+      if (token !== state.renderToken) return;
+      const existing = document.getElementById(`page-${pageNo}`);
+      if (existing && existing.parentNode === container) {
+        container.replaceChild(pageNode, existing);
+      }
+      state.renderedPages.add(pageNo);
+    }
+  }
+
+  function initPageObserver() {
+    if (!state.pdfDoc) return;
+    if (state.pageObserver) {
+      state.pageObserver.disconnect();
+      state.pageObserver = null;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (state.suspendObserverUpdates) return;
+      for (const entry of entries) {
+        const target = entry.target;
+        if (!target || !target.id) continue;
+        const pageNo = Number.parseInt(target.id.replace("page-", ""), 10);
+        if (!pageNo) continue;
+        if (entry.isIntersecting) {
+          state.visiblePages.set(pageNo, entry.intersectionRatio || 0);
+        } else {
+          state.visiblePages.delete(pageNo);
+        }
+      }
+      updateCurrentPageFromScroll();
+      if (!state.isSmallDoc) scheduleRenderWindow();
+    }, {
+      root: null,
+      rootMargin: "200px 0px",
+      threshold: [0, 0.15, 0.35, 0.6, 0.9],
+    });
+
+    const total = state.pdfDoc.numPages;
+    for (let i = 1; i <= total; i++) {
+      const el = document.getElementById(`page-${i}`);
+      if (el) observer.observe(el);
+    }
+    state.pageObserver = observer;
+  }
+
+  function updatePlaceholderSizes() {
+    const size = getEstimatedPageSize();
+    for (const child of container.children) {
+      if (!child || child.dataset?.placeholder !== "1") continue;
+      child.style.width = `${size.width}px`;
+      child.style.height = `${size.height}px`;
+    }
+  }
+
+  function getRefreshPageOrder() {
+    if (!state.pdfDoc) return [];
+    const total = state.pdfDoc.numPages;
+    const center = clamp(state.currentPage || 1, 1, total);
+    const preferredOrder = buildRenderOrder(total, center);
+    if (state.isSmallDoc) return preferredOrder;
+    const start = clamp(center - perf.renderBehind, 1, total);
+    const end = clamp(center + perf.renderAhead, 1, total);
+    const windowOrder = buildRenderOrder(end - start + 1, center - start + 1)
+      .map((idx) => idx + start - 1);
+    const visibleOrder = Array.from(state.visiblePages.keys())
+      .map((pageNo) => clamp(Number.parseInt(pageNo, 10) || 1, 1, total))
+      .filter((pageNo, idx, arr) => arr.indexOf(pageNo) === idx);
+    const renderedOrder = state.renderedPagesMru
+      .slice()
+      .reverse()
+      .map((pageNo) => clamp(Number.parseInt(pageNo, 10) || 1, 1, total));
+    return [...new Set([...visibleOrder, ...windowOrder, ...renderedOrder])];
+  }
+
+  async function rerenderRenderedPages() {
+    if (!state.pdfDoc) return;
+    updateCurrentPageFromScroll();
+    const pages = getRefreshPageOrder();
+    const anchor = getViewportAnchor();
+    beginRenderMutation();
+    const token = ++state.renderToken;
+    updatePlaceholderSizes();
+    try {
+      for (const pageNo of pages) {
+        if (token !== state.renderToken) break;
+        const pageNode = await renderPage(pageNo);
+        if (token !== state.renderToken) break;
+        const existing = document.getElementById(`page-${pageNo}`);
+        if (existing && existing.parentNode === container) {
+          container.replaceChild(pageNode, existing);
+        }
+        if (state.pageObserver) state.pageObserver.observe(pageNode);
+        state.renderedPages.add(pageNo);
+        state.renderedPagesMru = state.renderedPagesMru.filter((p) => p !== pageNo);
+        state.renderedPagesMru.push(pageNo);
+      }
+    } finally {
+      restoreViewportAnchorStable(anchor);
+      updateDisplayScaleSnapshot();
+      endRenderMutation();
+      if (!state.isSmallDoc) scheduleRenderWindow();
+    }
+  }
+
+  async function resetAndRender() {
+    if (!state.pdfDoc) return;
+    const anchor = getViewportAnchor();
+    if (state.pageObserver) {
+      state.pageObserver.disconnect();
+      state.pageObserver = null;
+    }
+    state.pageSizes.clear();
+    state.renderedPages.clear();
+    state.visiblePages.clear();
+    buildPlaceholders();
+    if (state.isSmallDoc) {
+      await renderAllPages();
+      initPageObserver();
+      restoreViewportAnchorStable(anchor);
+      updateDisplayScaleSnapshot();
+      return;
+    }
+    initPageObserver();
+    restoreViewportAnchorStable(anchor);
+    state.renderPending = false;
+    await renderWindow();
+    updateDisplayScaleSnapshot();
+  }
+
+  function goToPage(n, smooth = true, recordHistory = true) {
+    const pageNo = clamp(Number.parseInt(n, 10) || 1, 1, state.pdfDoc?.numPages || 1);
+    const el = document.getElementById(`page-${pageNo}`);
+    if (!el) return;
+    if (recordHistory && state.currentPage && state.currentPage !== pageNo) {
+      state.jumpBack.push(state.currentPage);
+      state.jumpForward = [];
+    }
+    state.currentPage = pageNo;
+    window.scrollTo({ top: Math.max(0, el.offsetTop - 15), behavior: smooth ? "smooth" : "auto" });
+  }
+
+  function getBookmarkTarget(slot) {
+    const total = state.pdfDoc?.numPages || 1;
+    const assigned = state.bookmarks.get(slot);
+    if (assigned) return assigned;
+    return { kind: "page", page: Math.min(slot, total) };
+  }
+
+  function setBookmark(slot) {
+    if (!state.pdfDoc) return;
+    const anchor = getViewportAnchor();
+    anchor.page = clamp(anchor.page || state.currentPage || slot, 1, state.pdfDoc.numPages || 1);
+    state.bookmarks.set(slot, anchor);
+  }
+
+  function goToBookmark(slot) {
+    const target = getBookmarkTarget(slot);
+    if (!target) return;
+    if (target.kind === "page") {
+      goToPage(target.page);
+      return;
+    }
+    restoreViewportAnchorStable(target);
+  }
+
+  function bindEvents() {
+    compactKeybindsTable();
+
+    // keep current page synced while user scrolls
+    let scrollTimer = null;
+    window.addEventListener('scroll', () => {
+      if (scrollTimer) clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(() => {
+        scrollTimer = null;
+        updateCurrentPageFromScroll();
+        if (!state.isSmallDoc) scheduleRenderWindow();
+      }, 120);
+    }, { passive: true });
+
+    function openKeybinds() {
+      if (!keybindsOverlay) return;
+      keybindsOverlay.hidden = false;
+    }
+    function closeKeybinds() {
+      if (!keybindsOverlay) return;
+      keybindsOverlay.hidden = true;
+    }
+    function toggleKeybinds() {
+      if (!keybindsOverlay) return;
+      keybindsOverlay.hidden ? openKeybinds() : closeKeybinds();
+    }
+
+    if (keybindsClose) keybindsClose.addEventListener('click', closeKeybinds);
+    if (keybindsCloseBtn) keybindsCloseBtn.addEventListener('click', closeKeybinds);
+
+    // helper functions
+
+
+    // Improved selection handling: when dragging selection off-text, keep the last valid caret
+    // so the selection endpoint doesn't jump back to the start of the document.
+    let isPointerSelecting = false;
+    let selectionAnchorRange = null;
+    let lastValidCaretRange = null;
+    let lastVisibleSelectionRange = null;
+    let activePointerId = null;
+    let activePointerTarget = null;
+
+    function caretRangeFromPoint(x, y) {
+      if (document.caretRangeFromPoint) return document.caretRangeFromPoint(x, y);
+      if (document.caretPositionFromPoint) {
+        const pos = document.caretPositionFromPoint(x, y);
+        if (!pos) return null;
+        const r = document.createRange();
+        r.setStart(pos.offsetNode, pos.offset);
+        r.setEnd(pos.offsetNode, pos.offset);
+        return r;
+      }
+      return null;
+    }
+
+    function nodeIsInTextLayer(node) {
+      if (!node) return false;
+      const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+      return !!(el && el.closest && el.closest('.textLayer'));
+    }
+
+    function rangeIsInTextLayer(r) {
+      if (!r) return false;
+      return nodeIsInTextLayer(r.startContainer) && nodeIsInTextLayer(r.endContainer);
+    }
+
+    function eventTargetIsInTextLayer(target) {
+      if (!target) return false;
+      const el = target.nodeType === Node.TEXT_NODE ? target.parentElement : target;
+      return !!(el && el.closest && el.closest('.textLayer'));
+    }
+
+    function cloneCollapsedRange(r) {
+      if (!r) return null;
+      const c = r.cloneRange ? r.cloneRange() : r;
+      c.collapse(true);
+      return c;
+    }
+
+    function restoreLastVisibleSelection() {
+      if (!lastVisibleSelectionRange) return false;
+      const sel = window.getSelection();
+      if (!sel) return false;
+      sel.removeAllRanges();
+      sel.addRange(lastVisibleSelectionRange.cloneRange ? lastVisibleSelectionRange.cloneRange() : lastVisibleSelectionRange);
+      return true;
+    }
+
+    function applyPointerSelection(anchorRange, focusRange) {
+      if (!anchorRange || !focusRange) return false;
+      const anchorNode = anchorRange.startContainer;
+      const focusNode = focusRange.startContainer;
+      if (!anchorNode || !focusNode || !anchorNode.isConnected || !focusNode.isConnected) return false;
+      const sel = window.getSelection();
+      if (!sel) return false;
+      sel.removeAllRanges();
+      if (sel.setBaseAndExtent) {
+        sel.setBaseAndExtent(anchorNode, anchorRange.startOffset, focusNode, focusRange.startOffset);
+      } else {
+        const newRange = document.createRange();
+        if (anchorRange.compareBoundaryPoints(Range.START_TO_START, focusRange) <= 0) {
+          newRange.setStart(anchorNode, anchorRange.startOffset);
+          newRange.setEnd(focusNode, focusRange.startOffset);
+        } else {
+          newRange.setStart(focusNode, focusRange.startOffset);
+          newRange.setEnd(anchorNode, anchorRange.startOffset);
+        }
+        sel.addRange(newRange);
+      }
+      if (sel.rangeCount > 0) {
+        const current = sel.getRangeAt(0);
+        lastVisibleSelectionRange = current.cloneRange ? current.cloneRange() : current;
+      }
+      return true;
+    }
+
+    document.addEventListener('selectstart', (ev) => {
+      if (eventTargetIsInTextLayer(ev.target)) return;
+      if (isPointerSelecting) restoreLastVisibleSelection();
+      ev.preventDefault();
+    }, true);
+
+    // Capture pointer-based selection start inside the textLayer
+    document.addEventListener('pointerdown', (ev) => {
+      if (ev.button !== 0) return;
+      try {
+        const r = caretRangeFromPoint(ev.clientX, ev.clientY);
+        if (!r || !rangeIsInTextLayer(r)) return;
+        isPointerSelecting = true;
+        selectionAnchorRange = cloneCollapsedRange(r);
+        lastValidCaretRange = cloneCollapsedRange(r);
+        lastVisibleSelectionRange = null;
+        activePointerId = ev.pointerId ?? null;
+        activePointerTarget = ev.target || null;
+        if (activePointerTarget && activePointerTarget.setPointerCapture && activePointerId !== null) {
+          try { activePointerTarget.setPointerCapture(activePointerId); } catch (e) { /* ignore */ }
+        }
+        applyPointerSelection(selectionAnchorRange, lastValidCaretRange);
+        ev.preventDefault();
+      } catch(e) { /* ignore */ }
+    }, true);
+
+    // During pointer moves, keep the latest valid text endpoint and preserve visible selection
+    // while dragging over non-text areas.
+    document.addEventListener('pointermove', (ev) => {
+      if (!isPointerSelecting) return;
+      try {
+        let focusRange = caretRangeFromPoint(ev.clientX, ev.clientY);
+        if (focusRange && rangeIsInTextLayer(focusRange)) {
+          lastValidCaretRange = cloneCollapsedRange(focusRange);
+        } else {
+          focusRange = lastValidCaretRange;
+        }
+        if (!selectionAnchorRange || !focusRange) {
+          if (restoreLastVisibleSelection()) ev.preventDefault();
+          return;
+        }
+        if (!applyPointerSelection(selectionAnchorRange, focusRange)) {
+          if (restoreLastVisibleSelection()) ev.preventDefault();
+          return;
+        }
+        ev.preventDefault();
+      } catch (e) { /* ignore */ }
+    }, true);
+
+    document.addEventListener('pointerup', () => {
+      if (isPointerSelecting) {
+        if (activePointerTarget && activePointerTarget.releasePointerCapture && activePointerId !== null) {
+          try { activePointerTarget.releasePointerCapture(activePointerId); } catch (e) { /* ignore */ }
+        }
+        isPointerSelecting = false;
+        selectionAnchorRange = null;
+        lastValidCaretRange = null;
+        lastVisibleSelectionRange = null;
+        activePointerId = null;
+        activePointerTarget = null;
+      }
+    }, true);
+
+    document.addEventListener('pointercancel', () => {
+      if (activePointerTarget && activePointerTarget.releasePointerCapture && activePointerId !== null) {
+        try { activePointerTarget.releasePointerCapture(activePointerId); } catch (e) { /* ignore */ }
+      }
+      isPointerSelecting = false;
+      selectionAnchorRange = null;
+      lastValidCaretRange = null;
+      lastVisibleSelectionRange = null;
+      activePointerId = null;
+      activePointerTarget = null;
+    }, true);
+
+  function snapToNearestPage() {
+      if (state.visiblePages.size > 0) {
+        let best = state.currentPage || 1;
+        let bestRatio = -1;
+        for (const [pageNo, ratio] of state.visiblePages.entries()) {
+          if (ratio > bestRatio) {
+            bestRatio = ratio;
+            best = pageNo;
+          }
+        }
+        goToPage(best, true, false);
+        return;
+      }
+      const centerY = window.scrollY + window.innerHeight/2;
+      let best = 1;
+      let bestDist = Infinity;
+      for (let i=1;i<=state.pdfDoc.numPages;i++) {
+        const el = document.getElementById('page-'+i);
+        if (!el) continue;
+        const top = el.offsetTop;
+        const h = el.offsetHeight;
+        const pageCenter = top + h/2;
+        const d = Math.abs(pageCenter - centerY);
+        if (d < bestDist) { bestDist = d; best = i; }
+      }
+      goToPage(best, true, false);
+    }
+
+    async function handleGotoPagePrompt() {
+      const q = prompt('Goto page:');
+      if (!q) return;
+      const p = parseInt(q, 10);
+      if (!Number.isNaN(p)) goToPage(p);
+    }
+
+    document.addEventListener('keydown', async (e) => {
+      const active = document.activeElement && document.activeElement.tagName && document.activeElement.tagName.toLowerCase();
+      if (active === 'input' || active === 'textarea') {
+        if (e.key === 'Escape') document.activeElement.blur();
+        return;
+      }
+
+      // Toggle keybind viewer on Escape or ?
+      if (e.key === 'Escape' || e.key === '?') {
+        toggleKeybinds();
+        e.preventDefault();
+        return;
+      }
+
+      const keyLower = typeof e.key === 'string' ? e.key.toLowerCase() : '';
+      const bookmarkKey = /^[1-9]$/.test(e.key);
+      if (e.altKey && !e.ctrlKey && !e.metaKey && bookmarkKey) {
+        setBookmark(Number.parseInt(e.key, 10));
+        e.preventDefault();
+        return;
+      }
+
+      const allowCtrlShortcut = e.ctrlKey && !e.altKey && !e.metaKey && ['d', 'u', 't', 'y', 'o', 'i'].includes(keyLower);
+      if ((e.ctrlKey || e.altKey || e.metaKey) && !allowCtrlShortcut) {
+        return;
+      }
+      
+      // Tab cycles through user-assigned bookmarks (no-op if none)
+      if (e.key === 'Tab') {
+        const assigned = Array.from(state.bookmarks.keys()).sort((a, b) => a - b);
+        if (assigned.length === 0) {
+          // No user-saved bookmarks; allow default Tab behavior
+          return;
+        }
+        e.preventDefault();
+        let last = state.lastBookmarkCycleSlot || null;
+        let idx = last !== null ? assigned.indexOf(last) : -1;
+        if (idx === -1) {
+          idx = e.shiftKey ? assigned.length - 1 : 0;
+        } else {
+          idx = e.shiftKey ? (idx - 1 + assigned.length) % assigned.length : (idx + 1) % assigned.length;
+        }
+        const slot = assigned[idx];
+        state.lastBookmarkCycleSlot = slot;
+        goToBookmark(slot);
+        return;
+      }
+
+      // g -> first page
+      if (e.key === 'g') {
+        goToPage(1);
+        e.preventDefault();
+        return;
+      }
+
+      // G -> last page
+      if (e.key === 'G') {
+        goToPage(state.pdfDoc.numPages);
+        e.preventDefault();
+        return;
+      }
+
+      // Next/Prev page (uppercase J/K or PgDown/PgUp)
+      if (e.key === 'J' || e.key === 'PageDown') { goToPage(state.currentPage + 1); e.preventDefault(); return; }
+      if (e.key === 'K' || e.key === 'PageUp') { goToPage(state.currentPage - 1); e.preventDefault(); return; }
+
+      // half-page scrolls with Ctrl (t,d,u,y)
+      const halfY = Math.max(80, Math.floor(window.innerHeight * 0.45));
+      const halfX = Math.max(80, Math.floor(window.innerWidth * 0.35));
+      if (e.ctrlKey && keyLower === 'd') { window.scrollBy({ top: halfY, behavior: 'smooth' }); e.preventDefault(); return; }
+      if (e.ctrlKey && keyLower === 'u') { window.scrollBy({ top: -halfY, behavior: 'smooth' }); e.preventDefault(); return; }
+      if (e.ctrlKey && keyLower === 't') { window.scrollBy({ left: -halfX, behavior: 'smooth' }); e.preventDefault(); return; }
+      if (e.ctrlKey && keyLower === 'y') { window.scrollBy({ left: halfX, behavior: 'smooth' }); e.preventDefault(); return; }
+
+      // small scrolls (lowercase j/k/h/l)
+      const small = Math.max(50, Math.floor(window.innerHeight * 0.12));
+      if (e.key === 'j') { window.scrollBy({ top: small, behavior: 'smooth' }); e.preventDefault(); return; }
+      if (e.key === 'k') { window.scrollBy({ top: -small, behavior: 'smooth' }); e.preventDefault(); return; }
+      if (e.key === 'h') { window.scrollBy({ left: -small, behavior: 'smooth' }); e.preventDefault(); return; }
+      if (e.key === 'l') { window.scrollBy({ left: small, behavior: 'smooth' }); e.preventDefault(); return; }
+
+      // arrows
+      if (e.key === 'ArrowDown') { window.scrollBy({ top: small, behavior: 'smooth' }); e.preventDefault(); return; }
+      if (e.key === 'ArrowUp') { window.scrollBy({ top: -small, behavior: 'smooth' }); e.preventDefault(); return; }
+      if (e.key === 'ArrowLeft') { window.scrollBy({ left: -small, behavior: 'smooth' }); e.preventDefault(); return; }
+      if (e.key === 'ArrowRight') { window.scrollBy({ left: small, behavior: 'smooth' }); e.preventDefault(); return; }
+
+      // page down/up via space/b
+      if (e.key === ' ') { goToPage(state.currentPage + 1); e.preventDefault(); return; }
+      if (e.key === 'b') { goToPage(state.currentPage - 1); e.preventDefault(); return; }
+
+      // snap to nearest page (P)
+      if (e.key === 'P') { snapToNearestPage(); e.preventDefault(); return; }
+
+      // H/L top/bottom of current page
+      if (e.key === 'H') { const el = document.getElementById('page-'+state.currentPage); if (el) window.scrollTo({ top: el.offsetTop, behavior: 'smooth' }); e.preventDefault(); return; }
+      if (e.key === 'L') { const el = document.getElementById('page-'+state.currentPage); if (el) window.scrollTo({ top: el.offsetTop + el.offsetHeight - window.innerHeight + 16, behavior: 'smooth' }); e.preventDefault(); return; }
+
+      // jump list Ctrl+o / Ctrl+i
+      if (e.ctrlKey && keyLower === 'o') { const p = state.jumpBack.pop(); if (p) { state.jumpForward.push(state.currentPage); goToPage(p, true, false); } e.preventDefault(); return; }
+      if (e.ctrlKey && keyLower === 'i') { const p = state.jumpForward.pop(); if (p) { state.jumpBack.push(state.currentPage); goToPage(p, true, false); } e.preventDefault(); return; }
+
+      // rotate (r), zen toggle (z), and color toggle (c)
+       if (e.key === 'r' && !e.ctrlKey) { state.rotation = (state.rotation + 90) % 360; await adjustScaleToMode(); await resetAndRender(); alignFitWidthView(); e.preventDefault(); return; }
+       if (e.key === 'z') { state.zenMode = !state.zenMode; updateModeClass(); await rerenderRenderedPages(); e.preventDefault(); return; }
+       if (e.key === 'c') { state.keepImagesColor = !state.keepImagesColor; await rerenderRenderedPages(); e.preventDefault(); return; }
+       if (e.key === 'f') { state.pdfDoc.findController?.executeCommand('find'); e.preventDefault(); return; }
+
+      // dual-page mode toggle
+      if (e.key === 'd') {
+        const anchor = getViewportAnchor();
+        state.dualMode = !state.dualMode;
+        updateModeClass();
+        await adjustScaleToMode();
+         await resetAndRender();
+         restoreViewportAnchor(anchor);
+         alignFitWidthView();
+         e.preventDefault();
+         return;
+       }
+
+      // pageless & compression toggle
+      if (e.key === 'p') {
+        const anchor = getViewportAnchor();
+        state.pageless = !state.pageless;
+        state.compress = !state.compress;
+        updateModeClass();
+        await adjustScaleToMode();
+         await resetAndRender();
+         restoreViewportAnchor(anchor);
+         alignFitWidthView();
+         e.preventDefault();
+         return;
+       }
+
+      // reload
+      if (e.key === 'R') { location.reload(); e.preventDefault(); return; }
+
+      // fullscreen
+      if (e.key === 'F11') { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{}); else document.exitFullscreen().catch(()=>{}); e.preventDefault(); return; }
+
+      // zoom = -
+       if (e.key === '=') { state.scale = Math.min(state.scale * 1.1, 4); await rerenderRenderedPages(); e.preventDefault(); return; }
+       if (e.key === '-') { state.scale = Math.max(state.scale / 1.1, 0.1); await rerenderRenderedPages(); e.preventDefault(); return; }
+      if (e.key === '0') {
+         await resetToFitWidth({ pageNumber: state.currentPage });
+         e.preventDefault();
+         return;
+       }
+
+      if (bookmarkKey) {
+        goToBookmark(Number.parseInt(e.key, 10));
+        e.preventDefault();
+        return;
+      }
+
+      // goto page prompt
+      if (e.key === ':') { handleGotoPagePrompt(); e.preventDefault(); return; }
+
+      // quit
+      if (e.key === 'q') { try { window.close(); } catch(err) { location.href='about:blank'; } e.preventDefault(); return; }
+
+    });
+  }
+
+  async function init() {
+    if (!file) {
+      showError("No PDF file specified.");
+      return;
+    }
+
+    try {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "./pdf.worker.min.js";
+
+     state.pdfDoc = await pdfjsLib.getDocument({
+        url: file,
+        withCredentials: false,
+      }).promise;
+
+    state.largeDoc = state.pdfDoc.numPages >= perf.largeDocPages;
+    state.isSmallDoc = state.pdfDoc.numPages <= perf.smallDocThreshold;
+    state.bookmarks = new Map();
+    
+    if (state.isSmallDoc) {
+      perf.renderBehind = state.pdfDoc.numPages;
+      perf.renderAhead = state.pdfDoc.numPages;
+    } else if (state.largeDoc) {
+      perf.maxCachePages = Math.min(perf.maxCachePages, 8);
+    }
+
+      // Set the document title to the PDF title metadata if present, otherwise use the filename
+      try {
+        const meta = await state.pdfDoc.getMetadata();
+        if (meta && meta.info && meta.info.Title) {
+          document.title = meta.info.Title;
+        } else if (file) {
+          try { document.title = decodeURIComponent(String(file).split('/').pop()); } catch (e) { document.title = String(file).split('/').pop(); }
+        }
+      } catch (e) {
+        if (file) {
+          try { document.title = decodeURIComponent(String(file).split('/').pop()); } catch (e) { document.title = String(file).split('/').pop(); }
+        }
+      }
+
+      bindEvents();
+      if (!state.svgSupported && state.svgEnabled) {
+        console.warn("PDF.js SVG rendering API unavailable; using canvas renderer.");
+      }
+
+      function debounce(fn, wait) {
+        let t = null;
+        return (...args) => {
+          if (t) clearTimeout(t);
+          t = setTimeout(() => { t = null; fn(...args); }, wait);
+        };
+      }
+
+      let lastWindowWidth = window.innerWidth;
+      const onWindowResize = debounce(async () => {
+        const widthChanged = window.innerWidth !== lastWindowWidth;
+        lastWindowWidth = window.innerWidth;
+        if (!widthChanged) return;
+        const scaleChanged = await adjustScaleToMode({ pageNumber: state.currentPage, skipWhenZoomedIn: true });
+        if (scaleChanged || hasDisplayScaleChange()) {
+          await rerenderRenderedPages();
+          alignFitWidthView();
+        } else {
+          updateDisplayScaleSnapshot();
+        }
+      }, 180);
+      const onViewportResize = debounce(async () => {
+        if (hasDisplayScaleChange()) {
+          await rerenderRenderedPages();
+        } else {
+          updateDisplayScaleSnapshot();
+        }
+      }, 110);
+
+      // Initial adjust and set resize handler to auto-fill on window changes.
+      const firstPage = await getPdfPage(1);
+      state.baseViewport = firstPage.getViewport({ scale: 1, rotation: 0 });
+      await adjustScaleToMode({ pageNumber: 1 });
+      state.baseDevicePixelRatio = Math.max(window.devicePixelRatio || 1, 1);
+      updateDisplayScaleSnapshot();
+      window.addEventListener('resize', onWindowResize);
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', onViewportResize);
+        window.visualViewport.addEventListener('scroll', onViewportResize, { passive: true });
+      }
+
+      await resetAndRender();
+      alignFitWidthView();
+    } catch (err) {
+      showError(`Could not render PDF: ${err?.message || err}`);
+      console.error(err);
+    }
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
