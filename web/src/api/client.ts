@@ -63,6 +63,40 @@ export const api = {
     ),
   digest: () => get<{ generated_at: string; markdown: string; source: string }>('/digest/latest'),
   models: () => get<{ models: string[]; error?: string }>('/chat/models'),
+  // server-side chat sessions (the message tree lives in the DB)
+  chatSessions: (courseId?: number) =>
+    get<ChatServerSession[]>(`/chat/sessions${courseId != null ? `?course_id=${courseId}` : ''}`),
+  chatSessionCreate: (courseId: number | null, title: string) =>
+    post<ChatServerSession>('/chat/sessions', { course_id: courseId, title }),
+  chatSessionGet: (id: number) => get<ChatServerSession>(`/chat/sessions/${id}`),
+  chatSessionSave: (id: number, body: { title?: string; nodes: unknown[]; activeNodeId: string | null }) =>
+    put(`/chat/sessions/${id}`, body),
+  chatSessionDelete: (id: number) => del(`/chat/sessions/${id}`),
+}
+
+export interface ChatServerSession {
+  id: number
+  courseId: number | null
+  title: string
+  updatedAt: string
+  nodes?: unknown[]
+  activeNodeId?: string | null
+}
+
+async function put(path: string, body: unknown): Promise<{ ok: boolean; id: number }> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  return res.json()
+}
+
+async function del(path: string): Promise<{ ok: boolean }> {
+  const res = await fetch(`${BASE}${path}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  return res.json()
 }
 
 export async function streamChat(
