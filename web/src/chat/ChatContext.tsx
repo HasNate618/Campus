@@ -328,7 +328,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  useEffect(() => persist(sessions), [sessions])
+  useEffect(() => {
+    // localStorage is a cache now; don't hammer it on every token while a
+    // stream is running (the server gets the live tree instead)
+    if (busyRef.current) return
+    persist(sessions)
+  }, [sessions])
 
   // Persist the active session per course so a reload reopens the same chat
   // instead of starting a fresh one.
@@ -342,7 +347,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const setLastCourse = useCallback((courseId: number) => {
     setLastCourseId(courseId)
-    localStorage.setItem(LAST_COURSE_KEY, String(courseId))
+    try {
+      localStorage.setItem(LAST_COURSE_KEY, String(courseId))
+    } catch {
+      /* quota/security — non-fatal */
+    }
   }, [])
 
   const setModel = useCallback((m: string | null) => {
@@ -596,7 +605,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       )
       busyRef.current = true
       setBusy(true)
-      setLastCourse(courseId)
+      try {
+        setLastCourse(courseId)
+      } catch {
+        /* never let a non-critical write kill the stream */
+      }
       streamTurn(sid, userNodeId, text, courseId, history)
       return true
     },
