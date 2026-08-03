@@ -316,6 +316,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     (sid: string, userNodeId: string, message: string, courseId: number | null, history: { role: 'user' | 'assistant'; content: string }[]) => {
       let assistantId: string | null = null
       let turnThinking = ''
+      let receivedDone = false
       const ensureAssistant = (seedThinking?: string): string => {
         if (assistantId) return assistantId
         assistantId = makeUuid()
@@ -380,6 +381,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               ),
             )
           } else if (event === 'done') {
+            receivedDone = true
             if (!assistantId) {
               // nothing streamed at all — surface the final answer directly
               const id = makeUuid()
@@ -405,10 +407,44 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         modelRef.current ?? undefined,
         userNodeId,
       )
-        .catch(() => {
-          patchNode(sid, assistantId ?? userNodeId, (n) => ({ ...n, streaming: false }))
+        .catch((err) => {
+          // surface stream failures IN the chat — never silent
+          const errMsg = String(err?.message ?? err) || 'unknown stream error'
+          if (assistantId) {
+            patchNode(sid, assistantId, (n) => ({
+              ...n,
+              streaming: false,
+              thinkingDone: true,
+              content: n.content || `⚠ Stream failed: ${errMsg}`,
+            }))
+          } else {
+            const eid = makeUuid()
+            appendNode(sid, {
+              id: eid, parentId: userNodeId, children: [], role: 'assistant',
+              content: `⚠ Stream failed: ${errMsg}`, streaming: false, thinkingDone: true,
+              createdAt: Date.now(),
+            })
+            setActiveNode(sid, eid)
+          }
         })
         .finally(() => {
+          // stream ended without a done event → the response was cut short
+          if (!receivedDone && !assistantId) {
+            const eid = makeUuid()
+            appendNode(sid, {
+              id: eid, parentId: userNodeId, children: [], role: 'assistant',
+              content: '⚠ The response ended before completing (no done event). Try again.',
+              streaming: false, thinkingDone: true, createdAt: Date.now(),
+            })
+            setActiveNode(sid, eid)
+          } else if (!receivedDone && assistantId) {
+            patchNode(sid, assistantId, (n) => ({
+              ...n,
+              streaming: false,
+              thinkingDone: true,
+              content: n.content || '⚠ The response ended before completing. Try again.',
+            }))
+          }
           busyRef.current = false
           setBusy(false)
         })
