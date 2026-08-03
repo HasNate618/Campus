@@ -370,8 +370,16 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
                   )}
                 </div>
               ) : null}
-              <ChatMd content={node.content} />
-              {node.streaming && <span className="stream-cursor" />}
+              <ChatMd
+                content={
+                  node.streaming || isRevealing(node.id, node.content.length)
+                    ? node.content.slice(0, revealed)
+                    : node.content
+                }
+              />
+              {(node.streaming || isRevealing(node.id, node.content.length)) && (
+                <span className="stream-cursor" />
+              )}
             </div>
 
             {tools.length > 0 &&
@@ -441,7 +449,47 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
   }
 
   const answerStreaming =
-    !!lastAssistant && lastAssistant.streaming
+    !!lastAssistant && lastAssistant.streaming && !lastAssistant.intermediate
+
+  // Reveal animation: bifrost often delivers the whole answer in one burst
+  // (prompt cache → tokens at max speed → the browser sees one chunk, and
+  // React batches tokens+done into a single render so the node is never
+  // observed mid-stream). The reveal is a one-shot animation triggered by the
+  // arrival of a NEW assistant message: it types the text out over ~2.2s
+  // regardless of streaming state, and extends naturally if a slow stream
+  // keeps growing the content.
+  const lenRef = useRef(0)
+  lenRef.current = lastAssistant?.content.length ?? 0
+  const [revealId, setRevealId] = useState<string | null>(null)
+  const [revealed, setRevealed] = useState(0)
+  useEffect(() => {
+    if (!lastAssistant) return
+    if (revealId !== lastAssistant.id) {
+      setRevealId(lastAssistant.id)
+      setRevealed(0)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastAssistant?.id])
+  useEffect(() => {
+    if (!revealId) return
+    let raf = 0
+    let last = performance.now()
+    const tick = (now: number) => {
+      const dt = (now - last) / 1000
+      last = now
+      const len = lenRef.current
+      const speed = Math.max(700, len / 2.2)
+      setRevealed((r) => {
+        const next = Math.min(len, r + dt * speed)
+        if (next < len) raf = requestAnimationFrame(tick)
+        return next
+      })
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [revealId])
+  const isRevealing = (nodeId: string, len: number) =>
+    len > 0 && revealId === nodeId && revealed < len
 
   return (
     <div className="chat-wrap">
@@ -623,9 +671,10 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
         <StreamStatusLine status={streamStatus} />
         {lastAssistant && (
           <div className="context-bar">
-            {lastAssistant.streaming ? (
+            {lastAssistant && isRevealing(lastAssistant.id, lastAssistant.content.length) ? (
               <span style={{ color: 'var(--violet)' }}>
-                ⟳ streaming {lastAssistant.content.length.toLocaleString()} chars…
+                ⟳ streaming {Math.min(revealed, lastAssistant.content.length).toLocaleString()} /{' '}
+                {lastAssistant.content.length.toLocaleString()} chars…
               </span>
             ) : (
               <>
