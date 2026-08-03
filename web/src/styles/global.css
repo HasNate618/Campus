@@ -960,6 +960,19 @@
     min-width: 0;
   }
 
+  /* single-panel view mode: tree XOR content, full width each */
+  .split.has-selection {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .split.has-selection .split-tree {
+    display: none;
+  }
+
+  .split:not(.has-selection) .split-viewer {
+    display: none;
+  }
+
   .split > * {
     min-width: 0;
   }
@@ -1012,12 +1025,6 @@
 
   .split.tree-hidden .split-tree {
     display: none;
-  }
-
-  @media (max-width: 800px) {
-    .desktop-only {
-      display: none !important;
-    }
   }
 
   .tree-module.selected .tree-module-chevron {

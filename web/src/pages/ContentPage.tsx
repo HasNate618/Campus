@@ -4,6 +4,7 @@ import { ArrowLeft, ChevronRight, Download, ExternalLink } from 'lucide-react'
 import { api } from '@/api/client'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
+import { PdfViewer } from '@/lib/PdfViewer'
 import type { ContentNode, FileContent, FileFormat, FileRecord } from '@/types'
 
 const CODE_EXTS = new Set([
@@ -81,7 +82,7 @@ function ViewerBody({
     if (node.description?.trim()) {
       return <div className="md html" dangerouslySetInnerHTML={{ __html: sanitizeHtml(node.description) }} />
     }
-    if (file) return <FileBody node={node} file={file} contentInfo={contentInfo} loading={loading} />
+    if (file) return <FileBody file={file} contentInfo={contentInfo} loading={loading} />
     return <div className="empty compact">This module has no landing page content.</div>
   }
 
@@ -103,16 +104,14 @@ function ViewerBody({
   }
 
   if (!file) return <div className="empty compact">No file attached to this topic.</div>
-  return <FileBody node={node} file={file} contentInfo={contentInfo} loading={loading} />
+  return <FileBody file={file} contentInfo={contentInfo} loading={loading} />
 }
 
 function FileBody({
-  node,
   file,
   contentInfo,
   loading,
 }: {
-  node: ContentNode
   file: FileRecord
   contentInfo: FileContent | null
   loading: boolean
@@ -164,7 +163,7 @@ function FileBody({
           {showMd && content ? (
             <ZenMarkdown content={content} />
           ) : rawUrl ? (
-            <iframe className="pdf-view" src={rawUrl} title={node.title} />
+            <PdfViewer src={rawUrl} />
           ) : content ? (
             <ZenMarkdown content={content} />
           ) : (
@@ -243,10 +242,10 @@ export function ContentPage() {
   const children = (parentId: number) => nodes.filter((n) => n.parent_id === parentId)
   const fileForNode = (id: number) => files.find((f) => f.content_node_id === id)
 
-  // Collapsible tree: per-module collapse + hide the whole panel on desktop
-  // so the content renders at full width.
+  // Collapsible tree (per-module). View mode is single-panel: the URL drives
+  // it — no node selected = tree full-width; node selected = content
+  // full-width with the All-topics back button.
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
-  const [treeHidden, setTreeHidden] = useState(false)
   const toggleModule = (id: number) =>
     setCollapsed((prev) => {
       const next = new Set(prev)
@@ -257,7 +256,7 @@ export function ContentPage() {
   const allCollapsed = modules.length > 0 && modules.every((m) => collapsed.has(m.id))
 
   return (
-    <div className={`split${nid != null ? ' has-selection' : ''}${treeHidden ? ' tree-hidden' : ''}`}>
+    <div className={`split${nid != null ? ' has-selection' : ''}`}>
       <div className="card split-tree">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 4px 6px' }}>
           <button
@@ -265,9 +264,6 @@ export function ContentPage() {
             onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(modules.map((m) => m.id)))}
           >
             {allCollapsed ? 'Expand all' : 'Collapse all'}
-          </button>
-          <button className="btn btn-outline btn-sm" onClick={() => setTreeHidden(true)}>
-            Hide tree
           </button>
         </div>
         {modules.length === 0 && <div className="empty compact">No content synced.</div>}
@@ -315,20 +311,12 @@ export function ContentPage() {
         ) : (
           <>
             <div className="viewer-head">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                <Link
-                  to={`/courses/${cid}/content`}
-                  className="mobile-only"
-                  style={{ color: 'var(--violet)', fontSize: 13, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8 }}
-                >
-                  <ArrowLeft size={13} /> All topics
-                </Link>
-                {treeHidden && (
-                  <button className="btn btn-outline btn-sm desktop-only" onClick={() => setTreeHidden(false)}>
-                    Show tree
-                  </button>
-                )}
-              </div>
+              <Link
+                to={`/courses/${cid}/content`}
+                style={{ color: 'var(--violet)', fontSize: 13, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8, width: 'fit-content' }}
+              >
+                <ArrowLeft size={13} /> All topics
+              </Link>
               <div className="viewer-title">{selectedNode.title}</div>
               {selectedFile && <div className="viewer-path">{selectedFile.path}</div>}
             </div>

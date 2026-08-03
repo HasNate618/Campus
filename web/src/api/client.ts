@@ -68,11 +68,12 @@ export async function streamChat(
   message: string,
   courseId: number | null,
   onEvent: (event: string, data: unknown) => void,
+  history: { role: 'user' | 'assistant'; content: string }[] = [],
 ): Promise<void> {
   const res = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-    body: JSON.stringify({ message, course_id: courseId, history: [] }),
+    body: JSON.stringify({ message, course_id: courseId, history }),
   })
   if (!res.ok || !res.body) throw new Error('Chat stream failed')
 
@@ -84,15 +85,18 @@ export async function streamChat(
     const { done, value } = await reader.read()
     if (done) break
     buffer += decoder.decode(value, { stream: true })
-    const parts = buffer.split('\n\n')
+    // sse-starlette frames are CRLF-separated (\r\n\r\n) — a plain '\n\n'
+    // split never matches, so normalize first.
+    const parts = buffer.split(/\r?\n\r?\n/)
     buffer = parts.pop() ?? ''
     for (const part of parts) {
       let event = 'message'
-      let data = ''
-      for (const line of part.split('\n')) {
+      const dataLines: string[] = []
+      for (const line of part.split(/\r?\n/)) {
         if (line.startsWith('event:')) event = line.slice(6).trim()
-        if (line.startsWith('data:')) data = line.slice(5).trim()
+        if (line.startsWith('data:')) dataLines.push(line.slice(5))
       }
+      const data = dataLines.join('\n').trim()
       if (data) {
         try {
           onEvent(event, JSON.parse(data))

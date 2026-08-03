@@ -403,6 +403,13 @@ class SyncEngine:
                 # background job after the digest (see _extraction_bg). The
                 # old inline loop made syncs hang on the single pdf-extractor
                 # VLM worker for 10min per file.
+                # cache Brightspace-hosted images locally (best-effort; needs
+                # session cookies from auth) so html renders offline
+                try:
+                    from tools.cache_images import cache_course_images
+                    cache_course_images(self.cfg, self.db, course["id"])
+                except Exception:
+                    pass
                 self.stats["courses_processed"] += 1
 
             if not dry_run:
