@@ -20,12 +20,14 @@ export type ChatMsg =
       thinking?: string
       /** True once the turn's answer started streaming or finished. */
       thinkingDone?: boolean
+      /** Mid-turn narration before a tool call — hidden from the UI. */
+      intermediate?: boolean
     }
   | {
       role: 'tool'
       tool: string
-      args?: string
-      result?: string
+      args?: unknown
+      result?: unknown
       done: boolean
       open: boolean
       /** Groups consecutive tool calls of one turn for collapse. */
@@ -222,6 +224,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
       const turnId = turnRef.current + 1
       turnRef.current = turnId
+      let turnThinking = ''
 
       try {
         const history = (sessions.find((s) => s.id === sid)?.messages ?? [])
@@ -232,21 +235,36 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           .map((m) => ({ role: m.role, content: m.content }))
         await streamChat(text, courseId, (event, data) => {
           const d = data as Record<string, string>
+          if (event === 'reasoning') {
+            // Aggregated chain-of-thought for THIS turn — the final answer's
+            // thinking block carries all of it (intermediate rounds are hidden).
+            turnThinking += (d.text ?? '')
+          }
           if (event === 'tool_start') {
-            updateSession(sid, (s) => ({
-              ...s,
-              messages: [
-                ...s.messages,
-                {
-                  role: 'tool',
-                  tool: d.tool ?? 'tool',
-                  args: d.args ? JSON.stringify(d.args) : undefined,
-                  done: false,
-                  open: false,
-                  turnId,
-                },
-              ],
-            }))
+            updateSession(sid, (s) => {
+              // Any in-flight assistant message (mid-turn narration before a
+              // tool call) is intermediate — hidden from the UI. Only the
+              // final answer after the last tool call is shown.
+              const msgs = s.messages.map((m) =>
+                m.role === 'assistant' && !m.thinkingDone
+                  ? { ...m, intermediate: true, streaming: false }
+                  : m,
+              )
+              return {
+                ...s,
+                messages: [
+                  ...msgs,
+                  {
+                    role: 'tool',
+                    tool: d.tool ?? 'tool',
+                    args: d.args ?? undefined,
+                    done: false,
+                    open: false,
+                    turnId,
+                  },
+                ],
+              }
+            })
           } else if (event === 'tool_end') {
             updateSession(sid, (s) => ({
               ...s,
@@ -296,6 +314,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                     {
                       ...last,
                       content: last.content + (d.text ?? ''),
+                      thinking: turnThinking || last.thinking,
                       // The answer is streaming — the thinking phase is over.
                       thinkingDone: last.thinking ? true : last.thinkingDone,
                     },
@@ -306,7 +325,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 ...s,
                 messages: [
                   ...s.messages,
-                  { role: 'assistant', content: d.text ?? '', streaming: true, thinkingDone: false },
+                  {
+                    role: 'assistant',
+                    content: d.text ?? '',
+                    streaming: true,
+                    thinkingDone: false,
+                    thinking: turnThinking || undefined,
+                  },
                 ],
               }
             })
@@ -321,7 +346,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               )
               const last = msgs[msgs.length - 1]
               if (last?.role === 'assistant') {
-                msgs[msgs.length - 1] = { ...last, thinkingDone: true }
+                msgs[msgs.length - 1] = {
+                  ...last,
+                  thinkingDone: true,
+                  thinking: last.thinking || turnThinking || undefined,
+                }
               } else {
                 // Nothing streamed at all — surface the final answer directly.
                 msgs.push({

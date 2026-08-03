@@ -27,6 +27,17 @@ const SUGGESTIONS = [
   'What should I study next?',
 ]
 
+/** Render tool args/results (objects arrive from the API) as readable JSON. */
+function formatDetail(v: unknown): string {
+  if (v == null) return ''
+  if (typeof v === 'string') return v
+  try {
+    return JSON.stringify(v, null, 2)
+  } catch {
+    return String(v)
+  }
+}
+
 function greeting(): string {
   const h = new Date().getHours()
   if (h < 5) return 'Up late'
@@ -136,8 +147,8 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
                 </button>
                 {g.m.open && (
                   <div className="tool-detail">
-                    {g.m.args && `args:   ${g.m.args}\n`}
-                    {g.m.done ? `result: ${g.m.result ?? '—'}` : 'running…'}
+                    {g.m.args != null && `args:   ${formatDetail(g.m.args)}\n`}
+                    {g.m.done ? `result: ${formatDetail(g.m.result) || '—'}` : 'running…'}
                   </div>
                 )}
               </motion.div>,
@@ -162,9 +173,14 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
         continue
       }
 
-      // assistant: chain-of-thought block (collapsed once done, live while
-      // streaming) + zen-rendered markdown + stream cursor
-      const thinkingOpen = !!(m.thinking && (!m.thinkingDone || expandedThinking[key]))
+      // assistant: skip mid-turn narration (intermediate flag set by the
+      // context, or positionally: an assistant message followed by a tool
+      // message). The final answer carries the turn's full thinking.
+      if (m.role === 'assistant' && (m.intermediate || msgs[i + 1]?.role === 'tool')) continue
+
+      // assistant: chain-of-thought block (collapsed by default; click to
+      // expand) + zen-rendered markdown + stream cursor
+      const thinkingOpen = !!expandedThinking[key]
       out.push(
         <motion.div
           key={key}
@@ -354,27 +370,36 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
           ) : (
             <>
               {renderMessages()}
-              {busy && session?.messages[session.messages.length - 1]?.role === 'user' && (
-                <motion.div
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.18 }}
-                >
-                  <div
-                    className="msg-assistant"
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      fontSize: 13,
-                      color: 'var(--text-2)',
-                    }}
-                  >
-                    <Loader2 size={14} className="animate-spin" style={{ color: 'var(--violet)' }} />
-                    Thinking…
-                  </div>
-                </motion.div>
-              )}
+              {busy &&
+                (() => {
+                  const last = session?.messages[session.messages.length - 1]
+                  // Show the processing spinner until the final answer starts
+                  // streaming (intermediates/tools are still "thinking").
+                  const answerStreaming =
+                    last?.role === 'assistant' && !last.intermediate && last.streaming
+                  const waiting = !answerStreaming
+                  return waiting ? (
+                    <motion.div
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.18 }}
+                    >
+                      <div
+                        className="msg-assistant"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          fontSize: 13,
+                          color: 'var(--text-2)',
+                        }}
+                      >
+                        <Loader2 size={14} className="animate-spin" style={{ color: 'var(--violet)' }} />
+                        Thinking…
+                      </div>
+                    </motion.div>
+                  ) : null
+                })()}
             </>
           )}
         </div>

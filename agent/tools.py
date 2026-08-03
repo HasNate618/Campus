@@ -28,6 +28,10 @@ def _norm(code: str) -> str:
 def _resolve_course(db: DB, code: str | None) -> int | None:
     if not code:
         return None
+    if str(code).isdigit():
+        row = db.conn.execute("SELECT id FROM courses WHERE id=?", (int(code),)).fetchone()
+        if row:
+            return row["id"]
     row = db.conn.execute("SELECT id FROM courses WHERE code=?", (code,)).fetchone()
     if not row:
         row = db.conn.execute("SELECT id FROM courses WHERE code LIKE ?", (f"%{_norm(code)}%",)).fetchone()
@@ -363,6 +367,52 @@ def web_read(db: DB, cfg: Config, args: dict) -> dict:
     return {"content": result["content"][:8000]}
 
 
+def course_map(db: DB, cfg: Config, args: dict) -> dict:
+    """Full course structure in ONE call: modules → topics → their files
+    (kind + extraction status). Use this before reading/grepping so you
+    know what exists and where the real content lives."""
+    course_id = _resolve_course(db, args.get("course"))
+    if course_id is None:
+        row = db.conn.execute("SELECT id FROM courses ORDER BY id LIMIT 1").fetchone()
+        if not row:
+            raise ValueError("No courses synced yet")
+        course_id = row["id"]
+    course = db.conn.execute(
+        "SELECT code, name, term FROM courses WHERE id=?", (course_id,)).fetchone()
+    nodes = db.conn.execute(
+        """SELECT id, parent_id, title, node_type, topic_type, description
+           FROM content_nodes WHERE course_id=? ORDER BY sort_order, id""",
+        (course_id,)).fetchall()
+    files = db.conn.execute(
+        """SELECT id, path, kind, processed, content_node_id
+           FROM files WHERE course_id=?""", (course_id,)).fetchall()
+    by_parent: dict = {}
+    for n in nodes:
+        by_parent.setdefault(n["parent_id"], []).append(n)
+
+    def fmt_file(f) -> str:
+        name = Path(f["path"]).name
+        tag = "extracted" if f["processed"] else (f["kind"] or "file")
+        return f"{name} [{tag}]"
+
+    lines = [f"# {course['code']} — {course['name']} ({course['term']})"]
+    for mod in by_parent.get(None, []):
+        lines.append(f"\n## {mod['title']}")
+        if mod["description"]:
+            d = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", mod["description"])).strip()
+            lines.append(f"  landing: {d[:200]}")
+        for t in by_parent.get(mod["id"], []):
+            fs = [f for f in files if f["content_node_id"] == t["id"]]
+            if fs:
+                extra = " (" + ", ".join(fmt_file(f) for f in fs) + ")"
+            elif t["topic_type"] == "link":
+                extra = " [external link]"
+            else:
+                extra = ""
+            lines.append(f"- {t['title']}{extra}")
+    return {"course": course["code"], "map": "\n".join(lines)}
+
+
 # ── registry ────────────────────────────────────────────────────────────
 
 def _tool(name: str, description: str, handler, required: list | None = None, **props):
@@ -421,12 +471,18 @@ TOOLS = {
     ),
     "content_read_file": _tool(
         "content_read_file",
-        "Read a text/markdown file from the synced corpus. Path is relative to data_root (e.g. '2025W/SE2250B/content/Course Overview/SE2250 2025-2026 outline.md'). Use offset/limit to page through long files (default 200 lines, max 500).",
+        "Read a text/markdown file from the synced corpus. Path is relative to data_root (e.g. '2025W/SE2250B/content/Course Overview/SE2250 2025-2026 outline.md'). Use offset/limit to page through long files (default 200 lines, max 1000).",
         content_read_file,
         required=["path"],
         path={"type": "string"},
         offset={"type": "integer", "description": "line offset"},
         limit={"type": "integer", "description": "max lines to return"},
+    ),
+    "course_map": _tool(
+        "course_map",
+        "Full course structure in ONE call: modules → topics → their files (kind + extraction status). ALWAYS start with this to understand the course before reading or grepping content.",
+        course_map,
+        course={"type": "string", "description": "course code, e.g. 'SE 2250B'"},
     ),
     "content_grep": _tool(
         "content_grep",
@@ -479,7 +535,7 @@ TOOLS = {
     ),
     "terminal_run": _tool(
         "terminal_run",
-        "Run a shell command inside the hippo container. cwd defaults to data_root; pass workdir for a course work/ dir. Blocklist enforced (sudo/docker/systemctl/rm -rf /, token paths, sync auth); content/ is read-only; commands are audited. Timeout 30s default, max 120s.",
+        "Run a shell command ONLY for file/workspace operations the user explicitly requested (create, edit, move files, run a script in work/, git in work/). NEVER use this to read or search course content — use content_read_file / content_grep for that. cwd defaults to data_root; blocklist + audit enforced; content/ is read-only; 30s default, max 120s.",
         terminal_run,
         required=["command"],
         command={"type": "string"},

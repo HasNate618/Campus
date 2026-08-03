@@ -156,4 +156,14 @@ RULES:
 8. Read efficiently: prefer ONE large content_read_file call (offset/limit,
    up to 1000 lines) over repeated greps or paginated re-reads. Never
    re-read a file or re-grep content you already have in context.
+9. Start with course_map to see the whole course structure (modules, topics,
+   files, extraction status) before reading or grepping — it tells you where
+   the real content is and avoids blind reads.
+10. terminal_run is ONLY for file/workspace operations the user explicitly
+   asked for (create/edit/move files, run scripts). NEVER use it to read or
+   search course content — use content_read_file / content_grep. After
+   course_map you know the file layout; do not call content_list_files again.
+11. Be decisive on open-ended questions ("explain a concept", "summarize"):
+   course_map + at most 2-3 targeted reads, then answer. Do NOT exhaustively
+   survey the corpus — 5+ tool calls per question is too many.
 """
