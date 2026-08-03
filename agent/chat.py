@@ -26,7 +26,8 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
     deltas; on_token(text) fires per content token and on_reasoning(text)
     per chain-of-thought chunk (both used by the web SSE). Returns
     (message, usage) — usage comes in the final chunk of the stream."""
-    r = httpx.post(
+    with httpx.stream(
+        "POST",
         f"{cfg.bifrost_url}/chat/completions",
         json={
             "model": model or cfg.bifrost_model,
@@ -37,45 +38,45 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
             "stream": True,
         },
         timeout=300,
-    )
-    r.raise_for_status()
-    content = ""
-    reasoning = ""
-    tool_calls: dict[int, dict] = {}
-    usage: dict | None = None
-    for line in r.iter_lines():
-        if not line or not line.startswith("data:"):
-            continue
-        data = line[5:].strip()
-        if data == "[DONE]":
-            break
-        chunk = json.loads(data)
-        if chunk.get("usage"):
-            usage = chunk["usage"]
-        delta = chunk.get("choices", [{}])[0].get("delta", {})
-        if delta.get("content"):
-            content += delta["content"]
-            if on_token:
-                on_token(delta["content"])
-        # chain-of-thought: bifrost streams it as delta['reasoning'];
-        # deepseek's native thinking mode uses reasoning_content. Surface
-        # both live and keep them on the message (reasoning_content MUST be
-        # passed back to the API on subsequent calls or it 400s).
-        rchunk = delta.get("reasoning") or delta.get("reasoning_content")
-        if rchunk:
-            reasoning += rchunk
-            if on_reasoning:
-                on_reasoning(rchunk)
-        for tc in delta.get("tool_calls", []):
-            idx = tc.get("index", 0)
-            entry = tool_calls.setdefault(idx, {"id": "", "name": "", "arguments": ""})
-            if tc.get("id"):
-                entry["id"] = tc["id"]
-            fn = tc.get("function", {})
-            if fn.get("name") and not entry["name"]:
-                entry["name"] = fn["name"]
-            if fn.get("arguments"):
-                entry["arguments"] += fn["arguments"]
+    ) as r:
+        r.raise_for_status()
+        content = ""
+        reasoning = ""
+        tool_calls: dict[int, dict] = {}
+        usage: dict | None = None
+        for line in r.iter_lines():
+            if not line or not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                break
+            chunk = json.loads(data)
+            if chunk.get("usage"):
+                usage = chunk["usage"]
+            delta = chunk.get("choices", [{}])[0].get("delta", {})
+            if delta.get("content"):
+                content += delta["content"]
+                if on_token:
+                    on_token(delta["content"])
+            # chain-of-thought: bifrost streams it as delta['reasoning'];
+            # deepseek's native thinking mode uses reasoning_content. Surface
+            # both live and keep them on the message (reasoning_content MUST be
+            # passed back to the API on subsequent calls or it 400s).
+            rchunk = delta.get("reasoning") or delta.get("reasoning_content")
+            if rchunk:
+                reasoning += rchunk
+                if on_reasoning:
+                    on_reasoning(rchunk)
+            for tc in delta.get("tool_calls", []):
+                idx = tc.get("index", 0)
+                entry = tool_calls.setdefault(idx, {"id": "", "name": "", "arguments": ""})
+                if tc.get("id"):
+                    entry["id"] = tc["id"]
+                fn = tc.get("function", {})
+                if fn.get("name") and not entry["name"]:
+                    entry["name"] = fn["name"]
+                if fn.get("arguments"):
+                    entry["arguments"] += fn["arguments"]
     msg: dict = {"role": "assistant", "content": content}
     if reasoning:
         msg["reasoning"] = reasoning
