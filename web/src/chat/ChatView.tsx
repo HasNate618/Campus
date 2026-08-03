@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { motion } from 'framer-motion'
 import {
   ArrowUp,
   Brain,
   Check,
   ChevronDown,
+  Cpu,
   GraduationCap,
   History,
   Loader2,
@@ -12,9 +13,10 @@ import {
   Trash2,
   Wrench,
 } from 'lucide-react'
+import { marked } from 'marked'
 import { courseColor } from '@/lib/courses'
 import { fmtRelative } from '@/lib/format'
-import { ZenMarkdown } from '@/lib/ZenMarkdown'
+import { api } from '@/api/client'
 import { useChat, type ChatMsg } from './ChatContext'
 import type { Course } from '@/types'
 
@@ -36,6 +38,17 @@ function formatDetail(v: unknown): string {
   } catch {
     return String(v)
   }
+}
+
+/** Chat markdown uses the SITE's .md styling (matches announcements, etc.). */
+function ChatMd({ content }: { content: string }) {
+  const html = useMemo(() => (marked.parse(content ?? '') as string) || '', [content])
+  return <div className="md" dangerouslySetInnerHTML={{ __html: html }} />
+}
+
+function shortModel(id: string): string {
+  const i = id.lastIndexOf('/')
+  return i >= 0 ? id.slice(i + 1) : id
 }
 
 function greeting(): string {
@@ -64,10 +77,14 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
     deleteSession,
     toggleTool,
     send,
+    model,
+    setModel,
   } = useChat()
   const [input, setInput] = useState('')
   const [historyOpen, setHistoryOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [modelOpen, setModelOpen] = useState(false)
+  const [models, setModels] = useState<string[]>([])
   // Per-turn tool-group expansion and per-message thinking-block expansion
   // (ephemeral UI state — deliberately not persisted).
   const [expandedTurns, setExpandedTurns] = useState<Record<number, boolean>>({})
@@ -75,6 +92,16 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const historyRef = useRef<HTMLDivElement>(null)
   const pickerRef = useRef<HTMLDivElement>(null)
+  const modelRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    api
+      .models()
+      .then((d) => {
+        if (d.models?.length) setModels(d.models)
+      })
+      .catch(() => {})
+  }, [])
 
   const session = activeFor(courseId)
   const courseSessions = sessionsFor(courseId)
@@ -166,6 +193,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.18 }}
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}
           >
             <div className="msg-user">{m.content}</div>
           </motion.div>,
@@ -223,7 +251,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
                 )}
               </div>
             ) : null}
-            <ZenMarkdown content={m.content} />
+            <ChatMd content={m.content} />
             {m.streaming && <span className="stream-cursor" />}
           </div>
         </motion.div>,
@@ -233,14 +261,15 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
   }
 
   useEffect(() => {
-    if (!historyOpen && !pickerOpen) return
+    if (!historyOpen && !pickerOpen && !modelOpen) return
     const close = (e: MouseEvent) => {
       if (historyOpen && !historyRef.current?.contains(e.target as Node)) setHistoryOpen(false)
       if (pickerOpen && !pickerRef.current?.contains(e.target as Node)) setPickerOpen(false)
+      if (modelOpen && !modelRef.current?.contains(e.target as Node)) setModelOpen(false)
     }
     document.addEventListener('mousedown', close)
     return () => document.removeEventListener('mousedown', close)
-  }, [historyOpen, pickerOpen])
+  }, [historyOpen, pickerOpen, modelOpen])
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -341,6 +370,47 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
         ) : (
           <span className="chat-head-title">{session?.title ?? 'New chat'}</span>
         )}
+
+        <div ref={modelRef} style={{ position: 'relative' }}>
+          <button className="scope-pill" onClick={() => setModelOpen((o) => !o)} title={model ?? 'Default model'}>
+            <Cpu size={13} />
+            <span style={{ maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {model ? shortModel(model) : 'Model'}
+            </span>
+            <ChevronDown size={12} />
+          </button>
+          {modelOpen && (
+            <div className="popover course-picker" style={{ maxHeight: 340, overflowY: 'auto', width: 280 }}>
+              <button
+                className={`popover-item${!model ? ' selected' : ''}`}
+                onClick={() => {
+                  setModel(null)
+                  setModelOpen(false)
+                }}
+              >
+                <span className="popover-title">Default (config)</span>
+              </button>
+              {models.length === 0 && (
+                <p style={{ margin: '6px 10px', fontSize: 12, color: 'var(--text-3)' }}>Loading models…</p>
+              )}
+              {models.map((m) => (
+                <button
+                  key={m}
+                  className={`popover-item${model === m ? ' selected' : ''}`}
+                  onClick={() => {
+                    setModel(m)
+                    setModelOpen(false)
+                  }}
+                  title={m}
+                >
+                  <span className="popover-title" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {m}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         <button className="icon-btn" onClick={() => newChat(courseId)} title="New chat">
           <SquarePen size={15} />

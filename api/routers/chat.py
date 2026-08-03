@@ -48,6 +48,22 @@ class ChatRequest(BaseModel):
     course_id: int | None = None
     history: list[dict[str, Any]] = []
     session_id: int | None = None  # optional server-side persistence
+    model: str | None = None  # bifrost model override (default = config)
+
+
+@router.get("/models")
+def list_models():
+    """Bifrost model list for the UI model selector."""
+    from api.config import cfg
+    import httpx
+    try:
+        r = httpx.get(f"{cfg.bifrost_url}/models", timeout=15)
+        r.raise_for_status()
+        data = r.json()
+        models = [m.get("id") for m in data.get("data", []) if m.get("id")]
+        return {"models": sorted(models)}
+    except Exception as e:
+        return {"models": [], "error": str(e)}
 
 
 def _do_turn(req: ChatRequest, emit) -> None:
@@ -62,7 +78,8 @@ def _do_turn(req: ChatRequest, emit) -> None:
     try:
         history = _inject_reasoning(req.history, key)
         answer, full_history = run_turn(cfg, db, req.message, course_id=req.course_id,
-                                        history=history, verbose=False, emit=emit)
+                                        model=req.model, history=history,
+                                        verbose=False, emit=emit)
         _store_reasoning(full_history, key)
         if req.session_id:
             db.conn.execute(
@@ -82,13 +99,18 @@ def _do_turn(req: ChatRequest, emit) -> None:
 @router.post("")
 async def chat(req: ChatRequest) -> EventSourceResponse:
     queue: asyncio.Queue = asyncio.Queue()
+    # emit runs on a worker thread (run_turn is blocking) — asyncio.Queue is
+    # NOT thread-safe, so schedule the put on the event loop. Without this
+    # the events pile up and the whole stream flushes in one burst at the end
+    # (which is why streaming appeared dead).
+    loop = asyncio.get_running_loop()
 
     def emit(event: str, data: Any) -> None:
-        queue.put_nowait({"event": event, "data": data})
+        loop.call_soon_threadsafe(queue.put_nowait, {"event": event, "data": data})
 
     async def runner() -> None:
         await asyncio.to_thread(_do_turn, req, emit)
-        await queue.put(None)
+        loop.call_soon_threadsafe(queue.put_nowait, None)
 
     asyncio.create_task(runner())
 
