@@ -1,0 +1,129 @@
+/* Zen markdown typography — ported from zen-markdown-viewer (GitHub-dark).
+   Scoped under .zen-md; variables defined locally so they never clash with
+   the app theme. Rendering only: no mermaid/kaTeX/overlay/copy features. */
+.zen-md {
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted: #6e7781;
+  --border: #30363d;
+  --accent: #58a6ff;
+  --blockquote-border: #388bfd;
+  --heading-color: #e6edf3;
+  --hr-color: #30363d;
+  --code-border: #30363d;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--text-primary);
+  max-width: 100%;
+  overflow-wrap: break-word;
+}
+
+.zen-md h1,
+.zen-md h2,
+.zen-md h3,
+.zen-md h4,
+.zen-md h5,
+.zen-md h6 {
+  color: var(--heading-color);
+  font-weight: 600;
+  line-height: 1.3;
+  margin-top: 1.25em;
+  margin-bottom: 0.4em;
+}
+.zen-md h1 { font-size: 1.7em; font-weight: 700; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+.zen-md h2 { font-size: 1.35em; border-bottom: 1px solid var(--border); padding-bottom: 0.25em; }
+.zen-md h3 { font-size: 1.15em; }
+.zen-md h4 { font-size: 1em; }
+.zen-md h5 { font-size: 0.9em; }
+.zen-md h6 { font-size: 0.85em; color: var(--text-muted); }
+.zen-md h1:first-child { margin-top: 0; }
+
+.zen-md p { margin-bottom: 0.75em; line-height: 1.7; margin-top: 0; }
+.zen-md a { color: var(--accent); text-decoration: none; }
+.zen-md a:hover { text-decoration: underline; }
+.zen-md strong { font-weight: 600; }
+.zen-md ul,
+.zen-md ol { margin-bottom: 0.75em; padding-left: 1.5em; }
+.zen-md li { margin-bottom: 0.15em; line-height: 1.5; }
+.zen-md li > ul,
+.zen-md li > ol { margin-bottom: 0; margin-top: 0.15em; }
+
+.zen-md code {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  font-size: 0.875em;
+  padding: 0.2em 0.4em;
+  border-radius: 10px;
+  background: rgba(6, 6, 6, 0.4);
+  color: var(--text-primary);
+  border: 1px solid var(--code-border);
+}
+.zen-md pre {
+  background: rgba(6, 6, 6, 0.4) !important;
+  border: 1px solid var(--code-border);
+  border-radius: 12px;
+  padding: 0.75rem;
+  margin-bottom: 0.75em;
+  overflow-x: auto;
+}
+.zen-md pre code {
+  background: none !important;
+  padding: 0;
+  font-size: 0.85em;
+  color: var(--text-primary);
+  line-height: 1.35;
+  display: block;
+  border: none;
+  border-radius: 0;
+}
+
+.zen-md table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.8rem;
+  display: block;
+  overflow-x: auto;
+  margin-bottom: 0.75em;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.zen-md th,
+.zen-md td {
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+.zen-md th {
+  background: rgba(6, 6, 6, 0.4);
+  font-weight: 600;
+  color: var(--heading-color);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.zen-md td { background: rgba(6, 6, 6, 0.4); }
+.zen-md tr:last-child td { border-bottom: none; }
+.zen-md tr:hover td { background: rgba(6, 6, 6, 0.5); }
+
+.zen-md blockquote {
+  margin-bottom: 0.75em;
+  padding: 0.5em 0.75em;
+  border-left: 3px solid var(--blockquote-border);
+  background: rgba(6, 6, 6, 0.4);
+  border-radius: 0 12px 12px 0;
+  border-top: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.zen-md blockquote > :last-child { margin-bottom: 0; }
+.zen-md blockquote p { margin-bottom: 0.3em; }
+.zen-md blockquote p:last-child { margin-bottom: 0; }
+
+.zen-md hr {
+  border: none;
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--hr-color) 20%, var(--hr-color) 80%, transparent);
+  margin: 1.25em 0;
+}
+
+.zen-md img { max-width: 100%; height: auto; border-radius: 12px; margin-bottom: 0.75em; }

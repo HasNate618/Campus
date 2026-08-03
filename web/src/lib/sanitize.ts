@@ -34,6 +34,22 @@ function safeUrl(value: string): string | null {
   return null
 }
 
+/** Brightspace-hosted images need the token-authed proxy (browser has no
+ *  Brightspace session — direct img srcs 401). */
+const PROXY_HOSTS = new Set(['westernu.brightspace.com', 's.brightspace.com'])
+
+function proxifyUrl(value: string): string {
+  try {
+    const u = new URL(value)
+    if (PROXY_HOSTS.has(u.hostname)) {
+      return `/api/proxy?url=${encodeURIComponent(value)}`
+    }
+  } catch {
+    /* keep as-is */
+  }
+  return value
+}
+
 function sanitizeNode(node: Node, out: HTMLElement): void {
   for (const child of Array.from(node.childNodes)) {
     if (child.nodeType === Node.TEXT_NODE) {
@@ -57,6 +73,7 @@ function sanitizeNode(node: Node, out: HTMLElement): void {
       }
       // Never allow javascript: or data: URLs even through case tricks.
       if (/^\s*(javascript|data|vbscript):/i.test(value)) continue
+      if (name === 'src' && tag === 'IMG') value = proxifyUrl(value)
       clone.setAttribute(name, value)
     }
     if (tag === 'A') {
