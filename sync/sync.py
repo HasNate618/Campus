@@ -266,7 +266,7 @@ class SyncEngine:
             return False
         try:
             r = httpx.put(f"{self.cfg.pdf_extractor_url}/process",
-                          content=path.read_bytes(), timeout=600)
+                          content=path.read_bytes(), timeout=120)
             r.raise_for_status()
             data = r.json()
             content = data.get("page_content", "")
@@ -388,9 +388,10 @@ class SyncEngine:
                 self.sync_dropbox(course["id"], org_unit)
                 self.sync_news(course["id"], org_unit)
                 self.sync_syllabus(course["id"], org_unit, course_dir)
-                if self.cfg.auto_extract_pdfs:
-                    for row in self.db.unprocessed_files(course["id"]):
-                        self.extract_pdf(row)
+                # NOTE: extraction is NOT done here — it runs as a detached
+                # background job after the digest (see _extraction_bg). The
+                # old inline loop made syncs hang on the single pdf-extractor
+                # VLM worker for 10min per file.
                 self.stats["courses_processed"] += 1
 
             if not dry_run:
