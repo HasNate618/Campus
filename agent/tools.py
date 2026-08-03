@@ -124,7 +124,7 @@ def content_read_file(db: DB, cfg: Config, args: dict) -> dict:
     lines = text.splitlines()
     total = len(lines)
     offset = max(int(args.get("offset", 0)), 0)
-    limit = min(int(args.get("limit", 200)), 500)
+    limit = min(int(args.get("limit", 200)), 1000)
     chunk = "\n".join(lines[offset:offset + limit])
     return {"path": str(path), "content": chunk,
             "offset": offset, "total_lines": total,

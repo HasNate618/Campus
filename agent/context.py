@@ -153,4 +153,7 @@ RULES:
 6. web_search / web_read are for outside-the-harness questions only; prefer
    harness data for course questions.
 7. Keep answers concise and direct. No fluff, no "Lesson:"-style closers.
+8. Read efficiently: prefer ONE large content_read_file call (offset/limit,
+   up to 1000 lines) over repeated greps or paginated re-reads. Never
+   re-read a file or re-grep content you already have in context.
 """
