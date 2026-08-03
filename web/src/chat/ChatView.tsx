@@ -564,9 +564,11 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
           )}
         </div>
 
-        <button className="icon-btn" onClick={() => newChat(courseId)} title="New chat">
-          <SquarePen size={15} />
-        </button>
+        {session && path.length > 0 && (
+          <button className="icon-btn" onClick={() => newChat(courseId)} title="New chat">
+            <SquarePen size={15} />
+          </button>
+        )}
       </div>
 
       <div className="chat-scroll" ref={scrollRef}>
