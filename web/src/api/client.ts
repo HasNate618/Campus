@@ -85,7 +85,14 @@ export async function streamChat(
   let buffer = ''
 
   while (true) {
-    const { done, value } = await reader.read()
+    let chunk: ReadableStreamReadResult<Uint8Array>
+    try {
+      chunk = await reader.read()
+    } catch (e) {
+      console.error('[chat-stream] read failed:', e)
+      throw e
+    }
+    const { done, value } = chunk
     if (done) break
     buffer += decoder.decode(value, { stream: true })
     // sse-starlette frames are CRLF-separated (\r\n\r\n) — a plain '\n\n'

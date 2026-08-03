@@ -693,6 +693,11 @@
     animation: pulse-dot 0.9s ease-in-out infinite;
   }
 
+  /* keep an empty streaming bubble visible (content arrives token by token) */
+  .msg-assistant:has(.stream-cursor) {
+    min-height: 1.3em;
+  }
+
   @keyframes pulse-dot {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.25; }
