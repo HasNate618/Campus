@@ -111,17 +111,24 @@ class DB:
     # ── announcements ───────────────────────────────────────────────────
     def upsert_announcement(self, course_id: int, ann: dict) -> bool:
         """Returns True if new (not previously seen)."""
-        cur = self.conn.execute(
+        existing = self.conn.execute(
+            "SELECT id FROM announcements WHERE brightspace_id=?",
+            (ann["brightspace_id"],)).fetchone()
+        if existing:
+            self.conn.execute(
+                """UPDATE announcements SET title=?, body=?, author=?,
+                   posted_at=?, is_pinned=? WHERE id=?""",
+                (ann["title"], ann.get("body", ""), ann.get("author"),
+                 ann.get("posted_at"), int(ann.get("is_pinned", False)), existing["id"]))
+            self.conn.commit()
+            return False
+        self.conn.execute(
             """INSERT INTO announcements (course_id, title, body, author, posted_at, is_pinned, brightspace_id)
-               VALUES (?,?,?,?,?,?,?)
-               ON CONFLICT(brightspace_id) DO UPDATE SET
-                 title=excluded.title, body=excluded.body, author=excluded.author,
-                 posted_at=excluded.posted_at, is_pinned=excluded.is_pinned""",
+               VALUES (?,?,?,?,?,?,?)""",
             (course_id, ann["title"], ann.get("body", ""), ann.get("author"),
-             ann.get("posted_at"), int(ann.get("is_pinned", False)), ann["brightspace_id"]),
-        )
+             ann.get("posted_at"), int(ann.get("is_pinned", False)), ann["brightspace_id"]))
         self.conn.commit()
-        return cur.lastrowid is not None and cur.rowcount > 0
+        return True
 
     # ── assignments ─────────────────────────────────────────────────────
     def upsert_assignment(self, course_id: int, a: dict) -> tuple[int, bool]:
