@@ -366,8 +366,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      setInput('')
-      void send(courseId, input)
+      if (send(courseId, input)) setInput('')
     }
   }
 
@@ -378,8 +377,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
   }
 
   const submit = () => {
-    setInput('')
-    void send(courseId, input)
+    if (send(courseId, input)) setInput('')
   }
 
   const answerStreaming =
