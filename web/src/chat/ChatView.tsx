@@ -336,7 +336,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
             transition={{ duration: 0.18 }}
             style={{ display: 'flex', flexDirection: 'column' }}
           >
-            <div className="msg-assistant">
+              <div className="msg-assistant" onClick={isRevealing(node.id, node.content.length) ? skipReveal : undefined}>
               {node.thinking ? (
                 <div style={{ marginBottom: 8 }}>
                   <button
@@ -478,7 +478,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
       const dt = (now - last) / 1000
       last = now
       const len = lenRef.current
-      const speed = Math.max(700, len / 2.2)
+      const speed = Math.max(900, len / 1.4)
       setRevealed((r) => {
         const next = Math.min(len, r + dt * speed)
         if (next < len) raf = requestAnimationFrame(tick)
@@ -490,6 +490,12 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
   }, [revealId])
   const isRevealing = (nodeId: string, len: number) =>
     len > 0 && revealId === nodeId && revealed < len
+  // click (or scroll) on a revealing message snaps it to full — the reveal is
+  // a pacing effect, never a lock
+  const skipReveal = () => {
+    const len = lenRef.current
+    setRevealed(len)
+  }
 
   return (
     <div className="chat-wrap">
