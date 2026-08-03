@@ -153,7 +153,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
               <ChevronDown size={13} />
             </button>
             {pickerOpen && (
-              <div className="popover">
+              <div className="popover course-picker">
                 {courses.map((c) => (
                   <button
                     key={c.id}
@@ -162,9 +162,11 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
                       onPickCourse(c.id)
                       setPickerOpen(false)
                     }}
+                    title={`${c.code} — ${c.name}`}
                   >
                     <span className="dot" style={{ background: courseColor(c) }} />
-                    {c.code} — {c.name}
+                    <span className="popover-title">{c.code}</span>
+                    {c.term && <span className="popover-time">{c.term}</span>}
                   </button>
                 ))}
               </div>

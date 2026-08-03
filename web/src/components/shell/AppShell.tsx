@@ -1,21 +1,13 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import {
-  BookOpen,
-  CalendarDays,
-  MessageSquare,
-  MoreHorizontal,
-  Sunrise,
-} from 'lucide-react'
+import { BookOpen, Home, MessageSquare } from 'lucide-react'
 import { ChatProvider } from '@/chat/ChatContext'
 import { Sidebar } from './Sidebar'
 
 const MOBILE_TABS = [
-  { to: '/chat', label: 'Chat', icon: MessageSquare, end: true },
-  { to: '/', label: 'Today', icon: Sunrise, end: true },
-  { to: '/calendar', label: 'Calendar', icon: CalendarDays, end: false },
+  { to: '/', label: 'Home', icon: Home, end: true },
   { to: '/courses', label: 'Courses', icon: BookOpen, end: false },
-  { to: '/more', label: 'More', icon: MoreHorizontal, end: false },
+  { to: '/chat', label: 'Chat', icon: MessageSquare, end: true },
 ]
 
 export function AppShell() {

@@ -5,6 +5,7 @@ import type {
   Course,
   CourseHub,
   Event,
+  FileContent,
   FileRecord,
   SyncRun,
 } from '../types'
@@ -51,7 +52,7 @@ export const api = {
     const q = courseId != null ? `?course_id=${courseId}` : ''
     return get<Event[]>(`/events/next-7-days${q}`)
   },
-  fileContent: (id: number) => get<{ content: string; format: string }>(`/files/${id}/content`),
+  fileContent: (id: number) => get<FileContent>(`/files/${id}/content`),
   memoryCard: (courseId: number) => get<{ markdown: string }>(`/courses/${courseId}/memory`),
   syncStatus: () => get<{ status: string; last_run: SyncRun | null; token_valid?: boolean }>('/sync/status'),
   syncRuns: (limit = 20) => get<SyncRun[]>(`/sync/runs?limit=${limit}`),
