@@ -9,6 +9,7 @@ import {
   GraduationCap,
   History,
   Loader2,
+  RefreshCw,
   SquarePen,
   Trash2,
   Wrench,
@@ -17,10 +18,9 @@ import { marked } from 'marked'
 import { courseColor } from '@/lib/courses'
 import { fmtRelative } from '@/lib/format'
 import { api } from '@/api/client'
-import { useChat, type ChatMsg } from './ChatContext'
+import { useZenPostProcess } from '@/lib/zenMd'
+import { useChat, pathFor, type MsgNode } from './ChatContext'
 import type { Course } from '@/types'
-
-type ToolMsg = Extract<ChatMsg, { role: 'tool' }>
 
 const SUGGESTIONS = [
   "What's due this week?",
@@ -40,15 +40,23 @@ function formatDetail(v: unknown): string {
   }
 }
 
-/** Chat markdown uses the SITE's .md styling (matches announcements, etc.). */
+/** Chat markdown uses the SITE's .md styling (matches announcements, etc.)
+ *  + the shared zen post-process (mermaid, copy buttons). */
 function ChatMd({ content }: { content: string }) {
+  const ref = useRef<HTMLDivElement>(null)
   const html = useMemo(() => (marked.parse(content ?? '') as string) || '', [content])
-  return <div className="md" dangerouslySetInnerHTML={{ __html: html }} />
+  useZenPostProcess(ref, [html])
+  return <div ref={ref} className="md" dangerouslySetInnerHTML={{ __html: html }} />
 }
 
 function shortModel(id: string): string {
   const i = id.lastIndexOf('/')
   return i >= 0 ? id.slice(i + 1) : id
+}
+
+function fmtTokens(n?: number): string {
+  if (!n) return ''
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
 }
 
 function greeting(): string {
@@ -75,8 +83,11 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
     openSession,
     newChat,
     deleteSession,
-    toggleTool,
     send,
+    regenerate,
+    editMessage,
+    deleteMessage,
+    setActiveBranch,
     model,
     setModel,
   } = useChat()
@@ -85,10 +96,10 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [modelOpen, setModelOpen] = useState(false)
   const [models, setModels] = useState<string[]>([])
-  // Per-turn tool-group expansion and per-message thinking-block expansion
-  // (ephemeral UI state — deliberately not persisted).
-  const [expandedTurns, setExpandedTurns] = useState<Record<number, boolean>>({})
+  const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({})
   const [expandedThinking, setExpandedThinking] = useState<Record<string, boolean>>({})
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
+  const [editText, setEditText] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
   const historyRef = useRef<HTMLDivElement>(null)
   const pickerRef = useRef<HTMLDivElement>(null)
@@ -105,88 +116,90 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 
   const session = activeFor(courseId)
   const courseSessions = sessionsFor(courseId)
+  const path = session ? pathFor(session) : []
+  const lastAssistant = [...path].reverse().find((n) => n.role === 'assistant' && !n.intermediate)
 
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    // Follow the stream while busy; otherwise only keep pinned to the bottom
-    // when the user is already near it (don't yank them out of old content).
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120
     if (busy || nearBottom) el.scrollTop = el.scrollHeight
-  }, [session?.messages, session?.id, busy])
+  }, [session?.nodes, session?.activeNodeId, session?.id, busy])
 
-  const toggleTurn = (groupKey: number) =>
-    setExpandedTurns((t) => ({ ...t, [groupKey]: !t[groupKey] }))
+  /** Tool children of an assistant node. */
+  const toolChildren = (assistantId: string): MsgNode[] =>
+    session?.nodes.filter((n) => n.parentId === assistantId && n.role === 'tool') ?? []
+
+  const toggleTools = (assistantId: string) =>
+    setExpandedTools((t) => ({ ...t, [assistantId]: !t[assistantId] }))
+
+  const toggleThinking = (nodeId: string) =>
+    setExpandedThinking((t) => ({ ...t, [nodeId]: !t[nodeId] }))
+
+  const startEdit = (node: MsgNode) => {
+    setEditingNodeId(node.id)
+    setEditText(node.content)
+  }
+
+  const saveEdit = (node: MsgNode) => {
+    if (!session) return
+    editMessage(session.id, node.id, editText)
+    setEditingNodeId(null)
+  }
+
+  const renderToolRow = (node: MsgNode, key: string): ReactNode => (
+    <motion.div
+      key={key}
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.18 }}
+      style={{ display: 'flex', flexDirection: 'column' }}
+    >
+      <button
+        className="tool-chip"
+        onClick={() => toggleTools(node.parentId ?? '')}
+        style={{ cursor: 'default' }}
+      >
+        {node.done ? <Check size={13} /> : <Loader2 size={13} className="animate-spin" />}
+        <Wrench size={13} />
+        {node.tool}
+        <span style={{ opacity: 0.6 }}>{node.done ? '· done' : '· running'}</span>
+      </button>
+      {expandedTools[node.parentId ?? ''] && (
+        <div className="tool-detail">
+          {node.args != null && `args:   ${formatDetail(node.args)}\n`}
+          {node.done ? `result: ${formatDetail(node.result) || '—'}` : 'running…'}
+        </div>
+      )}
+    </motion.div>
+  )
+
+  const renderBranchChips = (node: MsgNode): ReactNode => {
+    const kids =
+      session?.nodes.filter((n) => n.parentId === node.id && n.role !== 'tool' && !n.intermediate) ?? []
+    if (kids.length < 2) return null
+    return (
+      <div key={`br-${node.id}`} className="branch-chips">
+        {kids.map((k, i) => (
+          <button
+            key={k.id}
+            className={`branch-chip${session?.activeNodeId === k.id ? ' active' : ''}`}
+            onClick={() => setActiveBranch(session!.id, k.id)}
+            title="Switch to this branch"
+          >
+            v{i + 1}
+          </button>
+        ))}
+      </div>
+    )
+  }
 
   const renderMessages = (): ReactNode[] => {
     if (!session) return []
-    const msgs = session.messages
     const out: ReactNode[] = []
-    for (let i = 0; i < msgs.length; i++) {
-      const m = msgs[i]
-      const key = `${session.id}-${i}`
-      if (m.role === 'tool') {
-        // Group consecutive tool messages of the same turn; once every call
-        // in the group finished, collapse them into one summary row.
-        let j = i
-        const group: { m: ToolMsg; idx: number }[] = []
-        while (j < msgs.length && msgs[j].role === 'tool') {
-          group.push({ m: msgs[j] as ToolMsg, idx: j })
-          j++
-        }
-        const allDone = group.every((g) => g.m.done)
-        const groupKey = group[0].m.turnId ?? group[0].idx
-        if (allDone && !expandedTurns[groupKey]) {
-          out.push(
-            <motion.div
-              key={key}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.18 }}
-            >
-              <button
-                className="tool-chip"
-                onClick={() => toggleTurn(groupKey)}
-                title="Expand tool calls"
-                style={{ color: 'var(--text-3)' }}
-              >
-                <Wrench size={13} />
-                {group.length} tool call{group.length === 1 ? '' : 's'}
-                <ChevronDown size={12} style={{ opacity: 0.6 }} />
-              </button>
-            </motion.div>,
-          )
-        } else {
-          group.forEach((g) => {
-            out.push(
-              <motion.div
-                key={`${session.id}-${g.idx}`}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.18 }}
-                style={{ display: 'flex', flexDirection: 'column' }}
-              >
-                <button className="tool-chip" onClick={() => toggleTool(session.id, g.idx)}>
-                  {g.m.done ? <Check size={13} /> : <Loader2 size={13} className="animate-spin" />}
-                  <Wrench size={13} />
-                  {g.m.tool}
-                  <span style={{ opacity: 0.6 }}>{g.m.done ? '· done' : '· running'}</span>
-                </button>
-                {g.m.open && (
-                  <div className="tool-detail">
-                    {g.m.args != null && `args:   ${formatDetail(g.m.args)}\n`}
-                    {g.m.done ? `result: ${formatDetail(g.m.result) || '—'}` : 'running…'}
-                  </div>
-                )}
-              </motion.div>,
-            )
-          })
-        }
-        i = j - 1
-        continue
-      }
-
-      if (m.role === 'user') {
+    for (const node of path) {
+      const key = `${session.id}-${node.id}`
+      if (node.role === 'user') {
         out.push(
           <motion.div
             key={key}
@@ -195,67 +208,139 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
             transition={{ duration: 0.18 }}
             style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}
           >
-            <div className="msg-user">{m.content}</div>
+            {editingNodeId === node.id ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%', maxWidth: 560 }}>
+                <textarea
+                  className="chat-input-area"
+                  value={editText}
+                  onChange={(e) => setEditText(e.target.value)}
+                  rows={3}
+                  autoFocus
+                />
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <button className="btn btn-outline btn-sm" onClick={() => setEditingNodeId(null)}>
+                    Cancel
+                  </button>
+                  <button
+                    className="btn btn-sm"
+                    style={{ background: 'var(--violet)', color: '#fff' }}
+                    onClick={() => saveEdit(node)}
+                    disabled={!editText.trim()}
+                  >
+                    Save & re-send
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="msg-user">{node.content}</div>
+                <div className="msg-actions">
+                  <button className="icon-btn" title="Edit (rewind)" onClick={() => startEdit(node)}>
+                    <SquarePen size={12} />
+                  </button>
+                  <button
+                    className="icon-btn"
+                    title="Delete message"
+                    onClick={() => deleteMessage(session.id, node.id)}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              </>
+            )}
           </motion.div>,
         )
+        out.push(renderBranchChips(node))
         continue
       }
 
-      // assistant: skip mid-turn narration (intermediate flag set by the
-      // context, or positionally: an assistant message followed by a tool
-      // message). The final answer carries the turn's full thinking.
-      if (m.role === 'assistant' && (m.intermediate || msgs[i + 1]?.role === 'tool')) continue
+      // assistant — skip mid-turn narration
+      if (node.role === 'assistant' && node.intermediate) continue
 
-      // assistant: chain-of-thought block (collapsed by default; click to
-      // expand) + zen-rendered markdown + stream cursor
-      const thinkingOpen = !!expandedThinking[key]
-      out.push(
-        <motion.div
-          key={key}
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.18 }}
-          style={{ display: 'flex', flexDirection: 'column' }}
-        >
-          <div className="msg-assistant">
-            {m.thinking ? (
-              <div style={{ marginBottom: 8 }}>
-                <button
-                  className="tool-chip"
-                  onClick={() => setExpandedThinking((t) => ({ ...t, [key]: !t[key] }))}
-                  style={{ color: 'var(--text-3)', fontFamily: 'inherit', fontSize: 12 }}
-                  title={m.thinkingDone ? 'Show chain-of-thought' : 'Chain-of-thought streaming'}
-                >
-                  {m.thinkingDone ? (
-                    <Brain size={12} />
-                  ) : (
-                    <Loader2 size={12} className="animate-spin" />
-                  )}
-                  <span>{m.thinkingDone ? 'Thought' : 'Thinking…'}</span>
-                  <ChevronDown
-                    size={12}
-                    style={{
-                      transform: thinkingOpen ? 'rotate(180deg)' : 'none',
-                      transition: 'transform 120ms ease',
-                      opacity: 0.6,
-                    }}
-                  />
-                </button>
-                {thinkingOpen && (
-                  <div
-                    className="tool-detail"
-                    style={{ fontStyle: 'italic', maxHeight: 'min(40vh, 320px)', overflowY: 'auto' }}
+      if (node.role === 'assistant') {
+        const tools = toolChildren(node.id)
+        const toolsDone = tools.every((t) => t.done)
+        const thinkingOpen = !!expandedThinking[node.id]
+        out.push(
+          <motion.div
+            key={key}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.18 }}
+            style={{ display: 'flex', flexDirection: 'column' }}
+          >
+            <div className="msg-assistant">
+              {node.thinking ? (
+                <div style={{ marginBottom: 8 }}>
+                  <button
+                    className="tool-chip"
+                    onClick={() => toggleThinking(node.id)}
+                    style={{ color: 'var(--text-3)', fontFamily: 'inherit', fontSize: 12 }}
+                    title={node.thinkingDone ? 'Show chain-of-thought' : 'Chain-of-thought streaming'}
                   >
-                    {m.thinking}
-                  </div>
-                )}
-              </div>
-            ) : null}
-            <ChatMd content={m.content} />
-            {m.streaming && <span className="stream-cursor" />}
-          </div>
-        </motion.div>,
-      )
+                    {node.thinkingDone ? (
+                      <Brain size={12} />
+                    ) : (
+                      <Loader2 size={12} className="animate-spin" />
+                    )}
+                    <span>{node.thinkingDone ? 'Thought' : 'Thinking…'}</span>
+                    <ChevronDown
+                      size={12}
+                      style={{
+                        transform: thinkingOpen ? 'rotate(180deg)' : 'none',
+                        transition: 'transform 120ms ease',
+                        opacity: 0.6,
+                      }}
+                    />
+                  </button>
+                  {thinkingOpen && (
+                    <div
+                      className="tool-detail"
+                      style={{ fontStyle: 'italic', maxHeight: 'min(40vh, 320px)', overflowY: 'auto' }}
+                    >
+                      {node.thinking}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+              <ChatMd content={node.content} />
+              {node.streaming && <span className="stream-cursor" />}
+            </div>
+
+            {tools.length > 0 &&
+              (toolsDone && !expandedTools[node.id] ? (
+                <button className="tool-chip" onClick={() => toggleTools(node.id)} title="Expand tool calls" style={{ color: 'var(--text-3)' }}>
+                  <Wrench size={13} />
+                  {tools.length} tool call{tools.length === 1 ? '' : 's'}
+                  <ChevronDown size={12} style={{ opacity: 0.6 }} />
+                </button>
+              ) : (
+                tools.map((t) => renderToolRow(t, `${session.id}-tool-${t.id}`))
+              ))}
+
+            <div className="msg-actions">
+              {!busy && node.thinkingDone && (
+                <button
+                  className="icon-btn"
+                  title="Regenerate (forks the conversation)"
+                  onClick={() => regenerate(session.id, node.id)}
+                >
+                  <RefreshCw size={12} />
+                </button>
+              )}
+              <button
+                className="icon-btn"
+                title="Delete message"
+                onClick={() => deleteMessage(session.id, node.id)}
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+          </motion.div>,
+        )
+        out.push(renderBranchChips(node))
+        continue
+      }
     }
     return out
   }
@@ -289,6 +374,9 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
     setInput('')
     void send(courseId, input)
   }
+
+  const answerStreaming =
+    !!lastAssistant && lastAssistant.streaming
 
   return (
     <div className="chat-wrap">
@@ -419,7 +507,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 
       <div className="chat-scroll" ref={scrollRef}>
         <div className="chat-col">
-          {!session || session.messages.length === 0 ? (
+          {!session || path.length === 0 ? (
             <div className="chat-empty">
               <div className="logo-mark">
                 <GraduationCap size={24} />
@@ -440,42 +528,44 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
           ) : (
             <>
               {renderMessages()}
-              {busy &&
-                (() => {
-                  const last = session?.messages[session.messages.length - 1]
-                  // Show the processing spinner until the final answer starts
-                  // streaming (intermediates/tools are still "thinking").
-                  const answerStreaming =
-                    last?.role === 'assistant' && !last.intermediate && last.streaming
-                  const waiting = !answerStreaming
-                  return waiting ? (
-                    <motion.div
-                      initial={{ opacity: 0, y: 6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.18 }}
-                    >
-                      <div
-                        className="msg-assistant"
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          fontSize: 13,
-                          color: 'var(--text-2)',
-                        }}
-                      >
-                        <Loader2 size={14} className="animate-spin" style={{ color: 'var(--violet)' }} />
-                        Thinking…
-                      </div>
-                    </motion.div>
-                  ) : null
-                })()}
+              {busy && !answerStreaming && (
+                <motion.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.18 }}
+                >
+                  <div
+                    className="msg-assistant"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      fontSize: 13,
+                      color: 'var(--text-2)',
+                    }}
+                  >
+                    <Loader2 size={14} className="animate-spin" style={{ color: 'var(--violet)' }} />
+                    Thinking…
+                  </div>
+                </motion.div>
+              )}
             </>
           )}
         </div>
       </div>
 
       <div className="input-dock">
+        {lastAssistant?.model && (
+          <div className="context-bar">
+            <span>{shortModel(lastAssistant.model)}</span>
+            {lastAssistant.tokens?.total_tokens ? (
+              <span>
+                · {fmtTokens(lastAssistant.tokens.completion_tokens)} out ·{' '}
+                {fmtTokens(lastAssistant.tokens.total_tokens)} this turn
+              </span>
+            ) : null}
+          </div>
+        )}
         <div className="chat-input">
           <textarea
             value={input}

@@ -738,6 +738,84 @@
     margin-top: 6px;
   }
 
+  .msg-actions {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    opacity: 0;
+    transition: opacity 120ms ease;
+    margin-top: 4px;
+    align-self: flex-end;
+  }
+
+  .msg-assistant + .msg-actions {
+    align-self: flex-start;
+  }
+
+  .chat-col > div:hover > .msg-actions,
+  .chat-col > div:hover > .msg-assistant + .msg-actions {
+    opacity: 1;
+  }
+
+  .msg-actions .icon-btn {
+    padding: 4px;
+  }
+
+  .branch-chips {
+    display: flex;
+    gap: 6px;
+    margin: 6px 0 2px;
+    align-items: center;
+  }
+
+  .branch-chip {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--text-3);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 999px;
+    padding: 2px 10px;
+    cursor: pointer;
+  }
+
+  .branch-chip:hover {
+    border-color: var(--glass-border-strong);
+  }
+
+  .branch-chip.active {
+    color: var(--violet);
+    border-color: var(--violet);
+  }
+
+  .context-bar {
+    display: flex;
+    gap: 4px;
+    justify-content: center;
+    align-items: center;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--text-3);
+    padding: 4px 0 8px;
+  }
+
+  .chat-input-area {
+    width: 100%;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    color: var(--text-1);
+    border-radius: var(--radius-ctl);
+    padding: 10px 12px;
+    font: inherit;
+    font-size: 14px;
+    resize: vertical;
+  }
+
+  .chat-input-area:focus {
+    outline: none;
+    border-color: var(--violet);
+  }
+
   .input-dock {
     padding: 8px 20px 18px;
   }
@@ -1188,6 +1266,27 @@
     display: block;
     max-width: 100%;
     overflow-x: auto;
+    border-collapse: collapse;
+    margin-bottom: 0.75em;
+    border: 1px solid var(--glass-border-strong);
+    border-radius: 10px;
+  }
+
+  .md th,
+  .md td {
+    border: 1px solid var(--glass-border);
+    padding: 0.5em 0.75em;
+    text-align: left;
+    white-space: normal;
+  }
+
+  .md th {
+    background: var(--glass-bg-strong);
+    font-weight: 600;
+  }
+
+  .md tbody tr:nth-child(even) {
+    background: var(--glass-bg);
   }
 
   .md img {

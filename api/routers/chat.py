@@ -49,6 +49,7 @@ class ChatRequest(BaseModel):
     history: list[dict[str, Any]] = []
     session_id: int | None = None  # optional server-side persistence
     model: str | None = None  # bifrost model override (default = config)
+    branch: str | None = None  # user-node id that starts this turn (fork key)
 
 
 @router.get("/models")
@@ -74,7 +75,9 @@ def _do_turn(req: ChatRequest, emit) -> None:
 
     cfg = Config.load()
     db = DB(cfg.db_path)
-    key: tuple = (req.session_id,) if req.session_id else (req.course_id,)
+    # Reasoning cache keyed per branch (the user node that starts the turn)
+    # so forks never cross-contaminate chain-of-thought passback.
+    key: tuple = (req.session_id or req.course_id, req.branch or "")
     try:
         history = _inject_reasoning(req.history, key)
         answer, full_history = run_turn(cfg, db, req.message, course_id=req.course_id,

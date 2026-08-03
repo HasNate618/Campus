@@ -10,29 +10,31 @@ import {
 } from 'react'
 import { streamChat } from '@/api/client'
 
-export type ChatMsg =
-  | { role: 'user'; content: string }
-  | {
-      role: 'assistant'
-      content: string
-      streaming: boolean
-      /** Chain-of-thought streamed via the SSE 'reasoning' event. */
-      thinking?: string
-      /** True once the turn's answer started streaming or finished. */
-      thinkingDone?: boolean
-      /** Mid-turn narration before a tool call — hidden from the UI. */
-      intermediate?: boolean
-    }
-  | {
-      role: 'tool'
-      tool: string
-      args?: unknown
-      result?: unknown
-      done: boolean
-      open: boolean
-      /** Groups consecutive tool calls of one turn for collapse. */
-      turnId?: number
-    }
+/** Chat message tree (Open WebUI-style): a flat node store linked by
+ *  parentId/children. The visible conversation is the path from the root
+ *  node to activeNodeId. Regenerating an assistant message forks the tree
+ *  (new sibling); editing a user message rewinds (subtree deleted, re-sent).
+ */
+export interface MsgNode {
+  id: string
+  parentId: string | null
+  children: string[]
+  role: 'user' | 'assistant' | 'tool'
+  content: string
+  streaming?: boolean
+  thinking?: string
+  thinkingDone?: boolean
+  /** Mid-turn narration hidden from the UI + branch chips. */
+  intermediate?: boolean
+  model?: string
+  tokens?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
+  tool?: string
+  args?: unknown
+  result?: unknown
+  done?: boolean
+  open?: boolean
+  createdAt: number
+}
 
 export interface ChatSession {
   id: string
@@ -40,45 +42,31 @@ export interface ChatSession {
   title: string
   createdAt: number
   updatedAt: number
-  messages: ChatMsg[]
+  nodes: MsgNode[]
+  activeNodeId: string | null
 }
 
-const STORAGE_KEY = 'hc.chat.sessions.v2'
-const LAST_COURSE_KEY = 'hc.chat.lastCourse'
-const MODEL_KEY = 'hc.chat.model'
-const MAX_SESSIONS = 50
+export type ChatMsg = MsgNode
 
-function stripUiFlags(m: ChatMsg): ChatMsg {
-  if (m.role === 'assistant') return { ...m, streaming: false, thinkingDone: true }
-  if (m.role === 'tool') return { ...m, open: false }
-  return m
-}
-
-function loadSessions(): ChatSession[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-    return parsed
-      .filter((s) => s && typeof s.id === 'string' && typeof s.courseId === 'number' && Array.isArray(s.messages))
-      .map((s) => ({ ...s, messages: s.messages.map(stripUiFlags) }))
-  } catch {
-    return []
-  }
-}
-
-function persistSessions(sessions: ChatSession[], activeIds: Set<string>) {
-  const kept = sessions
-    .filter((s) => s.messages.length > 0 || activeIds.has(s.id))
-    .sort((a, b) => b.updatedAt - a.updatedAt)
-    .slice(0, MAX_SESSIONS)
-    .map((s) => ({ ...s, messages: s.messages.map(stripUiFlags) }))
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(kept))
-  } catch {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(kept.slice(0, 10)))
-  }
+export interface ChatSessionV2 {
+  id: string
+  courseId: number
+  title: string
+  createdAt: number
+  updatedAt: number
+  messages: {
+    role: 'user' | 'assistant' | 'tool'
+    content: string
+    streaming?: boolean
+    thinking?: string
+    thinkingDone?: boolean
+    intermediate?: boolean
+    tool?: string
+    args?: unknown
+    result?: unknown
+    done?: boolean
+    open?: boolean
+  }[]
 }
 
 interface ChatContextValue {
@@ -86,25 +74,29 @@ interface ChatContextValue {
   busy: boolean
   lastCourseId: number | null
   model: string | null
-  setModel: (model: string | null) => void
-  setLastCourse: (courseId: number) => void
+  setModel: (m: string | null) => void
+  setLastCourse: (c: number) => void
   sessionsFor: (courseId: number) => ChatSession[]
   activeFor: (courseId: number) => ChatSession | null
   openSession: (courseId: number, sessionId: string) => void
   newChat: (courseId: number) => void
   deleteSession: (sessionId: string) => void
-  toggleTool: (sessionId: string, msgIdx: number) => void
-  send: (courseId: number, text: string) => Promise<void>
+  send: (courseId: number, text: string) => void
+  regenerate: (sessionId: string, nodeId: string) => void
+  editMessage: (sessionId: string, nodeId: string, newText: string) => void
+  deleteMessage: (sessionId: string, nodeId: string) => void
+  setActiveBranch: (sessionId: string, nodeId: string) => void
 }
 
-const ChatContext = createContext<ChatContextValue | null>(null)
+const STORAGE_KEY = 'hc.chat.sessions.v3'
+const V2_KEY = 'hc.chat.sessions.v2'
+const LAST_COURSE_KEY = 'hc.chat.lastCourse'
+const MODEL_KEY = 'hc.chat.model'
+const MAX_SESSIONS = 50
 
-// crypto.randomUUID is only available in secure contexts (HTTPS/localhost);
-// the homelab serves plain HTTP, so fall back to a v4-style uuid.
 function makeUuid(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
-  }
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
+  // secure-context-only; campus.local is plain HTTP
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0
     return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16)
@@ -112,20 +104,120 @@ function makeUuid(): string {
 }
 
 function makeSession(courseId: number): ChatSession {
+  const id = makeUuid()
+  return { id, courseId, title: 'New chat', createdAt: Date.now(), updatedAt: Date.now(), nodes: [], activeNodeId: null }
+}
+
+/** Path from the root to activeNodeId (the displayed conversation). */
+export function pathFor(session: ChatSession): MsgNode[] {
+  const out: MsgNode[] = []
+  let cur = session.nodes.find((n) => n.id === session.activeNodeId) ?? null
+  const guard = new Set<string>()
+  while (cur && !guard.has(cur.id)) {
+    guard.add(cur.id)
+    out.push(cur)
+    cur = session.nodes.find((n) => n.id === cur!.parentId) ?? null
+  }
+  return out.reverse()
+}
+
+function migrateV2(raw: ChatSessionV2[]): ChatSession[] {
+  return raw.map((s) => {
+    const nodes: MsgNode[] = []
+    let lastUserOrAssistant: string | null = null
+    let lastAssistant: string | null = null
+    for (const m of s.messages) {
+      const id = makeUuid()
+      if (m.role === 'user') {
+        nodes.push({ id, parentId: lastUserOrAssistant, children: [], role: 'user', content: m.content, createdAt: Date.now() })
+        lastUserOrAssistant = id
+      } else if (m.role === 'assistant') {
+        nodes.push({
+          id, parentId: lastUserOrAssistant, children: [], role: 'assistant',
+          content: m.content, thinking: m.thinking, thinkingDone: m.thinkingDone,
+          intermediate: m.intermediate, createdAt: Date.now(),
+        })
+        lastUserOrAssistant = id
+        lastAssistant = id
+      } else if (m.role === 'tool' && lastAssistant) {
+        nodes.push({
+          id, parentId: lastAssistant, children: [], role: 'tool', content: '',
+          tool: m.tool, args: m.args, result: m.result, done: m.done, open: m.open,
+          createdAt: Date.now(),
+        })
+        const a = nodes.find((n) => n.id === lastAssistant)
+        if (a) a.children.push(id)
+      }
+    }
+    return {
+      ...s,
+      nodes,
+      activeNodeId: lastUserOrAssistant ?? null,
+    }
+  })
+}
+
+function loadSessions(): ChatSession[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (raw) return JSON.parse(raw) as ChatSession[]
+    const v2 = localStorage.getItem(V2_KEY)
+    if (v2) {
+      const migrated = migrateV2(JSON.parse(v2) as ChatSessionV2[])
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated.map(stripUiFlags)))
+      return migrated
+    }
+  } catch {
+    /* ignore corrupt storage */
+  }
+  return []
+}
+
+function stripUiFlags(s: ChatSession): ChatSession {
   return {
-    id: makeUuid(),
-    courseId,
-    title: 'New chat',
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    messages: [],
+    ...s,
+    nodes: s.nodes.map(({ streaming: _s, open: _o, ...rest }) => rest),
   }
 }
+
+function persist(sessions: ChatSession[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions.map(stripUiFlags)))
+  } catch {
+    /* quota — keep in-memory */
+  }
+}
+
+/** Collect a node's id + all descendant ids. */
+function collectSubtree(nodes: MsgNode[], rootId: string): Set<string> {
+  const out = new Set<string>([rootId])
+  const queue: (string | undefined)[] = [rootId]
+  while (queue.length) {
+    const cur = nodes.find((n) => n.id === queue.shift())
+    for (const c of cur?.children ?? []) {
+      if (!out.has(c)) {
+        out.add(c)
+        queue.push(c)
+      }
+    }
+  }
+  return out
+}
+
+const ChatContext = createContext<ChatContextValue | null>(null)
 
 export function ChatProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<ChatSession[]>(loadSessions)
   const [activeMap, setActiveMap] = useState<Record<number, string>>({})
   const [busy, setBusy] = useState(false)
+  const [lastCourseId, setLastCourseId] = useState<number | null>(() => {
+    try {
+      const v = Number(localStorage.getItem(LAST_COURSE_KEY))
+      return Number.isFinite(v) && v > 0 ? v : null
+    } catch {
+      return null
+    }
+  })
   const [model, setModelState] = useState<string | null>(() => {
     try {
       return localStorage.getItem(MODEL_KEY)
@@ -133,17 +225,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       return null
     }
   })
-  // Monotonic per-turn id so consecutive tool calls of one turn can be
-  // grouped and collapsed together.
-  const turnRef = useRef(0)
-  const [lastCourseId, setLastCourseId] = useState<number | null>(() => {
-    const raw = localStorage.getItem(LAST_COURSE_KEY)
-    return raw ? Number(raw) : null
-  })
+  const busyRef = useRef(false)
+  const modelRef = useRef(model)
+  modelRef.current = model
 
-  useEffect(() => {
-    persistSessions(sessions, new Set(Object.values(activeMap)))
-  }, [sessions, activeMap])
+  useEffect(() => persist(sessions), [sessions])
 
   const setLastCourse = useCallback((courseId: number) => {
     setLastCourseId(courseId)
@@ -161,256 +247,281 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const sessionsFor = useCallback(
-    (courseId: number) =>
-      sessions.filter((s) => s.courseId === courseId).sort((a, b) => b.updatedAt - a.updatedAt),
+    (courseId: number) => sessions.filter((s) => s.courseId === courseId),
     [sessions],
   )
 
   const activeFor = useCallback(
-    (courseId: number): ChatSession | null => {
+    (courseId: number) => {
       const id = activeMap[courseId]
-      const found = id ? sessions.find((s) => s.id === id) : undefined
-      if (found) return found
-      return sessionsFor(courseId)[0] ?? null
+      return sessions.find((s) => s.id === id) ?? null
     },
-    [activeMap, sessions, sessionsFor],
+    [sessions, activeMap],
   )
-
-  const updateSession = useCallback((id: string, fn: (s: ChatSession) => ChatSession) => {
-    setSessions((ss) => ss.map((s) => (s.id === id ? { ...fn(s) } : s)))
-  }, [])
 
   const openSession = useCallback((courseId: number, sessionId: string) => {
     setActiveMap((m) => ({ ...m, [courseId]: sessionId }))
-    setLastCourse(courseId)
-  }, [setLastCourse])
+  }, [])
 
-  const newChat = useCallback(
-    (courseId: number) => {
-      const s = makeSession(courseId)
-      setSessions((ss) => [s, ...ss])
-      setActiveMap((m) => ({ ...m, [courseId]: s.id }))
-      setLastCourse(courseId)
-    },
-    [setLastCourse],
-  )
+  const newChat = useCallback((courseId: number) => {
+    const s = makeSession(courseId)
+    setSessions((ss) => [s, ...ss].slice(0, MAX_SESSIONS))
+    setActiveMap((m) => ({ ...m, [courseId]: s.id }))
+  }, [])
 
   const deleteSession = useCallback((sessionId: string) => {
     setSessions((ss) => ss.filter((s) => s.id !== sessionId))
     setActiveMap((m) => {
-      const next = { ...m }
-      for (const [k, v] of Object.entries(next)) {
-        if (v === sessionId) delete next[Number(k)]
-      }
+      const next: Record<number, string> = {}
+      for (const [k, v] of Object.entries(m)) if (v !== sessionId) next[Number(k)] = v
       return next
     })
   }, [])
 
-  const toggleTool = useCallback(
-    (sessionId: string, msgIdx: number) => {
-      updateSession(sessionId, (s) => ({
-        ...s,
-        messages: s.messages.map((m, i) =>
-          i === msgIdx && m.role === 'tool' ? { ...m, open: !m.open } : m,
-        ),
-      }))
+  const patchNode = useCallback((sid: string, nid: string, fn: (n: MsgNode) => MsgNode) => {
+    setSessions((ss) =>
+      ss.map((s) =>
+        s.id !== sid
+          ? s
+          : { ...s, updatedAt: Date.now(), nodes: s.nodes.map((n) => (n.id === nid ? fn(n) : n)) },
+      ),
+    )
+  }, [])
+
+  const setActiveNode = useCallback((sid: string, nid: string) => {
+    setSessions((ss) =>
+      ss.map((s) => (s.id !== sid ? s : { ...s, updatedAt: Date.now(), activeNodeId: nid })),
+    )
+  }, [])
+
+  /** Stream one turn into a new assistant child of userNodeId. */
+  const streamTurn = useCallback(
+    (sid: string, userNodeId: string, message: string, courseId: number | null, history: { role: 'user' | 'assistant'; content: string }[]) => {
+      let assistantId: string | null = null
+      let turnThinking = ''
+      const ensureAssistant = (seedThinking?: string): string => {
+        if (assistantId) return assistantId
+        assistantId = makeUuid()
+        appendNode(sid, {
+          id: assistantId, parentId: userNodeId, children: [], role: 'assistant',
+          content: '', streaming: true, thinking: seedThinking ?? '', thinkingDone: false,
+          createdAt: Date.now(),
+        })
+        setActiveNode(sid, assistantId)
+        return assistantId
+      }
+      const appendNode = (s: string, node: MsgNode) => {
+        setSessions((ss) =>
+          ss.map((x) => {
+            if (x.id !== s) return x
+            const nodes = node.parentId
+              ? x.nodes.map((n) => (n.id === node.parentId ? { ...n, children: [...n.children, node.id] } : n))
+              : x.nodes
+            return { ...x, updatedAt: Date.now(), nodes: [...nodes, node] }
+          }),
+        )
+      }
+      void streamChat(
+        message,
+        courseId,
+        (event, data) => {
+          const d = data as Record<string, unknown>
+          if (event === 'reasoning') {
+            turnThinking += (d.text as string) ?? ''
+            const id = ensureAssistant()
+            patchNode(sid, id, (n) => ({ ...n, thinking: (n.thinking ?? '') + ((d.text as string) ?? '') }))
+          } else if (event === 'token') {
+            const id = ensureAssistant(turnThinking || undefined)
+            patchNode(sid, id, (n) => ({
+              ...n,
+              content: n.content + ((d.text as string) ?? ''),
+              thinking: turnThinking || n.thinking,
+              thinkingDone: n.thinking ? true : n.thinkingDone,
+            }))
+          } else if (event === 'tool_start') {
+            if (assistantId) patchNode(sid, assistantId, (n) => ({ ...n, intermediate: true, streaming: false }))
+            const toolId = makeUuid()
+            appendNode(sid, {
+              id: toolId, parentId: assistantId ?? userNodeId, children: [], role: 'tool',
+              content: '', tool: (d.tool as string) ?? 'tool', args: d.args, done: false,
+              open: false, createdAt: Date.now(),
+            })
+          } else if (event === 'tool_end') {
+            setSessions((ss) =>
+              ss.map((s) =>
+                s.id !== sid
+                  ? s
+                  : {
+                      ...s,
+                      updatedAt: Date.now(),
+                      nodes: s.nodes.map((n) =>
+                        n.role === 'tool' && n.tool === (d.tool as string) && !n.done
+                          ? { ...n, done: true, result: d.result }
+                          : n,
+                      ),
+                    },
+              ),
+            )
+          } else if (event === 'done') {
+            if (!assistantId) {
+              // nothing streamed at all — surface the final answer directly
+              const id = makeUuid()
+              appendNode(sid, {
+                id, parentId: userNodeId, children: [], role: 'assistant',
+                content: (d.answer as string) ?? '', streaming: false, thinkingDone: true,
+                thinking: turnThinking || undefined, createdAt: Date.now(),
+              })
+              setActiveNode(sid, id)
+            } else {
+              patchNode(sid, assistantId, (n) => ({
+                ...n,
+                streaming: false,
+                thinkingDone: true,
+                thinking: n.thinking || turnThinking || undefined,
+                model: (d.model as string) || undefined,
+                tokens: (d.usage as MsgNode['tokens']) || undefined,
+              }))
+            }
+          }
+        },
+        history,
+        modelRef.current ?? undefined,
+        userNodeId,
+      ).catch(() => {
+        patchNode(sid, assistantId ?? userNodeId, (n) => ({ ...n, streaming: false }))
+      })
     },
-    [updateSession],
+    [sessions, patchNode, setActiveNode],
   )
 
   const send = useCallback(
-    async (courseId: number, raw: string) => {
-      const text = raw.trim()
-      if (!text || busy) return
-
-      let sessionId = activeMap[courseId]
-      const existing = sessionId ? sessions.find((s) => s.id === sessionId) : undefined
-      if (!existing) {
+    (courseId: number, text: string) => {
+      if (busyRef.current || !text.trim()) return
+      let sid = activeFor(courseId)?.id
+      if (!sid) {
+        // first message of a new session — create it inline (async newChat
+        // would drop the message)
         const s = makeSession(courseId)
-        sessionId = s.id
-        setSessions((ss) => [s, ...ss])
+        sid = s.id
+        setSessions((ss) => [s, ...ss].slice(0, MAX_SESSIONS))
         setActiveMap((m) => ({ ...m, [courseId]: s.id }))
       }
-      const sid = sessionId
+      const session = sessions.find((x) => x.id === sid) ?? { id: sid!, courseId, title: '', createdAt: 0, updatedAt: 0, nodes: [], activeNodeId: null }
+      const history = pathFor(session)
+        .filter((n) => n.role !== 'tool' && !(n.role === 'assistant' && n.intermediate))
+        .map((n) => ({ role: n.role as 'user' | 'assistant', content: n.content }))
 
+      const userNodeId = makeUuid()
+      const isNew = session.nodes.length === 0
+      setSessions((ss) =>
+        ss.map((s) => {
+          if (s.id !== sid) return s
+          const userNode: MsgNode = {
+            id: userNodeId, parentId: s.activeNodeId, children: [], role: 'user',
+            content: text, createdAt: Date.now(),
+          }
+          const nodes = s.activeNodeId
+            ? s.nodes.map((n) => (n.id === s.activeNodeId ? { ...n, children: [...n.children, userNodeId] } : n))
+            : s.nodes
+          return {
+            ...s,
+            title: isNew ? text.slice(0, 42) : s.title,
+            updatedAt: Date.now(),
+            activeNodeId: userNodeId,
+            nodes: [...nodes, userNode],
+          }
+        }),
+      )
+      busyRef.current = true
       setBusy(true)
       setLastCourse(courseId)
-      updateSession(sid, (s) => ({
-        ...s,
-        title: s.messages.length === 0 ? text.slice(0, 42) : s.title,
-        updatedAt: Date.now(),
-        messages: [...s.messages, { role: 'user', content: text }],
-      }))
+      streamTurn(sid, userNodeId, text, courseId, history)
+    },
+    [activeFor, sessions, setLastCourse, streamTurn],
+  )
 
-      const turnId = turnRef.current + 1
-      turnRef.current = turnId
-      let turnThinking = ''
+  const regenerate = useCallback(
+    (sessionId: string, nodeId: string) => {
+      if (busyRef.current) return
+      const session = sessions.find((s) => s.id === sessionId)
+      if (!session) return
+      const target = session.nodes.find((n) => n.id === nodeId)
+      if (!target || target.role !== 'assistant') return
+      const parentId = target.parentId
+      const userNode = session.nodes.find((n) => n.id === parentId)
+      if (!userNode) return
+      const history = pathFor(session)
+        .filter((n) => n.id !== parentId && n.role !== 'tool' && !(n.role === 'assistant' && n.intermediate))
+        .map((n) => ({ role: n.role as 'user' | 'assistant', content: n.content }))
+      busyRef.current = true
+      setBusy(true)
+      streamTurn(sessionId, userNode.id, userNode.content, session.courseId, history)
+    },
+    [sessions, streamTurn],
+  )
 
-      try {
-        const history = (sessions.find((s) => s.id === sid)?.messages ?? [])
-          .filter(
-            (m): m is Extract<ChatMsg, { role: 'user' | 'assistant' }> =>
-              m.role !== 'tool' && !(m.role === 'assistant' && m.streaming),
-          )
-          .map((m) => ({ role: m.role, content: m.content }))
-        await streamChat(text, courseId, (event, data) => {
-          const d = data as Record<string, string>
-          if (event === 'reasoning') {
-            // Aggregated chain-of-thought for THIS turn — the final answer's
-            // thinking block carries all of it (intermediate rounds are hidden).
-            turnThinking += (d.text ?? '')
-          }
-          if (event === 'tool_start') {
-            updateSession(sid, (s) => {
-              // Any in-flight assistant message (mid-turn narration before a
-              // tool call) is intermediate — hidden from the UI. Only the
-              // final answer after the last tool call is shown.
-              const msgs = s.messages.map((m) =>
-                m.role === 'assistant' && !m.thinkingDone
-                  ? { ...m, intermediate: true, streaming: false }
-                  : m,
+  const editMessage = useCallback(
+    (sessionId: string, nodeId: string, newText: string) => {
+      if (busyRef.current || !newText.trim()) return
+      const session = sessions.find((s) => s.id === sessionId)
+      if (!session) return
+      const target = session.nodes.find((n) => n.id === nodeId)
+      if (!target || target.role !== 'user') return
+      const doomed = collectSubtree(session.nodes, nodeId)
+      const history = pathFor(session)
+        .filter((n) => n.id !== nodeId && !doomed.has(n.id) && n.role !== 'tool' && !(n.role === 'assistant' && n.intermediate))
+        .map((n) => ({ role: n.role as 'user' | 'assistant', content: n.content }))
+      setSessions((ss) =>
+        ss.map((s) => {
+          if (s.id !== sessionId) return s
+          return {
+            ...s,
+            updatedAt: Date.now(),
+            activeNodeId: nodeId,
+            nodes: s.nodes
+              .filter((n) => !doomed.has(n.id))
+              .map((n) =>
+                n.children.some((c) => doomed.has(c))
+                  ? { ...n, children: n.children.filter((c) => !doomed.has(c)) }
+                  : n,
               )
-              return {
-                ...s,
-                messages: [
-                  ...msgs,
-                  {
-                    role: 'tool',
-                    tool: d.tool ?? 'tool',
-                    args: d.args ?? undefined,
-                    done: false,
-                    open: false,
-                    turnId,
-                  },
-                ],
-              }
-            })
-          } else if (event === 'tool_end') {
-            updateSession(sid, (s) => ({
-              ...s,
-              messages: s.messages.map((m) =>
-                m.role === 'tool' && !m.done && m.tool === (d.tool ?? m.tool)
-                  ? { ...m, done: true, result: d.result }
-                  : m,
-              ),
-            }))
-          } else if (event === 'reasoning') {
-            updateSession(sid, (s) => {
-              const last = s.messages[s.messages.length - 1]
-              // Append to the in-flight assistant message of this turn (the
-              // previous turn's answer has thinkingDone=true, so it starts a
-              // fresh placeholder).
-              if (last?.role === 'assistant' && !last.thinkingDone) {
-                return {
-                  ...s,
-                  messages: [
-                    ...s.messages.slice(0, -1),
-                    { ...last, thinking: (last.thinking ?? '') + (d.text ?? '') },
-                  ],
-                }
-              }
-              return {
-                ...s,
-                messages: [
-                  ...s.messages,
-                  {
-                    role: 'assistant',
-                    content: '',
-                    streaming: true,
-                    thinking: d.text ?? '',
-                    thinkingDone: false,
-                  },
-                ],
-              }
-            })
-          } else if (event === 'token') {
-            updateSession(sid, (s) => {
-              const last = s.messages[s.messages.length - 1]
-              if (last?.role === 'assistant' && last.streaming) {
-                return {
-                  ...s,
-                  messages: [
-                    ...s.messages.slice(0, -1),
-                    {
-                      ...last,
-                      content: last.content + (d.text ?? ''),
-                      thinking: turnThinking || last.thinking,
-                      // The answer is streaming — the thinking phase is over.
-                      thinkingDone: last.thinking ? true : last.thinkingDone,
-                    },
-                  ],
-                }
-              }
-              return {
-                ...s,
-                messages: [
-                  ...s.messages,
-                  {
-                    role: 'assistant',
-                    content: d.text ?? '',
-                    streaming: true,
-                    thinkingDone: false,
-                    thinking: turnThinking || undefined,
-                  },
-                ],
-              }
-            })
-          } else if (event === 'done') {
-            updateSession(sid, (s) => {
-              const msgs = s.messages.map((m) =>
-                m.role === 'tool'
-                  ? { ...m, done: true }
-                  : m.role === 'assistant' && m.streaming
-                    ? { ...m, streaming: false, thinkingDone: true }
-                    : m,
-              )
-              const last = msgs[msgs.length - 1]
-              if (last?.role === 'assistant') {
-                msgs[msgs.length - 1] = {
-                  ...last,
-                  thinkingDone: true,
-                  thinking: last.thinking || turnThinking || undefined,
-                }
-              } else {
-                // Nothing streamed at all — surface the final answer directly.
-                msgs.push({
-                  role: 'assistant',
-                  content: (d.answer ?? '') as string,
-                  streaming: false,
-                  thinkingDone: true,
-                })
-              }
-              return { ...s, messages: msgs }
-            })
+              .map((n) => (n.id === nodeId ? { ...n, content: newText } : n)),
           }
-        }, history, model ?? undefined)
-      } catch (err) {
-        updateSession(sid, (s) => ({
-          ...s,
-          messages: [
-            ...s.messages,
-            {
-              role: 'assistant',
-              content: `Something went wrong: ${err instanceof Error ? err.message : String(err)}`,
-              streaming: false,
-            },
-          ],
-        }))
-      } finally {
-        updateSession(sid, (s) => ({
+        }),
+      )
+      busyRef.current = true
+      setBusy(true)
+      streamTurn(sessionId, nodeId, newText, session.courseId, history)
+    },
+    [sessions, streamTurn],
+  )
+
+  const deleteMessage = useCallback((sessionId: string, nodeId: string) => {
+    setSessions((ss) =>
+      ss.map((s) => {
+        if (s.id !== sessionId) return s
+        const doomed = collectSubtree(s.nodes, nodeId)
+        const target = s.nodes.find((n) => n.id === nodeId)
+        const activeDoomed = s.activeNodeId ? doomed.has(s.activeNodeId) : false
+        return {
           ...s,
           updatedAt: Date.now(),
-          messages: s.messages.map((m) => {
-            if (m.role === 'assistant') return { ...m, streaming: false, thinkingDone: true }
-            if (m.role === 'tool' && !m.done) return { ...m, done: true }
-            return m
-          }),
-        }))
-        setBusy(false)
-      }
-    },
-    [busy, activeMap, sessions, updateSession, setLastCourse, model],
-  )
+          activeNodeId: activeDoomed ? (target?.parentId ?? null) : s.activeNodeId,
+          nodes: s.nodes
+            .filter((n) => !doomed.has(n.id))
+            .map((n) =>
+              n.children.some((c) => doomed.has(c))
+                ? { ...n, children: n.children.filter((c) => !doomed.has(c)) }
+                : n,
+            ),
+        }
+      }),
+    )
+  }, [])
+
+  const setActiveBranch = useCallback((sessionId: string, nodeId: string) => {
+    setActiveNode(sessionId, nodeId)
+  }, [setActiveNode])
 
   const value = useMemo<ChatContextValue>(
     () => ({
@@ -425,23 +536,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       openSession,
       newChat,
       deleteSession,
-      toggleTool,
       send,
+      regenerate,
+      editMessage,
+      deleteMessage,
+      setActiveBranch,
     }),
     [
-      sessions,
-      busy,
-      lastCourseId,
-      model,
-      setModel,
-      setLastCourse,
-      sessionsFor,
-      activeFor,
-      openSession,
-      newChat,
-      deleteSession,
-      toggleTool,
-      send,
+      sessions, busy, lastCourseId, model, setModel, setLastCourse, sessionsFor,
+      activeFor, openSession, newChat, deleteSession, send, regenerate,
+      editMessage, deleteMessage, setActiveBranch,
     ],
   )
 
@@ -450,6 +554,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
 export function useChat(): ChatContextValue {
   const ctx = useContext(ChatContext)
-  if (!ctx) throw new Error('useChat must be used inside ChatProvider')
+  if (!ctx) throw new Error('useChat must be used within ChatProvider')
   return ctx
 }

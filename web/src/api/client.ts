@@ -71,11 +71,12 @@ export async function streamChat(
   onEvent: (event: string, data: unknown) => void,
   history: { role: 'user' | 'assistant'; content: string }[] = [],
   model?: string,
+  branch?: string,
 ): Promise<void> {
   const res = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-    body: JSON.stringify({ message, course_id: courseId, history, model }),
+    body: JSON.stringify({ message, course_id: courseId, history, model, branch }),
   })
   if (!res.ok || !res.body) throw new Error('Chat stream failed')
 
