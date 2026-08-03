@@ -1,10 +1,9 @@
 import { Link, useParams } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, ChevronRight, Download, ExternalLink } from 'lucide-react'
 import { api } from '@/api/client'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
-import { PdfViewer } from '@/lib/PdfViewer'
 import type { ContentNode, FileContent, FileFormat, FileRecord } from '@/types'
 
 const CODE_EXTS = new Set([
@@ -67,6 +66,28 @@ function EmptyFile({ rawUrl, filename }: { rawUrl: string | null; filename: stri
       </a>
     </div>
   )
+}
+
+/**
+ * The REAL zen-pdf-viewer (github.com/HasNate618/zen-pdf-viewer), served
+ * statically from /zen-pdf/viewer.html and embedded full-bleed. The viewer
+ * is driven entirely by URL params: ?file= (absolute same-origin raw pdf),
+ * zen=1 (per-pixel luma inversion, paper detection → transparent pages),
+ * pageless=1 (continuous scroll, visible-page rendering, MRU page cache),
+ * plus its own text layer, zoom, rotation and keyboard nav. Rendering
+ * happens inside the iframe via pdf.js (canvas/SVG), so this works on
+ * Android too — an iframe pointing at the RAW pdf would trigger a download
+ * there; this points at an HTML page instead.
+ */
+function ZenPdfFrame({ rawUrl, fileId, filename }: { rawUrl: string; fileId: number; filename: string }) {
+  const src = useMemo(() => {
+    const abs = `${window.location.origin}${rawUrl}`
+    const q = new URLSearchParams({ file: abs, zen: '1', pageless: '1', t: String(fileId) })
+    return `/zen-pdf/viewer.html?${q.toString()}`
+  }, [rawUrl, fileId])
+  // key remounts the frame per file so switching PDFs never reuses stale
+  // viewer state (scroll position, loaded pages).
+  return <iframe key={fileId} className="zen-pdf-frame" src={src} title={filename} allow="fullscreen" />
 }
 
 function ViewerBody({
@@ -168,7 +189,7 @@ function FileBody({
               <ZenMarkdown content={content} />
             </div>
           ) : rawUrl ? (
-            <PdfViewer src={rawUrl} />
+            <ZenPdfFrame rawUrl={rawUrl} fileId={file.id} filename={filename} />
           ) : content ? (
             <div className="pdf-text-view">
               <ZenMarkdown content={content} />

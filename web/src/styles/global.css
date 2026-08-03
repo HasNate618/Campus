@@ -1166,20 +1166,16 @@
     padding: 2px 4px 6px;
   }
 
-  /* pdf.js pages float on the zen surface (canvas itself stays transparent) */
-  .pdf-viewer {
+  /* the real zen-pdf-viewer embedded full-bleed: the iframe's own body is
+     transparent, so pageless pages float on the app surface (zen=1&pageless=1
+     in the src gives the per-pixel inversion + transparent paper treatment) */
+  .zen-pdf-frame {
+    display: block;
     width: 100%;
-  }
-
-  .pdf-viewer canvas {
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
-    border-radius: 4px;
-  }
-
-  .pdf-viewer .zen-active {
-    background: var(--violet);
-    border-color: var(--violet);
-    color: #fff;
+    height: calc(100dvh - 230px);
+    min-height: 460px;
+    border: 0;
+    background: transparent;
   }
 
   /* keep wide Brightspace HTML inside the pane, never the viewport */
