@@ -213,20 +213,21 @@ CREATE TABLE IF NOT EXISTS events (
 
 -- ── Sync audit ─────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sync_runs (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    started_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    finished_at     TEXT,
-    status          TEXT NOT NULL DEFAULT 'running'
-                    CHECK (status IN ('running','ok','partial','failed')),
-    trigger         TEXT NOT NULL DEFAULT 'manual'
-                    CHECK (trigger IN ('manual','cron','api')),
-    courses_processed INTEGER NOT NULL DEFAULT 0,
-    files_new       INTEGER NOT NULL DEFAULT 0,
-    files_changed   INTEGER NOT NULL DEFAULT 0,
-    announcements_new INTEGER NOT NULL DEFAULT 0,
-    facts_added     INTEGER NOT NULL DEFAULT 0,
-    log_path        TEXT,                                 -- AI-generated sync log (markdown)
-    error           TEXT
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    finished_at         TEXT,
+    status              TEXT NOT NULL DEFAULT 'running'
+                        CHECK (status IN ('running','ok','partial','failed')),
+    trigger             TEXT NOT NULL DEFAULT 'manual'
+                        CHECK (trigger IN ('manual','cron','web','digest')),
+    courses_processed   INTEGER NOT NULL DEFAULT 0,
+    files_new           INTEGER NOT NULL DEFAULT 0,
+    files_changed       INTEGER NOT NULL DEFAULT 0,
+    announcements_new   INTEGER NOT NULL DEFAULT 0,
+    facts_added         INTEGER NOT NULL DEFAULT 0,
+    pdfs_extracted      INTEGER NOT NULL DEFAULT 0,
+    log_path            TEXT,
+    error               TEXT
 );
 
 -- Every mutation by AI/user tooling — reversible + auditable
