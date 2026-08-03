@@ -922,6 +922,7 @@
   .md h1, .md h2, .md h3, .md h4 {
     letter-spacing: -0.01em;
     margin: 1.1em 0 0.4em;
+    font-weight: 700;
   }
 
   .md h1 { font-size: 19px; }
@@ -930,6 +931,8 @@
   .md h4 { font-size: 14px; }
 
   .md p { margin: 0.5em 0; }
+  .md ul { list-style: disc; }
+  .md ol { list-style: decimal; }
   .md ul, .md ol { margin: 0.5em 0; padding-left: 1.4em; }
   .md li { margin: 0.2em 0; }
 
@@ -983,6 +986,9 @@
     border-collapse: collapse;
     margin: 0.7em 0;
     font-size: 13px;
+    width: auto;
+    max-width: 100%;
+    display: inline-table;
   }
 
   .md th, .md td {

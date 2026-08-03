@@ -29,7 +29,11 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;')
 }
 
-export function useZenPostProcess(ref: RefObject<HTMLElement | null>, deps: unknown[]): void {
+export function useZenPostProcess(ref: RefObject<HTMLElement | null>, _deps: unknown[]): void {
+  // Runs after EVERY render (no deps array): any re-render that resets the
+  // message DOM (e.g. reload, context updates) gets re-decorated within the
+  // debounce window — without this, a reset left the raw markdown stuck
+  // (code blocks/mermaid flashed decorated, then reverted permanently).
   useEffect(() => {
     const root = ref.current
     if (!root) return
@@ -137,5 +141,5 @@ export function useZenPostProcess(ref: RefObject<HTMLElement | null>, deps: unkn
       window.clearTimeout(scanTimer)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps)
+  })
 }
