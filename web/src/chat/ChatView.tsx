@@ -19,7 +19,7 @@ import { courseColor } from '@/lib/courses'
 import { fmtRelative } from '@/lib/format'
 import { api } from '@/api/client'
 import { useZenPostProcess } from '@/lib/zenMd'
-import { useChat, pathFor, type MsgNode } from './ChatContext'
+import { useChat, pathFor, type MsgNode, type StreamStatus } from './ChatContext'
 import type { Course } from '@/types'
 
 const SUGGESTIONS = [
@@ -74,6 +74,65 @@ function greeting(): string {
   return 'Good evening'
 }
 
+/** Build hash baked into index.html by vite (buildMeta plugin) — lets you
+ *  tell which bundle is live at a glance (stale index.html = old hash). */
+const BUILD_HASH =
+  (typeof document !== 'undefined'
+    ? document.querySelector('meta[name="build"]')?.getAttribute('content')
+    : undefined) ?? 'dev'
+
+/** One-glance stream diagnosis. Every phase is rendered so the next failure
+ *  tells us exactly where it broke:
+ *   - 'loading'  → session list fetch in flight
+ *   - 'connecting' → POST /api/chat fired, no SSE event yet (stuck here =
+ *     the request never reached the server or the stream never opened)
+ *   - 'streaming' → events arriving (last event + count ticker)
+ *   - 'done'     → done event received
+ *   - 'error'    → exact failure text
+ */
+function StreamStatusLine({ status }: { status: StreamStatus }) {
+  const { phase, lastEvent, eventCount, error } = status
+  let dot = '●'
+  let cls = 'st-idle'
+  let text: string
+  switch (phase) {
+    case 'loading':
+      dot = '⟳'
+      cls = 'st-busy'
+      text = 'loading sessions…'
+      break
+    case 'connecting':
+      dot = '⟳'
+      cls = 'st-busy'
+      text = 'connecting…'
+      break
+    case 'streaming':
+      dot = '⟳'
+      cls = 'st-busy'
+      text = `streaming · ${lastEvent ?? 'event'}${eventCount != null ? ` × ${eventCount}` : ''}`
+      break
+    case 'done':
+      dot = '✓'
+      cls = 'st-ok'
+      text = `done${eventCount != null ? ` · token × ${eventCount}` : ''}`
+      break
+    case 'error':
+      dot = '⚠'
+      cls = 'st-err'
+      text = `error: ${error ?? 'unknown'}`
+      break
+    default:
+      text = 'idle'
+  }
+  return (
+    <div className={`stream-status ${cls}`} title="Chat pipeline status — this line always shows what the stream is doing">
+      <span className="st-dot">{dot}</span>
+      <span>{text}</span>
+      <span className="st-build">build {BUILD_HASH}</span>
+    </div>
+  )
+}
+
 interface Props {
   courseId: number
   course?: Course
@@ -85,6 +144,7 @@ interface Props {
 export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
   const {
     busy,
+    streamStatus,
     sessionsFor,
     activeFor,
     openSession,
@@ -560,6 +620,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
       </div>
 
       <div className="input-dock">
+        <StreamStatusLine status={streamStatus} />
         {lastAssistant && (
           <div className="context-bar">
             {lastAssistant.streaming ? (

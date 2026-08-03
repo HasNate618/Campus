@@ -812,6 +812,26 @@
     padding: 4px 0 8px;
   }
 
+  /* Self-reporting chat pipeline status — always visible so a broken stream
+     is diagnosable at a glance (phase + last event + exact error + build). */
+  .stream-status {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+    align-items: center;
+    font-size: 10.5px;
+    font-family: var(--font-mono);
+    color: var(--text-3);
+    padding: 2px 0 6px;
+    min-height: 16px;
+    user-select: none;
+  }
+  .stream-status .st-dot { width: 12px; text-align: center; }
+  .stream-status .st-build { opacity: 0.55; }
+  .stream-status.st-busy { color: var(--violet); }
+  .stream-status.st-ok { color: #4ade80; }
+  .stream-status.st-err { color: #f87171; }
+
   .chat-input-area {
     width: 100%;
     background: var(--glass-bg);

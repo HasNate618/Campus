@@ -44,11 +44,27 @@ def health():
 WEB_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
 
 
+# Cache policy (2026-08-03, stale-bundle killer):
+#   - index.html (the SPA shell) MUST NEVER be cached: it references the
+#     hashed bundle names, so a cached shell = a stale bundle forever.
+#     FileResponse alone sends no Cache-Control → browsers heuristically
+#     cache the shell → the user's browser ran index-CSYD4hz4.js while the
+#     server served index-aSputqFv.js. no-store makes that impossible.
+#   - Hashed assets under /assets/ (Vite content-hashes them) are safe to
+#     cache immutably.
+_NO_STORE = {"Cache-Control": "no-store"}
+_IMMUTABLE = {"Cache-Control": "public, max-age=31536000, immutable"}
+
+
+def _index_response(index: Path):
+    return FileResponse(index, headers=_NO_STORE)
+
+
 @app.get("/")
 def spa_index():
     index = WEB_DIST / "index.html"
     if index.is_file():
-        return FileResponse(index)
+        return _index_response(index)
     return JSONResponse({"detail": "Frontend not built"}, status_code=404)
 
 
@@ -63,8 +79,10 @@ def spa_fallback(path: str):
     # path traversal guard: only serve files actually under WEB_DIST
     candidate = (dist / path).resolve()
     if candidate.is_relative_to(dist) and candidate.is_file():
-        return FileResponse(candidate)
+        rel = candidate.relative_to(dist).as_posix()
+        headers = _IMMUTABLE if rel.startswith("assets/") else None
+        return FileResponse(candidate, headers=headers)
     index = dist / "index.html"
     if index.is_file():
-        return FileResponse(index)
+        return _index_response(index)
     return JSONResponse({"detail": "Not Found"}, status_code=404)
