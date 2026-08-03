@@ -151,9 +151,15 @@ class SyncEngine:
         subdir.mkdir(parents=True, exist_ok=True)
         rel = str((subdir / filename).relative_to(self.cfg.data_root))
         sha = hashlib.sha256(body).hexdigest()
+        # link the file to its content topic (topic_id == the content node's
+        # brightspace id, upserted earlier in the walk) so the UI can show
+        # what file a topic has
+        node = self.db.conn.execute(
+            "SELECT id FROM content_nodes WHERE course_id=? AND brightspace_id=?",
+            (course_id, topic_id)).fetchone()
         file_id, is_new = self.db.upsert_file(
             course_id, rel, "slide" if filename.lower().endswith((".pdf", ".ppt", ".pptx")) else "other",
-            "brightspace", sha, len(body))
+            "brightspace", sha, len(body), node["id"] if node else None)
         if is_new:
             (subdir / filename).write_bytes(body)
             self.stats["files_new"] += 1
