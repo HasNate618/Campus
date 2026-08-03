@@ -1,7 +1,12 @@
-/* Zen markdown typography — ported from zen-markdown-viewer (GitHub-dark).
-   Scoped under .zen-md; variables defined locally so they never clash with
-   the app theme. Rendering only: no mermaid/kaTeX/overlay/copy features. */
+/* Zen markdown rendering — faithful port of
+ * https://github.com/HasNate618/zen-markdown-viewer (viewer.html <style>),
+ * scoped under .zen-md. Rendering-only: typography, code, tables, task
+ * lists, blockquotes. Viewer chrome (toc/help/status/mermaid overlays) and
+ * page-level background are excluded — the app's own surface shows through.
+ */
 .zen-md {
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
   --text-primary: #e6edf3;
   --text-secondary: #8b949e;
   --text-muted: #6e7781;
@@ -10,13 +15,12 @@
   --blockquote-border: #388bfd;
   --heading-color: #e6edf3;
   --hr-color: #30363d;
+  --scrollbar-thumb: #484f58;
   --code-border: #30363d;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
-  font-size: 15px;
-  line-height: 1.7;
-  color: var(--text-primary);
-  max-width: 100%;
-  overflow-wrap: break-word;
+}
+
+.zen-md {
+  background: transparent !important;
 }
 
 .zen-md h1,
@@ -31,99 +35,193 @@
   margin-top: 1.25em;
   margin-bottom: 0.4em;
 }
-.zen-md h1 { font-size: 1.7em; font-weight: 700; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
-.zen-md h2 { font-size: 1.35em; border-bottom: 1px solid var(--border); padding-bottom: 0.25em; }
-.zen-md h3 { font-size: 1.15em; }
-.zen-md h4 { font-size: 1em; }
-.zen-md h5 { font-size: 0.9em; }
-.zen-md h6 { font-size: 0.85em; color: var(--text-muted); }
-.zen-md h1:first-child { margin-top: 0; }
 
-.zen-md p { margin-bottom: 0.75em; line-height: 1.7; margin-top: 0; }
-.zen-md a { color: var(--accent); text-decoration: none; }
-.zen-md a:hover { text-decoration: underline; }
-.zen-md strong { font-weight: 600; }
+.zen-md h1 {
+  font-size: 1.75em;
+  font-weight: 700;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.3em;
+}
+
+.zen-md h2 {
+  font-size: 1.4em;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.25em;
+}
+
+.zen-md h3 {
+  font-size: 1.15em;
+}
+
+.zen-md h4 {
+  font-size: 1em;
+  font-weight: 600;
+}
+
+.zen-md h5 {
+  font-size: 0.9em;
+  font-weight: 600;
+}
+
+.zen-md h6 {
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.zen-md h1:first-child {
+  margin-top: 0;
+}
+
+.zen-md p {
+  margin-bottom: 0.75em;
+  line-height: 1.7;
+  margin-top: 0;
+}
+
+.zen-md a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.zen-md a:hover {
+  text-decoration: underline;
+}
+
+.zen-md strong {
+  font-weight: 600;
+}
+
+.zen-md em {
+  font-style: italic;
+}
+
 .zen-md ul,
-.zen-md ol { margin-bottom: 0.75em; padding-left: 1.5em; }
-.zen-md li { margin-bottom: 0.15em; line-height: 1.5; }
+.zen-md ol {
+  margin-bottom: 0.75em;
+  padding-left: 1.5em;
+}
+
+.zen-md li {
+  margin-bottom: 0.15em;
+  line-height: 1.5;
+}
+
 .zen-md li > ul,
-.zen-md li > ol { margin-bottom: 0; margin-top: 0.15em; }
+.zen-md li > ol {
+  margin-bottom: 0;
+  margin-top: 0.15em;
+}
+
+.zen-md .task-list-item {
+  list-style: none;
+}
+
+.zen-md .task-list-item input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 1em;
+  height: 1em;
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  margin: 0 0.4em 0 -1.6em;
+  cursor: default;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.zen-md .task-list-item input[type='checkbox']:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.zen-md .task-list-item input[type='checkbox']:checked::after {
+  content: '';
+  position: absolute;
+  left: 0.26em;
+  top: 0.02em;
+  width: 0.32em;
+  height: 0.6em;
+  border: solid #ffffff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
 
 .zen-md code {
-  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
-  font-size: 0.875em;
-  padding: 0.2em 0.4em;
-  border-radius: 10px;
-  background: rgba(6, 6, 6, 0.4);
-  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 0.85em;
+  background: var(--bg-secondary);
   border: 1px solid var(--code-border);
+  border-radius: 6px;
+  padding: 0.2em 0.4em;
 }
+
 .zen-md pre {
-  background: rgba(6, 6, 6, 0.4) !important;
+  background: var(--bg-secondary);
   border: 1px solid var(--code-border);
   border-radius: 12px;
-  padding: 0.75rem;
-  margin-bottom: 0.75em;
+  padding: 1em;
   overflow-x: auto;
+  margin-bottom: 1em;
 }
+
 .zen-md pre code {
-  background: none !important;
-  padding: 0;
   font-size: 0.85em;
-  color: var(--text-primary);
-  line-height: 1.35;
-  display: block;
+  line-height: 1.6;
+  background: none;
   border: none;
-  border-radius: 0;
+  padding: 0;
+}
+
+.zen-md pre code.hljs {
+  padding: 0;
+  background: none !important;
 }
 
 .zen-md table {
   border-collapse: collapse;
-  width: 100%;
-  font-size: 0.8rem;
-  display: block;
-  overflow-x: auto;
   margin-bottom: 0.75em;
+  width: 100%;
   border: 1px solid var(--border);
   border-radius: 12px;
+  overflow: hidden;
 }
+
 .zen-md th,
 .zen-md td {
-  border: none;
-  border-bottom: 1px solid var(--border);
-  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  padding: 0.5em 0.75em;
   text-align: left;
 }
+
 .zen-md th {
-  background: rgba(6, 6, 6, 0.4);
+  background: var(--bg-secondary);
   font-weight: 600;
-  color: var(--heading-color);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 }
-.zen-md td { background: rgba(6, 6, 6, 0.4); }
-.zen-md tr:last-child td { border-bottom: none; }
-.zen-md tr:hover td { background: rgba(6, 6, 6, 0.5); }
 
 .zen-md blockquote {
-  margin-bottom: 0.75em;
-  padding: 0.5em 0.75em;
-  border-left: 3px solid var(--blockquote-border);
-  background: rgba(6, 6, 6, 0.4);
-  border-radius: 0 12px 12px 0;
-  border-top: 1px solid var(--border);
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  border-left: 4px solid var(--blockquote-border);
+  padding: 0 1em;
+  color: var(--text-secondary);
+  margin: 0 0 1em;
 }
-.zen-md blockquote > :last-child { margin-bottom: 0; }
-.zen-md blockquote p { margin-bottom: 0.3em; }
-.zen-md blockquote p:last-child { margin-bottom: 0; }
 
 .zen-md hr {
   border: none;
-  height: 1px;
-  background: linear-gradient(to right, transparent, var(--hr-color) 20%, var(--hr-color) 80%, transparent);
-  margin: 1.25em 0;
+  border-top: 1px solid var(--hr-color);
+  margin: 1.5em 0;
 }
 
-.zen-md img { max-width: 100%; height: auto; border-radius: 12px; margin-bottom: 0.75em; }
+.zen-md img {
+  max-width: 100%;
+  height: auto;
+}
+
+.zen-md::-webkit-scrollbar {
+  width: 8px;
+}
+
+.zen-md::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 8px;
+}
