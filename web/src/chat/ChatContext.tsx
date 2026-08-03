@@ -52,6 +52,19 @@ export interface ChatSession {
 
 export type ChatMsg = MsgNode
 
+/** Self-reporting stream/sync status — the chat UI renders this so the next
+ *  failure is diagnosable at a glance ('connecting' stuck = the POST never
+ *  fired; 'streaming' but no text = render issue; 'error' = exact message). */
+export interface StreamStatus {
+  phase: 'idle' | 'loading' | 'connecting' | 'streaming' | 'done' | 'error'
+  /** Most recent SSE event type seen (token / reasoning / tool_start / …). */
+  lastEvent?: string
+  /** Count of the most recent event type (e.g. 'token × 142'). */
+  eventCount?: number
+  /** Exact error text for phase === 'error'. */
+  error?: string
+}
+
 export interface ChatSessionV2 {
   id: string
   courseId: number
@@ -76,6 +89,7 @@ export interface ChatSessionV2 {
 interface ChatContextValue {
   sessions: ChatSession[]
   busy: boolean
+  streamStatus: StreamStatus
   lastCourseId: number | null
   model: string | null
   setModel: (m: string | null) => void
@@ -221,6 +235,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
   })
   const [busy, setBusy] = useState(false)
+  const [streamStatus, setStreamStatus] = useState<StreamStatus>({ phase: 'idle' })
   const [lastCourseId, setLastCourseId] = useState<number | null>(() => {
     try {
       const v = Number(localStorage.getItem(LAST_COURSE_KEY))
@@ -263,23 +278,42 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // only an offline cache now).
   useEffect(() => {
     let cancelled = false
+    setStreamStatus({ phase: 'loading' })
     api
       .chatSessions()
       .then((list) => {
         if (cancelled) return
         setSessions((prev) => {
+          // Keyed by SERVER id. The old code matched `byId.get(local.id)`
+          // against these keys — local.id is a client uuid, never equal to a
+          // numeric server id — so NO local session ever matched, and every
+          // server session got appended as a fresh duplicate on EVERY reload.
           const byId = new Map(list.map((s) => [String(s.id), s]))
           const merged = prev.map((local) => {
-            const srv = byId.get(local.id)
+            const key = local.serverId != null ? String(local.serverId) : local.id
+            const srv = byId.get(key)
             if (!srv) return local
-            byId.delete(local.id)
-            return toLocalSession(srv)
+            byId.delete(key)
+            const refreshed = toLocalSession(srv)
+            // Keep a real client uuid stable (activeMap + in-flight streams
+            // target it); reconcile numeric-id leftovers from the old
+            // uuid→server-id promotion to a fresh uuid + serverId.
+            const id = /^[0-9]+$/.test(local.id) ? makeUuid() : local.id
+            return { ...refreshed, id }
           })
           for (const srv of byId.values()) merged.push(toLocalSession(srv))
           return merged
         })
+        setStreamStatus({ phase: 'idle' })
       })
-      .catch((e) => console.error('[chat-sync] load failed:', e))
+      .catch((e) => {
+        console.error('[chat-sync] load failed:', e)
+        const msg = e instanceof Error ? e.message : String(e)
+        setStreamStatus({
+          phase: 'error',
+          error: `session load failed: ${msg}`,
+        })
+      })
       .finally(() => {
         if (!cancelled) serverReadyRef.current = true
       })
@@ -323,6 +357,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       }
     } catch (e) {
       console.error('[chat-sync] save failed:', e)
+      const msg = e instanceof Error ? e.message : String(e)
+      setStreamStatus({
+        phase: 'error',
+        error: `session save failed: ${msg}`,
+      })
     } finally {
       savingRef.current = false
     }
@@ -430,6 +469,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       let assistantId: string | null = null
       let turnThinking = ''
       let receivedDone = false
+      // per-stream event ticker for the self-reporting status line
+      let lastEvent: string | undefined
+      const eventCounts: Record<string, number> = {}
+      setStreamStatus({ phase: 'connecting' })
       const ensureAssistant = (seedThinking?: string): string => {
         if (assistantId) return assistantId
         assistantId = makeUuid()
@@ -457,6 +500,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         courseId,
         (event, data) => {
           const d = data as Record<string, unknown>
+          // event ticker → status line ('token × 142')
+          eventCounts[event] = (eventCounts[event] ?? 0) + 1
+          lastEvent = event
+          setStreamStatus({ phase: 'streaming', lastEvent: event, eventCount: eventCounts[event] })
           if (event === 'reasoning') {
             turnThinking += (d.text as string) ?? ''
             const id = ensureAssistant()
@@ -495,6 +542,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             )
           } else if (event === 'done') {
             receivedDone = true
+            setStreamStatus({ phase: 'done', lastEvent: 'done', eventCount: eventCounts.token })
             if (!assistantId) {
               // nothing streamed at all — surface the final answer directly
               const id = makeUuid()
@@ -514,6 +562,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 tokens: (d.usage as MsgNode['tokens']) || undefined,
               }))
             }
+          } else if (event === 'error') {
+            // backend runner failed (run_turn raised) — the stream closes
+            // right after, so surface the exact message now
+            setStreamStatus({
+              phase: 'error',
+              lastEvent: 'error',
+              error: String(d?.message ?? 'stream error'),
+            })
           }
         },
         history,
@@ -523,6 +579,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         .catch((err) => {
           // surface stream failures IN the chat — never silent
           const errMsg = String(err?.message ?? err) || 'unknown stream error'
+          setStreamStatus({ phase: 'error', lastEvent: 'error', error: errMsg })
           if (assistantId) {
             patchNode(sid, assistantId, (n) => ({
               ...n,
@@ -542,6 +599,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         })
         .finally(() => {
           // stream ended without a done event → the response was cut short
+          if (!receivedDone) {
+            setStreamStatus((prev) =>
+              prev.phase === 'error' ? prev : {
+                phase: 'error',
+                lastEvent: prev.lastEvent,
+                error: `stream ended without a done event (last: ${lastEvent ?? 'none'})`,
+              },
+            )
+          }
           if (!receivedDone && !assistantId) {
             const eid = makeUuid()
             appendNode(sid, {
@@ -704,6 +770,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     () => ({
       sessions,
       busy,
+      streamStatus,
       lastCourseId,
       model,
       setModel,
@@ -720,7 +787,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       setActiveBranch,
     }),
     [
-      sessions, busy, lastCourseId, model, setModel, setLastCourse, sessionsFor,
+      sessions, busy, streamStatus, lastCourseId, model, setModel, setLastCourse, sessionsFor,
       activeFor, openSession, newChat, deleteSession, send, regenerate,
       editMessage, deleteMessage, setActiveBranch,
     ],

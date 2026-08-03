@@ -240,8 +240,18 @@ async def chat(req: ChatRequest) -> EventSourceResponse:
         loop.call_soon_threadsafe(queue.put_nowait, {"event": event, "data": data})
 
     async def runner() -> None:
-        await asyncio.to_thread(_do_turn, req, emit)
-        loop.call_soon_threadsafe(queue.put_nowait, None)
+        # CRITICAL (2026-08-03): if _do_turn raises (bifrost 400, DB error),
+        # the to_thread re-raises here and — without this guard — None is
+        # never queued, so the SSE generator blocks on queue.get() forever
+        # and the client's spinner never resolves. Always emit an error
+        # event, then ALWAYS close the queue.
+        try:
+            await asyncio.to_thread(_do_turn, req, emit)
+        except Exception as e:  # noqa: BLE001 — surface ANY failure to the client
+            loop.call_soon_threadsafe(queue.put_nowait, {
+                "event": "error", "data": {"message": str(e)}})
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, None)
 
     asyncio.create_task(runner())
 
