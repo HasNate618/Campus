@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import json
 import re
+import subprocess
 import sys
 import time
 import urllib.parse
@@ -135,6 +136,19 @@ class SyncEngine:
 
     def _download_topic_file(self, course_id: int, org_unit: int, topic_id: int,
                              title: str, content_dir: Path, path_parts: list[str]) -> None:
+        # fast path: topic already has a linked file on disk — skip the download
+        # (the July-era sync downloaded everything every run; this makes syncs
+        # seconds once linkage is complete)
+        linked = self.db.conn.execute(
+            """SELECT f.id FROM files f
+               JOIN content_nodes cn ON cn.id = f.content_node_id
+               WHERE cn.course_id=? AND cn.brightspace_id=?""",
+            (course_id, topic_id)).fetchone()
+        if linked:
+            p = Path(self.cfg.data_root) / self.db.conn.execute(
+                "SELECT path FROM files WHERE id=?", (linked["id"],)).fetchone()["path"]
+            if p.exists():
+                return
         try:
             resp = self.client.get_raw(self.client.le(org_unit, f"/content/topics/{topic_id}/file"))
         except D2LError:
@@ -290,6 +304,22 @@ class SyncEngine:
         self.stats["pdfs_extracted"] = done
         return done
 
+    def _extraction_bg(self) -> None:
+        """Detach extraction as its OWN process so it survives the sync CLI
+        exiting. The pdf-extractor worker is single and slow (VLM page-by-
+        page); the extract CLI pings ntfy when done."""
+        try:
+            log = self.cfg.data_root / "sync_logs" / "extraction.log"
+            log.parent.mkdir(parents=True, exist_ok=True)
+            with open(log, "a") as f:
+                subprocess.Popen(
+                    [sys.executable, "-u", "-m", "sync", "extract"],
+                    cwd=str(Path(__file__).resolve().parent.parent),
+                    stdout=f, stderr=subprocess.STDOUT,
+                    start_new_session=True)
+        except Exception as e:
+            print(f"  extraction spawn failed: {e}")
+
     def extract(self, code: str | None = None, file_path: str | None = None,
                 max_mb: float | None = None) -> int:
         """Extract PDFs to markdown. Filters: course code, specific file,
@@ -365,9 +395,12 @@ class SyncEngine:
 
             if not dry_run:
                 self.digest_and_log(run_id, courses)
+                # extraction is a BACKGROUND job — never blocks the sync.
+                # The pdf-extractor worker is single and slow (VLM page-by-
+                # page); an inline queue made every sync hang for minutes.
                 if self.cfg.auto_extract_pdfs:
-                    print("  extraction queue...", flush=True)
-                    self.run_extraction_queue()
+                    print("  extraction queued (background)...", flush=True)
+                    self._extraction_bg()
                 # memory card regen (only when something changed)
                 if self.stats["facts_added"] > 0 or self.deltas:
                     try:
@@ -379,8 +412,8 @@ class SyncEngine:
                     f"Sync done — {self.stats['files_new']} new files, "
                     f"{self.stats['files_changed']} changed, "
                     f"{self.stats['announcements_new']} announcements, "
-                    f"{self.stats['pdfs_extracted']} PDFs extracted, "
-                    f"{self.stats['facts_added']} facts",
+                    f"{self.stats['facts_added']} facts"
+                    + (", extraction running" if self.cfg.auto_extract_pdfs else ""),
                     "green")
             self.db.finish_sync(run_id, "ok", **self.stats)
             print(f"\nSync OK: {json.dumps(self.stats)}")
