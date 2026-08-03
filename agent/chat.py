@@ -7,6 +7,7 @@ function with streaming.
 from __future__ import annotations
 
 import json
+import time
 
 import httpx
 
@@ -111,9 +112,23 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
             messages.append({"role": "user", "content": (
                 "You have used many tool calls. Answer now based on what you "
                 "have gathered — do not call any more tools.")})
-        msg, usage = _model_call(cfg, messages, model,
-                                 on_token=(lambda t: emit("token", {"text": t}) if emit else None),
-                                 on_reasoning=(lambda t: emit("reasoning", {"text": t}) if emit else None))
+        # One retry: the provider's reasoning_content passback validation is
+        # stateful and intermittently 400s a perfectly-formed request (the
+        # same messages succeed on re-send). Never let a transient upstream
+        # failure kill a whole turn.
+        msg = None
+        usage = None
+        for attempt in (1, 2):
+            try:
+                msg, usage = _model_call(cfg, messages, model,
+                                         on_token=(lambda t: emit("token", {"text": t}) if emit else None),
+                                         on_reasoning=(lambda t: emit("reasoning", {"text": t}) if emit else None))
+                break
+            except Exception as e:
+                if attempt == 2:
+                    raise
+                print(f"  [model_call] transient failure ({e.__class__.__name__}: {str(e)[:120]}), retrying…", flush=True)
+                time.sleep(1)
         if usage:
             for k in total_usage:
                 total_usage[k] += usage.get(k, 0)

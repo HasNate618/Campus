@@ -564,12 +564,35 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             }
           } else if (event === 'error') {
             // backend runner failed (run_turn raised) — the stream closes
-            // right after, so surface the exact message now
+            // right after, so surface the exact message AS A VISIBLE NODE
+            // (a status line alone is invisible — the user saw thinking +
+            // tools then nothing)
             setStreamStatus({
               phase: 'error',
               lastEvent: 'error',
               error: String(d?.message ?? 'stream error'),
             })
+            const errText = `⚠ Stream failed: ${String(d?.message ?? 'stream error')}`
+            if (assistantId) {
+              patchNode(sid, assistantId, (n) => ({
+                ...n,
+                streaming: false,
+                content: (n.content || '') + '\n\n' + errText,
+              }))
+            } else {
+              const id = makeUuid()
+              appendNode(sid, {
+                id,
+                parentId: userNodeId,
+                children: [],
+                role: 'assistant',
+                content: errText,
+                streaming: false,
+                thinkingDone: true,
+                createdAt: Date.now(),
+              })
+              setActiveNode(sid, id)
+            }
           }
         },
         history,
