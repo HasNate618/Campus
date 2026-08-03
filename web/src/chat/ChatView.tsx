@@ -342,7 +342,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
                   <button
                     className="tool-chip"
                     onClick={() => toggleThinking(node.id)}
-                    style={{ color: 'var(--text-3)', fontFamily: 'inherit', fontSize: 12 }}
+                    style={{ color: 'var(--text-2)', fontFamily: 'inherit', fontSize: 12 }}
                     title={node.thinkingDone ? 'Show chain-of-thought' : 'Chain-of-thought streaming'}
                   >
                     {node.thinkingDone ? (
