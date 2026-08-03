@@ -76,9 +76,21 @@ interface ChatContextValue {
 
 const ChatContext = createContext<ChatContextValue | null>(null)
 
+// crypto.randomUUID is only available in secure contexts (HTTPS/localhost);
+// the homelab serves plain HTTP, so fall back to a v4-style uuid.
+function makeUuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16)
+  })
+}
+
 function makeSession(courseId: number): ChatSession {
   return {
-    id: crypto.randomUUID(),
+    id: makeUuid(),
     courseId,
     title: 'New chat',
     createdAt: Date.now(),
