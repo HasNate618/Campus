@@ -62,6 +62,7 @@ export const api = {
       `/sync/trigger${courseId != null ? `?course_id=${courseId}` : ''}`,
     ),
   digest: () => get<{ generated_at: string; markdown: string; source: string }>('/digest/latest'),
+  models: () => get<{ models: string[]; error?: string }>('/chat/models'),
 }
 
 export async function streamChat(
@@ -69,11 +70,12 @@ export async function streamChat(
   courseId: number | null,
   onEvent: (event: string, data: unknown) => void,
   history: { role: 'user' | 'assistant'; content: string }[] = [],
+  model?: string,
 ): Promise<void> {
   const res = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-    body: JSON.stringify({ message, course_id: courseId, history }),
+    body: JSON.stringify({ message, course_id: courseId, history, model }),
   })
   if (!res.ok || !res.body) throw new Error('Chat stream failed')
 

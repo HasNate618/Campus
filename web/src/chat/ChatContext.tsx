@@ -45,6 +45,7 @@ export interface ChatSession {
 
 const STORAGE_KEY = 'hc.chat.sessions.v2'
 const LAST_COURSE_KEY = 'hc.chat.lastCourse'
+const MODEL_KEY = 'hc.chat.model'
 const MAX_SESSIONS = 50
 
 function stripUiFlags(m: ChatMsg): ChatMsg {
@@ -84,6 +85,8 @@ interface ChatContextValue {
   sessions: ChatSession[]
   busy: boolean
   lastCourseId: number | null
+  model: string | null
+  setModel: (model: string | null) => void
   setLastCourse: (courseId: number) => void
   sessionsFor: (courseId: number) => ChatSession[]
   activeFor: (courseId: number) => ChatSession | null
@@ -123,6 +126,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<ChatSession[]>(loadSessions)
   const [activeMap, setActiveMap] = useState<Record<number, string>>({})
   const [busy, setBusy] = useState(false)
+  const [model, setModelState] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(MODEL_KEY)
+    } catch {
+      return null
+    }
+  })
   // Monotonic per-turn id so consecutive tool calls of one turn can be
   // grouped and collapsed together.
   const turnRef = useRef(0)
@@ -138,6 +148,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const setLastCourse = useCallback((courseId: number) => {
     setLastCourseId(courseId)
     localStorage.setItem(LAST_COURSE_KEY, String(courseId))
+  }, [])
+
+  const setModel = useCallback((m: string | null) => {
+    setModelState(m)
+    try {
+      if (m) localStorage.setItem(MODEL_KEY, m)
+      else localStorage.removeItem(MODEL_KEY)
+    } catch {
+      /* ignore */
+    }
   }, [])
 
   const sessionsFor = useCallback(
@@ -363,7 +383,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               return { ...s, messages: msgs }
             })
           }
-        }, history)
+        }, history, model ?? undefined)
       } catch (err) {
         updateSession(sid, (s) => ({
           ...s,
@@ -389,7 +409,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         setBusy(false)
       }
     },
-    [busy, activeMap, sessions, updateSession, setLastCourse],
+    [busy, activeMap, sessions, updateSession, setLastCourse, model],
   )
 
   const value = useMemo<ChatContextValue>(
@@ -397,6 +417,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       sessions,
       busy,
       lastCourseId,
+      model,
+      setModel,
       setLastCourse,
       sessionsFor,
       activeFor,
@@ -410,6 +432,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       sessions,
       busy,
       lastCourseId,
+      model,
+      setModel,
       setLastCourse,
       sessionsFor,
       activeFor,
