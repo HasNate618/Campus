@@ -52,3 +52,38 @@ def file_raw(file_id: int):
     if p.resolve().is_relative_to(services.SCHOOL_ROOT.resolve()):
         return FileResponse(p)
     raise HTTPException(403, "Forbidden")
+
+
+# Brightspace-hosted images inside html content need an authenticated fetch —
+# the browser has no Brightspace session, so we proxy through the API token.
+_ALLOWED_PROXY_HOSTS = ("westernu.brightspace.com", "s.brightspace.com")
+
+
+@router.get("/proxy")
+def proxy(url: str):
+    from urllib.parse import urlparse
+    from fastapi.responses import Response
+    from api.config import cfg
+    u = urlparse(url)
+    if u.hostname not in _ALLOWED_PROXY_HOSTS:
+        raise HTTPException(403, "Host not allowed")
+    if u.scheme not in ("http", "https"):
+        raise HTTPException(403, "Scheme not allowed")
+    try:
+        from sync.token_store import TokenStore
+        store = TokenStore(cfg.token_dir, ttl=cfg.token_ttl, refresh_buffer=cfg.refresh_buffer)
+        token = store.load()
+        if not token:
+            raise HTTPException(502, "No valid Brightspace token — sync/auth first")
+        from sync.d2l import D2LClient
+        client = D2LClient(cfg.base_url, store.load)
+        r = client._client.get(url, headers=client._auth_headers(token), timeout=30)
+        client.close()
+        if r.status_code != 200:
+            raise HTTPException(r.status_code, "Upstream error")
+        ctype = r.headers.get("content-type", "application/octet-stream")
+        return Response(content=r.content, media_type=ctype)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, f"Proxy failed: {e}")
