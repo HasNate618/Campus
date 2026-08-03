@@ -112,23 +112,24 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
             messages.append({"role": "user", "content": (
                 "You have used many tool calls. Answer now based on what you "
                 "have gathered — do not call any more tools.")})
-        # One retry: the provider's reasoning_content passback validation is
-        # stateful and intermittently 400s a perfectly-formed request (the
-        # same messages succeed on re-send). Never let a transient upstream
-        # failure kill a whole turn.
+        # Up to 4 attempts (1 + 3 retries): the provider's reasoning_content
+        # passback validation is stateful and intermittently 400s a
+        # perfectly-formed request (the same messages succeed on re-send).
+        # Never let a transient upstream failure kill a whole turn.
         msg = None
         usage = None
-        for attempt in (1, 2):
+        for attempt in (1, 2, 3, 4):
             try:
                 msg, usage = _model_call(cfg, messages, model,
                                          on_token=(lambda t: emit("token", {"text": t}) if emit else None),
                                          on_reasoning=(lambda t: emit("reasoning", {"text": t}) if emit else None))
                 break
             except Exception as e:
-                if attempt == 2:
+                if attempt == 4:
                     raise
-                print(f"  [model_call] transient failure ({e.__class__.__name__}: {str(e)[:120]}), retrying…", flush=True)
-                time.sleep(1)
+                delay = attempt  # 1s, 2s, 3s backoff
+                print(f"  [model_call] transient failure ({e.__class__.__name__}: {str(e)[:120]}), retry {attempt}/3 in {delay}s…", flush=True)
+                time.sleep(delay)
         if usage:
             for k in total_usage:
                 total_usage[k] += usage.get(k, 0)
