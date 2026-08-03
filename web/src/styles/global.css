@@ -997,6 +997,29 @@
     transition: transform 140ms ease;
   }
 
+  .tree-module .tree-module-chevron {
+    transform: rotate(90deg);
+  }
+
+  .tree-module.collapsed .tree-module-chevron {
+    transform: rotate(0deg);
+  }
+
+  /* hide-tree mode: the viewer takes the full width */
+  .split.tree-hidden {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .split.tree-hidden .split-tree {
+    display: none;
+  }
+
+  @media (max-width: 800px) {
+    .desktop-only {
+      display: none !important;
+    }
+  }
+
   .tree-module.selected .tree-module-chevron {
     transform: rotate(90deg);
     color: var(--violet);
