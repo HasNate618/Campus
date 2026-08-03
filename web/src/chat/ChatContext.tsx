@@ -189,6 +189,7 @@ function normalizeZombies(s: ChatSession): ChatSession {
         ...n,
         streaming: false,
         thinkingDone: true,
+        intermediate: false,
         content: n.content || '⚠ The response was cut short (the page reloaded mid-turn). Try again.',
       }
     }
@@ -536,6 +537,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               content: n.content + ((d.text as string) ?? ''),
               thinking: turnThinking || n.thinking,
               thinkingDone: n.thinking ? true : n.thinkingDone,
+              // tool_start hid this node as mid-turn narration — real content
+              // tokens mean the answer is back, so show it again
+              intermediate: false,
             }))
           } else if (event === 'tool_start') {
             if (assistantId) patchNode(sid, assistantId, (n) => ({ ...n, intermediate: true, streaming: false }))
@@ -578,6 +582,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 ...n,
                 streaming: false,
                 thinkingDone: true,
+                intermediate: false,
                 thinking: n.thinking || turnThinking || undefined,
                 model: (d.model as string) || undefined,
                 tokens: (d.usage as MsgNode['tokens']) || undefined,
@@ -598,6 +603,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               patchNode(sid, assistantId, (n) => ({
                 ...n,
                 streaming: false,
+                intermediate: false,
                 content: (n.content || '') + '\n\n' + errText,
               }))
             } else {
