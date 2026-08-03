@@ -21,10 +21,11 @@ NUDGE_AT = 22  # after this many rounds, tell the model to stop calling tools
 
 
 def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
-                on_token=None, on_reasoning=None) -> dict:
+                on_token=None, on_reasoning=None) -> tuple[dict, dict | None]:
     """Streaming chat completion. Accumulates content + tool_calls from SSE
     deltas; on_token(text) fires per content token and on_reasoning(text)
-    per chain-of-thought chunk (both used by the web SSE)."""
+    per chain-of-thought chunk (both used by the web SSE). Returns
+    (message, usage) — usage comes in the final chunk of the stream."""
     r = httpx.post(
         f"{cfg.bifrost_url}/chat/completions",
         json={
@@ -41,6 +42,7 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
     content = ""
     reasoning = ""
     tool_calls: dict[int, dict] = {}
+    usage: dict | None = None
     for line in r.iter_lines():
         if not line or not line.startswith("data:"):
             continue
@@ -48,6 +50,8 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
         if data == "[DONE]":
             break
         chunk = json.loads(data)
+        if chunk.get("usage"):
+            usage = chunk["usage"]
         delta = chunk.get("choices", [{}])[0].get("delta", {})
         if delta.get("content"):
             content += delta["content"]
@@ -81,7 +85,7 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
             {"id": e["id"], "type": "function",
              "function": {"name": e["name"], "arguments": e["arguments"]}}
             for e in tool_calls.values()]
-    return msg
+    return msg, usage
 
 
 def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = None,
@@ -100,14 +104,18 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
     messages.extend(history or [])
     messages.append({"role": "user", "content": user_message})
 
+    total_usage: dict = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     for i in range(MAX_ITERATIONS):
         if i >= NUDGE_AT and not any(m.get("role") == "user" and "must answer now" in m.get("content", "") for m in messages):
             messages.append({"role": "user", "content": (
                 "You have used many tool calls. Answer now based on what you "
                 "have gathered — do not call any more tools.")})
-        msg = _model_call(cfg, messages, model,
-                          on_token=(lambda t: emit("token", {"text": t}) if emit else None),
-                          on_reasoning=(lambda t: emit("reasoning", {"text": t}) if emit else None))
+        msg, usage = _model_call(cfg, messages, model,
+                                 on_token=(lambda t: emit("token", {"text": t}) if emit else None),
+                                 on_reasoning=(lambda t: emit("reasoning", {"text": t}) if emit else None))
+        if usage:
+            for k in total_usage:
+                total_usage[k] += usage.get(k, 0)
         if not msg.get("tool_calls"):
             final: dict = {"role": "assistant", "content": msg.get("content", "")}
             if msg.get("reasoning"):
@@ -115,7 +123,11 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
             messages.append(final)
             answer = msg.get("content", "")
             if emit:
-                emit("done", {"answer": answer})
+                emit("done", {
+                    "answer": answer,
+                    "model": model or cfg.bifrost_model,
+                    "usage": total_usage if any(total_usage.values()) else None,
+                })
             return answer, messages
 
         # assistant message with tool calls goes into history as-is
