@@ -97,21 +97,40 @@ def _read_text(path: Path, max_chars: int = 200_000) -> str:
     return path.read_bytes()[:max_chars].decode("utf-8", errors="replace")
 
 
+CODE_EXTS = {
+    ".cs", ".py", ".js", ".ts", ".tsx", ".sql", ".json",
+    ".yaml", ".yml", ".sh", ".java", ".c", ".cpp",
+}
+DOWNLOAD_EXTS = {".zip", ".rar", ".7z", ".tar", ".gz"}
+
+
 def get_file_content(file_id: int) -> dict | None:
+    """Content contract for the frontend:
+    {'content': str, 'format': 'markdown'|'html'|'code'|'pdf'|'download',
+     'rawUrl': str|null}
+    """
     f = get_file(file_id)
     if not f:
         return None
     full = (SCHOOL_ROOT / f["path"]).resolve()
     if not full.exists():
         return None
-    if full.suffix.lower() == ".pdf":
-        return {"content": "", "format": "pdf", "rawUrl": f"/api/files/{file_id}/raw"}
-    # prefer extracted .md sibling for PDFs' markdown, else the file itself
-    if full.suffix.lower() != ".md":
+    ext = full.suffix.lower()
+    raw_url = f"/api/files/{file_id}/raw"
+    if ext == ".pdf":
+        # rawUrl ALWAYS (pdf.js viewer); content = extracted .md sibling
+        # when present so processed PDFs render as markdown, else ''
         sibling = full.with_suffix(".md")
-        if sibling.exists():
-            full = sibling
-    return {"content": _read_text(full), "format": "markdown"}
+        content = _read_text(sibling) if sibling.exists() else ""
+        return {"content": content, "format": "pdf", "rawUrl": raw_url}
+    if ext in DOWNLOAD_EXTS:
+        return {"content": "", "format": "download", "rawUrl": raw_url}
+    if ext in {".html", ".htm"}:
+        return {"content": _read_text(full), "format": "html", "rawUrl": None}
+    if ext in CODE_EXTS:
+        return {"content": _read_text(full), "format": "code", "rawUrl": None}
+    # .md/.txt/.markdown (and unknown types) — raw text, no sibling logic
+    return {"content": _read_text(full), "format": "markdown", "rawUrl": None}
 
 
 def get_file_raw_path(file_id: int) -> Path | None:

@@ -195,9 +195,20 @@ class SyncEngine:
         for f in folders:
             if f.get("IsCategory", False):
                 continue
+            # Western's dropbox list omits "Instructions" entirely — the
+            # assignment description lives in "CustomInstructions"
+            # ({Text, Html}); the brightspace-mcp reads .Html there too.
+            # Fall back to Instructions for D2L instances that still send it.
+            desc = None
+            for key in ("Instructions", "CustomInstructions"):
+                obj = f.get(key)
+                if isinstance(obj, dict):
+                    desc = obj.get("Html") or obj.get("Text") or None
+                    if desc:
+                        break
             self.db.upsert_assignment(course_id, {
                 "title": f.get("Name", "Assignment"),
-                "description": (f.get("Instructions") or {}).get("Text"),
+                "description": desc,
                 "due_at": f.get("DueDate"),
                 "weight": None,
                 "brightspace_folder_id": f.get("Id"),
