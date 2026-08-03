@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, Query
 
 from api import services
@@ -70,15 +73,37 @@ def proxy(url: str):
     if u.scheme not in ("http", "https"):
         raise HTTPException(403, "Scheme not allowed")
     try:
-        from sync.token_store import TokenStore
-        store = TokenStore(cfg.token_dir, ttl=cfg.token_ttl, refresh_buffer=cfg.refresh_buffer)
-        token = store.load()
-        if not token:
-            raise HTTPException(502, "No valid Brightspace token — sync/auth first")
-        from sync.d2l import D2LClient
-        client = D2LClient(cfg.base_url, store.load)
-        r = client._client.get(url, headers=client._auth_headers(token), timeout=30)
-        client.close()
+        import httpx
+        headers = {"User-Agent": "HippoCampus/0.1"}
+        # enforced-content URLs need the browser session — use the cookies
+        # captured at auth time when available
+        cookie_file = Path(cfg.token_dir) / "cookies.json"
+        if cookie_file.exists():
+            try:
+                data = json.loads(cookie_file.read_text())
+                host = u.hostname or ""
+                parts = [f"{c['name']}={c['value']}" for c in data.get("cookies", [])
+                         if host.endswith(c.get("domain", "").lstrip("."))]
+                if parts:
+                    headers["Cookie"] = "; ".join(parts)
+            except Exception:
+                pass
+        if "Cookie" not in headers:
+            from sync.token_store import TokenStore
+            store = TokenStore(cfg.token_dir, ttl=cfg.token_ttl, refresh_buffer=cfg.refresh_buffer)
+            token = store.load()
+            if not token:
+                raise HTTPException(502, "No valid Brightspace session — run auth")
+            from sync.d2l import D2LClient
+            client = D2LClient(cfg.base_url, store.load)
+            headers.update(client._auth_headers(token))
+            client.close()
+        r = httpx.get(url, headers=headers, timeout=30, follow_redirects=False)
+        if r.status_code in (301, 302, 303, 307, 308):
+            loc = r.headers.get("location", "")
+            if "login" in loc:
+                raise HTTPException(502, "Brightspace session expired — run auth")
+            raise HTTPException(502, f"Upstream redirect to {loc[:120]}")
         if r.status_code != 200:
             raise HTTPException(r.status_code, "Upstream error")
         ctype = r.headers.get("content-type", "application/octet-stream")
