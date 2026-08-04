@@ -432,22 +432,24 @@ export function ContentPage() {
                 >
                   <ArrowLeft size={13} /> All topics
                 </Link>
-                {contentInfo?.format === 'pdf' && selectedFile && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {contentInfo?.format === 'pdf' && selectedFile && (
+                    <button
+                      className="btn btn-outline btn-sm"
+                      onClick={() => setShowMd((s) => !s)}
+                      title="Toggle between the original PDF and the extracted text"
+                    >
+                      {showMd ? 'Original PDF' : 'Extracted text'}
+                    </button>
+                  )}
                   <button
-                    className="btn btn-outline btn-sm"
-                    onClick={() => setShowMd((s) => !s)}
-                    title="Toggle between the original PDF and the extracted text"
+                    onClick={() => setViewMode((m) => (m === 'fullWidth' ? 'sideBySide' : 'fullWidth'))}
+                    title={viewMode === 'fullWidth' ? 'Show the content tree beside the viewer' : 'Show one panel at a time'}
+                    className="icon-btn view-toggle"
                   >
-                    {showMd ? 'Original PDF' : 'Extracted text'}
+                    {viewMode === 'fullWidth' ? <Columns2 size={14} /> : <Maximize2 size={14} />}
                   </button>
-                )}
-                <button
-                  onClick={() => setViewMode((m) => (m === 'fullWidth' ? 'sideBySide' : 'fullWidth'))}
-                  title={viewMode === 'fullWidth' ? 'Show the content tree beside the viewer' : 'Show one panel at a time'}
-                  className="icon-btn view-toggle"
-                >
-                  {viewMode === 'fullWidth' ? <Columns2 size={14} /> : <Maximize2 size={14} />}
-                </button>
+                </div>
               </div>
               <div className="viewer-title">{selectedNode.title}</div>
               {selectedFile && <div className="viewer-path">{selectedFile.path}</div>}

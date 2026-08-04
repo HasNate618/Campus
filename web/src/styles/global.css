@@ -621,6 +621,7 @@
     cursor: pointer;
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
+    box-shadow: var(--glass-shadow);
     transition: color 120ms ease, border-color 120ms ease;
   }
 
@@ -926,7 +927,8 @@
     max-width: 740px;
     margin: 0 auto;
     display: flex;
-    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
     background: var(--glass-bg);
     border: 1px solid var(--glass-border);
     border-radius: 22px;
@@ -935,6 +937,14 @@
     -webkit-backdrop-filter: var(--glass-blur);
     padding: 10px 10px 10px 16px;
     transition: border-color 140ms ease;
+  }
+
+  /* textarea + bottom tools row; the attach/send circles sit to the right */
+  .chat-input-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
   }
 
   .input-toolbar {
@@ -949,7 +959,9 @@
   }
 
   .chat-input textarea {
-    flex: 1;
+    /* NO flex-grow here: flex-basis 0% would override the autoGrow inline
+       height and the box could never grow past one line. Size by content. */
+    flex: none;
     background: none;
     border: none;
     outline: none;
@@ -976,6 +988,33 @@
     place-items: center;
     cursor: pointer;
     transition: background 140ms ease, opacity 140ms ease;
+  }
+
+  /* file-upload stub: a real round button on the box's right edge, same
+     size family as send but glass (matches the box's surface) */
+  .attach-btn {
+    width: 34px;
+    height: 34px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    color: var(--text-2);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+  }
+
+  .attach-btn:hover:not(:disabled) {
+    color: var(--text-1);
+    border-color: var(--glass-border-strong);
+    background: var(--glass-bg-strong);
+  }
+
+  .attach-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
   }
 
   .send-btn:hover:not(:disabled) {
@@ -1979,7 +2018,8 @@
 
     .chat-input,
     .popover,
-    .scope-pill {
+    .scope-pill,
+    .attach-btn {
       background: rgba(20, 20, 26, 0.9);
     }
   }

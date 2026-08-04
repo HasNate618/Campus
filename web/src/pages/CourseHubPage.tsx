@@ -73,12 +73,13 @@ export function CourseLayout() {
       </header>
       <div className="course-scroll">
         <div className="page-col">
-          {/* Key by course scope only — internal navigation (content nodes,
-              assignment details) must NOT replay this animation: it remounts
-              the whole pane including the content tree, which resets the
-              tree's scroll and re-animates it on every click. */}
+          {/* Key by SECTION (overview / content / assignments) — tab
+              switches keep their transition, but navigating inside a
+              section (content nodes, assignment details) must NOT replay
+              it: remounting the pane re-animates the content tree and
+              resets its scroll on every click. */}
           <motion.div
-            key={pathname.split('/').slice(0, 3).join('/')}
+            key={pathname.split('/').slice(0, 4).join('/')}
             style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
