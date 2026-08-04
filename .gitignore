@@ -35,3 +35,6 @@ android/local.properties
 .idea/
 .vscode/
 *.swp
+
+# stray ~ artifact
+~/
