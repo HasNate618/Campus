@@ -149,6 +149,12 @@ def _parse_assignment(r: dict) -> dict:
         j = r.get(col)
         r[key] = json.loads(j) if j else None
         r.pop(col, None)
+    # the user's team name ("Group 29") for group assignments
+    r["group_name"] = None
+    if r.get("group_category"):
+        g = _row("SELECT group_name FROM course_groups WHERE course_id=? AND category_name=?",
+                 (r["course_id"], r["group_category"]))
+        r["group_name"] = g["group_name"] if g else None
     return r
 
 

@@ -34,6 +34,7 @@ export interface Assignment {
   rubrics?: Rubric[]
   category?: string | null
   group_category?: string | null
+  group_name?: string | null
   points?: number | null
   attachments?: { FileId: number; FileName: string; Size: number }[] | null
   availability?: { StartDate?: string; EndDate?: string } | null

@@ -35,6 +35,31 @@ export function AssignmentsPage() {
     return a.due_at.localeCompare(b.due_at)
   })
 
+  const individual = sorted.filter((a) => !a.group_category)
+  const groupWork = sorted.filter((a) => a.group_category)
+  const groupName = groupWork[0]?.group_name
+
+  const row = (a: Assignment) => {
+    const s = statusChip(a)
+    return (
+      <Link
+        className="row"
+        key={a.id}
+        to={`/courses/${cid}/assignments/${a.id}`}
+        style={{ alignItems: 'center', textDecoration: 'none', color: 'inherit' }}
+      >
+        <div className="row-main">
+          <div className="row-title">
+            {a.group_name ? `${a.group_name}: ` : ''}
+            {a.title}
+          </div>
+          <div className="row-sub">{fmtDue(a.due_at)}</div>
+        </div>
+        <span className={s.cls}>{s.label}</span>
+      </Link>
+    )
+  }
+
   return (
     <div className="card assign-card">
       <p className="card-title">
@@ -45,23 +70,20 @@ export function AssignmentsPage() {
         {!loading && sorted.length === 0 && (
           <div className="empty compact">No assignments synced for this course.</div>
         )}
-        {sorted.map((a) => {
-          const s = statusChip(a)
-          return (
-            <Link
-              className="row"
-              key={a.id}
-              to={`/courses/${cid}/assignments/${a.id}`}
-              style={{ alignItems: 'center', textDecoration: 'none', color: 'inherit' }}
-            >
-              <div className="row-main">
-                <div className="row-title">{a.title}</div>
-                <div className="row-sub">{fmtDue(a.due_at)}</div>
-              </div>
-              <span className={s.cls}>{s.label}</span>
-            </Link>
-          )
-        })}
+        {!loading && individual.length > 0 && (
+          <>
+            <p className="rubric-name">Individual</p>
+            {individual.map(row)}
+          </>
+        )}
+        {!loading && groupWork.length > 0 && (
+          <>
+            <p className="rubric-name" style={{ marginTop: 8 }}>
+              Group work{groupName ? ` · ${groupName}` : ''}
+            </p>
+            {groupWork.map(row)}
+          </>
+        )}
       </div>
     </div>
   )

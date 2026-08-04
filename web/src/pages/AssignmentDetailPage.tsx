@@ -84,6 +84,7 @@ export function AssignmentDetailPage() {
           <ArrowLeft size={14} />
         </Link>
         <h2 className="page-title" style={{ margin: 0, fontSize: 17 }}>
+          {a.group_name ? `${a.group_name}: ` : ''}
           {a.title}
         </h2>
         <span className={s.cls}>{s.label}</span>
