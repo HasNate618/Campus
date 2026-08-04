@@ -1,6 +1,6 @@
 import { Link, useParams } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, ChevronRight, Download, ExternalLink } from 'lucide-react'
+import { ArrowLeft, ChevronRight, ChevronsUpDown, Columns2, Download, ExternalLink, Maximize2 } from 'lucide-react'
 import { api } from '@/api/client'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
@@ -306,17 +306,18 @@ export function ContentPage() {
       <div className="card split-tree">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '0 4px 6px' }}>
           <button
-            className="btn btn-outline btn-sm view-toggle"
+            className="icon-btn view-toggle"
             onClick={() => setViewMode((m) => (m === 'fullWidth' ? 'sideBySide' : 'fullWidth'))}
             title={viewMode === 'fullWidth' ? 'Show the content tree beside the viewer' : 'Show one panel at a time'}
           >
-            {viewMode === 'fullWidth' ? 'Side by side' : 'Full width'}
+            {viewMode === 'fullWidth' ? <Columns2 size={14} /> : <Maximize2 size={14} />}
           </button>
           <button
-            className="btn btn-outline btn-sm"
+            className="icon-btn"
             onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(modules.map((m) => m.id)))}
+            title={allCollapsed ? 'Expand all modules' : 'Collapse all modules'}
           >
-            {allCollapsed ? 'Expand all' : 'Collapse all'}
+            <ChevronsUpDown size={14} />
           </button>
         </div>
         {modules.length === 0 && <div className="empty compact">No content synced.</div>}
@@ -374,9 +375,9 @@ export function ContentPage() {
                 <button
                   onClick={() => setViewMode((m) => (m === 'fullWidth' ? 'sideBySide' : 'fullWidth'))}
                   title={viewMode === 'fullWidth' ? 'Show the content tree beside the viewer' : 'Show one panel at a time'}
-                  className="btn btn-outline btn-sm view-toggle"
+                  className="icon-btn view-toggle"
                 >
-                  {viewMode === 'fullWidth' ? 'Side by side' : 'Full width'}
+                  {viewMode === 'fullWidth' ? <Columns2 size={14} /> : <Maximize2 size={14} />}
                 </button>
               </div>
               <div className="viewer-title">{selectedNode.title}</div>

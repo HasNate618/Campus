@@ -31,36 +31,35 @@ export function AssignmentsPage() {
   const sorted = [...assignments].sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? ''))
 
   return (
-    <div className="card">
+    <div className="card assign-card">
       <p className="card-title">
         <ClipboardList size={14} /> Assignments
       </p>
-      {loading && <div className="empty compact">Loading…</div>}
-      {!loading && sorted.length === 0 && (
-        <div className="empty compact">No assignments synced for this course.</div>
-      )}
-      {sorted.map((a) => {
-        const s = statusChip(a)
-        return (
-          <div className="row" key={a.id} style={{ alignItems: 'flex-start' }}>
-            <div className="row-main">
-              <div className="row-title">{a.title}</div>
-              <div className="row-sub">
-                {fmtDue(a.due_at)}
-                {a.weight != null ? ` · ${a.weight}%` : ''}
-                {a.notes ? ` · ${a.notes}` : ''}
+      <div className="assign-scroll">
+        {loading && <div className="empty compact">Loading…</div>}
+        {!loading && sorted.length === 0 && (
+          <div className="empty compact">No assignments synced for this course.</div>
+        )}
+        {sorted.map((a) => {
+          const s = statusChip(a)
+          return (
+            <div className="row" key={a.id} style={{ alignItems: 'flex-start' }}>
+              <div className="row-main">
+                <div className="row-title">{a.title}</div>
+                <div className="row-sub">
+                  {fmtDue(a.due_at)}
+                  {a.weight != null ? ` · ${a.weight}%` : ''}
+                  {a.notes ? ` · ${a.notes}` : ''}
+                </div>
+                {a.description?.trim() ? (
+                  <ZenMarkdown content={sanitizeHtml(a.description)} />
+                ) : null}
               </div>
-              {/* Full description, never collapsed/truncated, rendered with
-                  the site's zen markdown styling. Brightspace HTML is
-                  sanitized first (marked passes raw HTML through). */}
-              {a.description?.trim() ? (
-                <ZenMarkdown content={sanitizeHtml(a.description)} />
-              ) : null}
+              <span className={s.cls}>{s.label}</span>
             </div>
-            <span className={s.cls}>{s.label}</span>
-          </div>
-        )
-      })}
+          )
+        })}
+      </div>
     </div>
   )
 }

@@ -244,11 +244,17 @@
   }
 
   .sidebar.collapsed .side-label,
-  .sidebar.collapsed .section-label {
+  .sidebar.collapsed .section-label,
+  .sidebar.collapsed .session-title,
+  .sidebar.collapsed .session-time,
+  .sidebar.collapsed .session-delete {
     opacity: 0;
     width: 0;
+    flex: 0 0 0;
+    min-width: 0;
     padding-left: 0;
     padding-right: 0;
+    overflow: hidden;
   }
 
   .sidebar.collapsed .nav-item {
@@ -300,10 +306,6 @@
     flex-wrap: wrap;
     padding: 14px 20px 12px;
     border-bottom: 1px solid var(--glass-border);
-    background: rgba(12, 12, 16, 0.72);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    z-index: 5;
   }
 
   .course-head-main {
@@ -732,13 +734,15 @@
     background: var(--glass-bg-strong);
     border: 1px solid var(--glass-border);
     border-radius: 18px;
-    padding: 9px 14px;
+    padding: 11px 16px;
   }
 
   .msg-assistant {
     align-self: flex-start;
     max-width: 100%;
     color: var(--text-1);
+    padding: 2px 6px;
+    line-height: 1.65;
   }
 
   .stream-cursor {
@@ -900,8 +904,6 @@
     font-family: var(--font-mono);
     color: var(--text-3);
     white-space: nowrap;
-    align-self: flex-end;
-    padding-bottom: 6px;
   }
 
   .chat-input .scope-pill {
@@ -918,16 +920,22 @@
     max-width: 740px;
     margin: 0 auto;
     display: flex;
-    align-items: flex-end;
-    gap: 10px;
+    flex-direction: column;
     background: var(--glass-bg);
     border: 1px solid var(--glass-border);
     border-radius: 22px;
     box-shadow: var(--glass-shadow);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
-    padding: 10px 10px 10px 16px;
+    padding: 14px 14px 10px;
     transition: border-color 140ms ease;
+  }
+
+  .input-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-top: 8px;
   }
 
   .chat-input:focus-within {
@@ -1161,12 +1169,32 @@
     padding-right: 8px;
   }
 
+  /* assignments: the list scrolls internally, the viewport never scrolls */
+  .assign-card {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .assign-card .assign-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    margin: 0 -8px -8px 0;
+    padding-right: 8px;
+  }
+
   .split {
     display: grid;
     grid-template-columns: 300px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     gap: 16px;
-    align-items: start;
+    align-items: stretch;
     min-width: 0;
+    flex: 1;
+    min-height: 0;
   }
 
   /* View modes (driven by .split-mode-* on the .split element):
@@ -1193,7 +1221,12 @@
   }
 
   .split-tree {
-    max-height: 70vh;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .split-viewer {
+    min-height: 0;
     overflow-y: auto;
   }
 
