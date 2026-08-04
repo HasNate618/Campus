@@ -332,6 +332,11 @@ class SyncEngine:
                                     "title": n.get("Title"),
                                     "body": body[:800],  # excerpt for the digest
                                     "posted_at": n.get("StartDate")})
+                # covered by this sync's delta — never re-digested via the backlog
+                self.db.conn.execute(
+                    "UPDATE announcements SET digested_at=datetime('now') WHERE course_id=? AND brightspace_id=?",
+                    (course_id, n.get("Id")))
+                self.db.conn.commit()
 
     # ── syllabus ────────────────────────────────────────────────────────
     def sync_syllabus(self, course_id: int, org_unit: int, course_dir: Path) -> None:
@@ -564,10 +569,34 @@ class SyncEngine:
             print(f"Sync FAILED: {e}", file=sys.stderr)
             return 1
 
+    def _undigested_announcements(self, courses) -> list[dict]:
+        """Historical announcements never fed to the digest (backlog backfill).
+        New ones are marked digested_at at sync time (they ride the deltas)."""
+        try:
+            cids = [c["id"] for c in courses]
+            q = ("SELECT id, title, posted_at, body FROM announcements "
+                 "WHERE digested_at IS NULL AND posted_at >= datetime('now', ?)")
+            args: list = [f"-{self.cfg.digest_announcement_days} days"]
+            if cids:
+                q += " AND course_id IN (%s)" % ",".join("?" * len(cids))
+                args += cids
+            q += " ORDER BY posted_at DESC LIMIT 25"
+            out = []
+            for r in self.db.conn.execute(q, args).fetchall():
+                body = re.sub(r"<[^>]+>", " ", r["body"] or "")
+                body = re.sub(r"\s+", " ", body).strip()
+                out.append({"id": r["id"], "title": r["title"],
+                            "posted_at": r["posted_at"], "body": body[:800]})
+            return out
+        except Exception:
+            return []
+
     def digest_and_log(self, run_id: int, courses) -> None:
-        """Bifrost AI pass: delta digest → memory_facts + markdown sync log.
-        (Notification is sent once by run(), covering the whole sync.)"""
-        if not self.deltas:
+        """Bifrost AI pass: delta digest (+ undigested announcement backlog)
+        → memory_facts + markdown sync log. (Notification is sent once by
+        run(), covering the whole sync.)"""
+        backlog = self._undigested_announcements(courses)
+        if not self.deltas and not backlog:
             (self.cfg.data_root / "sync_logs").mkdir(parents=True, exist_ok=True)
             log_path = self.cfg.data_root / "sync_logs" / f"{time.strftime('%Y-%m-%d')}.md"
             log_path.write_text(f"# Sync {time.strftime('%Y-%m-%d %H:%M')}\n\nNothing new in any course.\n")
@@ -594,6 +623,14 @@ class SyncEngine:
             "log: a 3-6 line markdown sync log for the student (no preamble, no 'Lesson').\n"
             f"Changes:\n{json.dumps(self.deltas, indent=1)}"
         )
+        if backlog:
+            prompt += (
+                "\n\nHISTORICAL ANNOUNCEMENTS (backfill — these predate this sync). "
+                "Extract ONLY facts still relevant TODAY: extensions, policies, bonus "
+                "rules, grace periods, persistent instructions. SKIP anything whose "
+                "relevance window has passed or that is superseded by newer "
+                f"announcements or assignments:\n{json.dumps(backlog, indent=1)}"
+            )
         try:
             r = httpx.post(f"{self.cfg.bifrost_url}/chat/completions",
                            json={"model": self.model,
@@ -622,6 +659,11 @@ class SyncEngine:
                  f"sync:{time.strftime('%Y-%m-%d')}"),
             )
             self.stats["facts_added"] += 1
+        # backfilled announcements are now in memory — never re-digested
+        if backlog:
+            self.db.conn.executemany(
+                "UPDATE announcements SET digested_at=datetime('now') WHERE id=?",
+                [(b["id"],) for b in backlog])
         self.db.conn.commit()
 
         (self.cfg.data_root / "sync_logs").mkdir(parents=True, exist_ok=True)

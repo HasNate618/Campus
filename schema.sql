@@ -168,6 +168,7 @@ CREATE TABLE IF NOT EXISTS announcements (
     posted_at   TEXT,
     is_pinned   INTEGER NOT NULL DEFAULT 0,
     brightspace_id INTEGER,                              -- dedupe
+    digested_at TEXT,                                    -- when the AI digest last consumed it
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
