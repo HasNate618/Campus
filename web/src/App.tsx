@@ -8,7 +8,8 @@ import { MorePage } from './pages/MorePage'
 import { CoursesPage } from './pages/CoursesPage'
 import { CourseHubPage, CourseLayout } from './pages/CourseHubPage'
 import { ContentPage } from './pages/ContentPage'
-import { AssignmentsPage } from './pages/AssignmentsPage'
+import { AssignmentsPage } from '@/pages/AssignmentsPage'
+import { AssignmentDetailPage } from '@/pages/AssignmentDetailPage'
 
 export default function App() {
   return (
@@ -28,6 +29,7 @@ export default function App() {
             <Route path="content" element={<ContentPage />} />
             <Route path="content/:nodeId" element={<ContentPage />} />
             <Route path="assignments" element={<AssignmentsPage />} />
+            <Route path="assignments/:assignmentId" element={<AssignmentDetailPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

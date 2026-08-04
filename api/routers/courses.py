@@ -44,6 +44,16 @@ def assignments(course_id: int, upcoming: bool = False):
     return services.list_assignments(course_id, upcoming_only=upcoming)
 
 
+@router.get("/{course_id}/assignments/{assignment_id}")
+def assignment_detail(course_id: int, assignment_id: int):
+    if not services.get_course(course_id):
+        raise HTTPException(404, "Course not found")
+    a = services.get_assignment(course_id, assignment_id)
+    if not a:
+        raise HTTPException(404, "Assignment not found")
+    return a
+
+
 @router.get("/{course_id}/files")
 def files(course_id: int):
     if not services.get_course(course_id):
