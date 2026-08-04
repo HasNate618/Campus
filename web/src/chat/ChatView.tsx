@@ -118,6 +118,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
   const historyRef = useRef<HTMLDivElement>(null)
   const pickerRef = useRef<HTMLDivElement>(null)
   const modelRef = useRef<HTMLDivElement>(null)
@@ -385,7 +386,10 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      if (send(courseId, input)) setInput('')
+      if (send(courseId, input)) {
+        setInput('')
+        resetInputHeight()
+      }
     }
   }
 
@@ -395,8 +399,17 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
     e.target.style.height = `${e.target.scrollHeight}px`
   }
 
+  /** Collapse the textarea back to one line after a send (autoGrow leaves
+   *  it at the grown height, so the box stays tall after sending). */
+  const resetInputHeight = () => {
+    if (inputRef.current) inputRef.current.style.height = 'auto'
+  }
+
   const submit = () => {
-    if (send(courseId, input)) setInput('')
+    if (send(courseId, input)) {
+      setInput('')
+      resetInputHeight()
+    }
   }
 
   const answerStreaming =
@@ -541,91 +554,94 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 
       <div className="input-dock">
         <div className="chat-input">
-          <textarea
-            value={input}
-            onChange={autoGrow}
-            onKeyDown={onKeyDown}
-            placeholder={`Ask ${course ? course.code : 'about this course'}…`}
-            rows={1}
-            disabled={busy}
-          />
-          <div className="input-toolbar">
-            <div style={{ flex: 1 }} />
-            <span className="ctx-meter" title="Context used so far vs the selected model's window">
-              {ctxText}
-            </span>
-            <div ref={modelRef} style={{ position: 'relative' }}>
-              <button
-                className="scope-pill"
-                onClick={() => {
-                  setModelOpen((o) => !o)
-                  setModelQuery('')
-                }}
-                title={model ?? 'Default model'}
-              >
-                <Cpu size={12} />
-                <span style={{ maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {model ? shortModel(model) : 'Default'}
-                </span>
-                <ChevronDown size={11} />
-              </button>
-              {modelOpen && (
-                <div
-                  className="popover course-picker"
-                  style={{ bottom: 'calc(100% + 8px)', top: 'auto', width: 280, maxHeight: 330, display: 'flex', flexDirection: 'column' }}
+          <div className="chat-input-main">
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={autoGrow}
+              onKeyDown={onKeyDown}
+              placeholder={`Ask ${course ? course.code : 'about this course'}…`}
+              rows={1}
+              disabled={busy}
+            />
+            <div className="input-toolbar">
+              <div style={{ flex: 1 }} />
+              <div ref={modelRef} style={{ position: 'relative' }}>
+                <button
+                  className="scope-pill"
+                  onClick={() => {
+                    setModelOpen((o) => !o)
+                    setModelQuery('')
+                  }}
+                  title={model ?? 'Default model'}
                 >
-                  <input
-                    autoFocus
-                    value={modelQuery}
-                    onChange={(e) => setModelQuery(e.target.value)}
-                    placeholder="Search models…"
-                    className="model-search"
-                  />
-                  <div style={{ overflowY: 'auto', flex: 1 }}>
-                    <button
-                      className={`popover-item${!model ? ' selected' : ''}`}
-                      onClick={() => {
-                        setModel(null)
-                        setModelOpen(false)
-                      }}
-                    >
-                      <span className="popover-title">Default (config)</span>
-                    </button>
-                    {filteredModels.length === 0 && (
-                      <p style={{ margin: '6px 10px', fontSize: 12, color: 'var(--text-3)' }}>No matching models.</p>
-                    )}
-                    {filteredModels.map((m) => (
+                  <Cpu size={12} />
+                  <span style={{ maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {model ? shortModel(model) : 'Default'}
+                  </span>
+                  <ChevronDown size={11} />
+                </button>
+                {modelOpen && (
+                  <div
+                    className="popover course-picker"
+                    style={{ bottom: 'calc(100% + 8px)', top: 'auto', width: 280, maxHeight: 330, display: 'flex', flexDirection: 'column' }}
+                  >
+                    <input
+                      autoFocus
+                      value={modelQuery}
+                      onChange={(e) => setModelQuery(e.target.value)}
+                      placeholder="Search models…"
+                      className="model-search"
+                    />
+                    <div style={{ overflowY: 'auto', flex: 1 }}>
                       <button
-                        key={m}
-                        className={`popover-item${model === m ? ' selected' : ''}`}
+                        className={`popover-item${!model ? ' selected' : ''}`}
                         onClick={() => {
-                          setModel(m)
+                          setModel(null)
                           setModelOpen(false)
                         }}
-                        title={m}
                       >
-                        <span className="popover-title" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {m}
-                        </span>
-                        {model === m && <Check size={13} style={{ flexShrink: 0 }} />}
+                        <span className="popover-title">Default (config)</span>
                       </button>
-                    ))}
+                      {filteredModels.length === 0 && (
+                        <p style={{ margin: '6px 10px', fontSize: 12, color: 'var(--text-3)' }}>No matching models.</p>
+                      )}
+                      {filteredModels.map((m) => (
+                        <button
+                          key={m}
+                          className={`popover-item${model === m ? ' selected' : ''}`}
+                          onClick={() => {
+                            setModel(m)
+                            setModelOpen(false)
+                          }}
+                          title={m}
+                        >
+                          <span className="popover-title" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {m}
+                          </span>
+                          {model === m && <Check size={13} style={{ flexShrink: 0 }} />}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
+              <span className="ctx-meter" title="Context used so far vs the selected model's window">
+                {ctxText}
+              </span>
             </div>
-            <button className="icon-btn" disabled title="File upload coming soon" aria-label="Attach file">
-              <Paperclip size={13} />
-            </button>
-            <button
-              className="send-btn"
-              onClick={submit}
-              disabled={busy || !input.trim()}
-              aria-label="Send"
-            >
-              {busy ? <Loader2 size={16} className="animate-spin" /> : <ArrowUp size={16} />}
-            </button>
           </div>
+          <button className="attach-btn" disabled title="File upload coming soon" aria-label="Attach file">
+            <Paperclip size={15} />
+          </button>
+          <button
+            className="send-btn"
+            onClick={submit}
+            disabled={busy || !input.trim()}
+            aria-label="Send"
+          >
+            {busy ? <Loader2 size={16} className="animate-spin" /> : <ArrowUp size={16} />}
+          </button>
         </div>
       </div>
     </div>
