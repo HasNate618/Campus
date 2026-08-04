@@ -36,6 +36,7 @@ export const api = {
   contentTree: (id: number) => get<{ nodes: ContentNode[]; files: FileRecord[] }>(`/courses/${id}/content-tree`),
   assignments: (id: number, upcoming = false) =>
     get<Assignment[]>(`/courses/${id}/assignments?upcoming=${upcoming}`),
+  assignment: (courseId: number, id: number) => get<Assignment>(`/courses/${courseId}/assignments/${id}`),
   announcements: (courseId?: number, limit = 20) => {
     const q = new URLSearchParams({ limit: String(limit) })
     if (courseId != null) q.set('course_id', String(courseId))

@@ -157,6 +157,16 @@ def list_assignments(course_id: int, upcoming_only: bool = False) -> list[dict]:
     return rows
 
 
+def get_assignment(course_id: int, assignment_id: int) -> dict | None:
+    r = _row("SELECT * FROM assignments WHERE course_id=? AND id=?", (course_id, assignment_id))
+    if not r:
+        return None
+    rj = r.get("rubrics_json")
+    r["rubrics"] = json.loads(rj) if rj else []
+    r.pop("rubrics_json", None)
+    return r
+
+
 def list_announcements(course_id: int | None = None, limit: int = 20) -> list[dict]:
     q = """SELECT a.*, c.code AS course_code FROM announcements a
            JOIN courses c ON c.id = a.course_id"""
