@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, ClipboardList, ExternalLink, Paperclip, Users } from 'lucide-react'
 import { api } from '@/api/client'
-import { ZenMarkdown } from '@/lib/ZenMarkdown'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { fmtDue, isPast } from '@/lib/format'
 import type { Assignment, Rubric, RubricCell } from '@/types'
@@ -136,7 +135,10 @@ export function AssignmentDetailPage() {
       {a.description?.trim() && (
         <>
           <p className="rubric-name">Description</p>
-          <ZenMarkdown content={sanitizeHtml(a.description)} />
+          {/* Brightspace descriptions are HTML (<p>/<strong>Key:</strong>
+              structure) — rendering as markdown re-parses the text and
+              mangles it (lines after symbols become lists etc.). */}
+          <div className="md html" dangerouslySetInnerHTML={{ __html: sanitizeHtml(a.description) }} />
         </>
       )}
       {a.rubrics?.length ? <RubricView rubrics={a.rubrics} /> : null}
