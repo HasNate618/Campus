@@ -432,13 +432,6 @@ export function ContentPage() {
                 >
                   <ArrowLeft size={13} /> All topics
                 </Link>
-                <button
-                  onClick={() => setViewMode((m) => (m === 'fullWidth' ? 'sideBySide' : 'fullWidth'))}
-                  title={viewMode === 'fullWidth' ? 'Show the content tree beside the viewer' : 'Show one panel at a time'}
-                  className="icon-btn view-toggle"
-                >
-                  {viewMode === 'fullWidth' ? <Columns2 size={14} /> : <Maximize2 size={14} />}
-                </button>
                 {contentInfo?.format === 'pdf' && selectedFile && (
                   <button
                     className="btn btn-outline btn-sm"
@@ -448,6 +441,13 @@ export function ContentPage() {
                     {showMd ? 'Original PDF' : 'Extracted text'}
                   </button>
                 )}
+                <button
+                  onClick={() => setViewMode((m) => (m === 'fullWidth' ? 'sideBySide' : 'fullWidth'))}
+                  title={viewMode === 'fullWidth' ? 'Show the content tree beside the viewer' : 'Show one panel at a time'}
+                  className="icon-btn view-toggle"
+                >
+                  {viewMode === 'fullWidth' ? <Columns2 size={14} /> : <Maximize2 size={14} />}
+                </button>
               </div>
               <div className="viewer-title">{selectedNode.title}</div>
               {selectedFile && <div className="viewer-path">{selectedFile.path}</div>}
