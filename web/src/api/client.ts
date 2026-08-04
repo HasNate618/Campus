@@ -62,7 +62,7 @@ export const api = {
       `/sync/trigger${courseId != null ? `?course_id=${courseId}` : ''}`,
     ),
   digest: () => get<{ generated_at: string; markdown: string; source: string }>('/digest/latest'),
-  models: () => get<{ models: string[]; error?: string }>('/chat/models'),
+  models: () => get<{ models: string[]; contexts?: Record<string, number>; error?: string }>('/chat/models'),
   // server-side chat sessions (the message tree lives in the DB)
   chatSessions: (courseId?: number) =>
     get<ChatServerSession[]>(`/chat/sessions${courseId != null ? `?course_id=${courseId}` : ''}`),

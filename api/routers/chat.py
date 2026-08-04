@@ -189,8 +189,15 @@ def list_models():
         r = httpx.get(f"{cfg.bifrost_url}/models", timeout=15)
         r.raise_for_status()
         data = r.json()
-        models = [m.get("id") for m in data.get("data", []) if m.get("id")]
-        return {"models": sorted(models)}
+        models = []
+        contexts: dict[str, int] = {}
+        for m in data.get("data", []):
+            mid = m.get("id")
+            if mid:
+                models.append(mid)
+                if m.get("context_length"):
+                    contexts[mid] = int(m["context_length"])
+        return {"models": sorted(models), "contexts": contexts}
     except Exception as e:
         return {"models": [], "error": str(e)}
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useParams } from 'react-router-dom'
-import { Bell, CalendarDays, Columns2, Maximize2 } from 'lucide-react'
+import { Bell, CalendarDays } from 'lucide-react'
 import { api } from '@/api/client'
 import { ChatView } from '@/chat/ChatView'
 import { useChat } from '@/chat/ChatContext'
@@ -9,39 +9,13 @@ import { courseColor } from '@/lib/courses'
 import { fmtDateTime, fmtRelative } from '@/lib/format'
 import type { Announcement, Course, CourseHub } from '@/types'
 
-const ANNOUNCE_CLAMP_LEN = 180
-
 function AnnouncementRow({ a }: { a: Announcement }) {
-  const [expanded, setExpanded] = useState(false)
-  const long = (a.body?.length ?? 0) > ANNOUNCE_CLAMP_LEN
+  // Full body, never clamped — the overview panel scrolls internally.
   return (
     <div className="row" style={{ alignItems: 'flex-start' }}>
       <div className="row-main">
         <div className="row-title">{a.title}</div>
-        {a.body && (
-          <>
-            <div
-              className="row-sub"
-              style={
-                expanded
-                  ? undefined
-                  : {
-                      display: '-webkit-box',
-                      WebkitLineClamp: 3,
-                      WebkitBoxOrient: 'vertical',
-                      overflow: 'hidden',
-                    }
-              }
-            >
-              {a.body}
-            </div>
-            {long && (
-              <button className="ann-toggle" onClick={() => setExpanded((e) => !e)}>
-                {expanded ? 'Show less' : 'Show more'}
-              </button>
-            )}
-          </>
-        )}
+        {a.body && <div className="row-sub" style={{ whiteSpace: 'pre-wrap' }}>{a.body}</div>}
       </div>
       <span className="chip" title={a.posted_at ?? undefined}>
         {fmtRelative(a.posted_at)}
@@ -50,21 +24,10 @@ function AnnouncementRow({ a }: { a: Announcement }) {
   )
 }
 
-type CourseViewMode = 'split' | 'full'
-
-function loadViewMode(): CourseViewMode {
-  try {
-    return localStorage.getItem('hc.course.viewMode') === 'full' ? 'full' : 'split'
-  } catch {
-    return 'split'
-  }
-}
-
 export function CourseLayout() {
   const { courseId } = useParams()
   const cid = Number(courseId)
   const [course, setCourse] = useState<Course | null>(null)
-  const [viewMode, setViewMode] = useState<CourseViewMode>(loadViewMode)
   const { setLastCourse } = useChat()
 
   useEffect(() => {
@@ -72,18 +35,6 @@ export function CourseLayout() {
     setLastCourse(cid)
     api.course(cid).then(setCourse).catch(console.error)
   }, [cid, setLastCourse])
-
-  const toggleView = () => {
-    setViewMode((m) => {
-      const next: CourseViewMode = m === 'split' ? 'full' : 'split'
-      try {
-        localStorage.setItem('hc.course.viewMode', next)
-      } catch {
-        /* non-fatal — the toggle still works for this session */
-      }
-      return next
-    })
-  }
 
   const page = (
     <div className="page course-page">
@@ -99,13 +50,6 @@ export function CourseLayout() {
           <p className="page-sub">{course?.name ?? ''}</p>
         </div>
         <div className="course-head-right">
-          <button
-            className="icon-btn desktop-only"
-            onClick={toggleView}
-            title={viewMode === 'split' ? 'Full width (hide chat)' : 'Side by side (chat + page)'}
-          >
-            {viewMode === 'split' ? <Maximize2 size={14} /> : <Columns2 size={14} />}
-          </button>
           <nav className="tabs">
             <NavLink to={`/courses/${cid}`} end className={({ isActive }) => `tab-link${isActive ? ' active' : ''}`}>
               Overview
@@ -126,8 +70,6 @@ export function CourseLayout() {
       </div>
     </div>
   )
-
-  if (viewMode === 'full') return page
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -158,23 +100,25 @@ export function CourseHubPage() {
   if (!hub) return <div className="card"><div className="empty compact">Loading…</div></div>
 
   return (
-    <>
+    <div className="overview-body">
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <span className="chip">{hub.stats.file_count} files</span>
         <span className="chip">{hub.stats.processed_files} processed</span>
         <span className="chip">{hub.stats.assignment_count} assignments</span>
       </div>
 
-      <div className="card">
+      <div className="card announce-card">
         <p className="card-title">
           <Bell size={14} /> Announcements
         </p>
-        {hub.announcements.length === 0 && (
-          <div className="empty compact">No announcements.</div>
-        )}
-        {hub.announcements.map((a) => (
-          <AnnouncementRow key={a.id} a={a} />
-        ))}
+        <div className="announce-scroll">
+          {hub.announcements.length === 0 && (
+            <div className="empty compact">No announcements.</div>
+          )}
+          {hub.announcements.map((a) => (
+            <AnnouncementRow key={a.id} a={a} />
+          ))}
+        </div>
       </div>
 
       <div className="card">
@@ -203,6 +147,6 @@ export function CourseHubPage() {
           </div>
         ))}
       </div>
-    </>
+    </div>
   )
 }
