@@ -193,7 +193,36 @@ class SyncEngine:
                 self.deltas.append({"kind": "file_changed", "path": rel})
 
     # ── dropbox (assignments) ───────────────────────────────────────────
+    def _download_assignment_attachments(self, org_unit: int, folder_id: int,
+                                         folder_name: str, attachments: list,
+                                         course_dir: Path) -> None:
+        """Download dropbox folder attachments into Assignments/<name>/ and
+        stamp each entry with its local asset path."""
+        if not attachments:
+            return
+        adir = course_dir / "Assignments" / _safe_name(folder_name)
+        adir.mkdir(parents=True, exist_ok=True)
+        for at in attachments:
+            fname = _safe_name(at.get("FileName") or f"attachment-{at.get('FileId')}")
+            dest = adir / fname
+            if not (dest.exists() and dest.stat().st_size > 0):
+                try:
+                    resp = self.client.get_raw(
+                        self.client.le(org_unit, f"/dropbox/folders/{folder_id}/attachments/{at['FileId']}"))
+                    if resp.status_code == 200 and len(resp.content) > 0:
+                        dest.write_bytes(resp.content)
+                except Exception:
+                    continue
+            if dest.exists() and dest.stat().st_size > 0:
+                rel = dest.relative_to(course_dir).as_posix()
+                at["local"] = f"{course_dir.parent.name}/{course_dir.name}/{rel}"
+
     def sync_dropbox(self, course_id: int, org_unit: int) -> None:
+        course = self.db.conn.execute(
+            "SELECT term, code FROM courses WHERE id=?", (course_id,)).fetchone()
+        if not course:
+            return
+        course_dir = self.cfg.data_root / course["term"] / course["code"].replace(" ", "")
         try:
             folders = self.client.get(self.client.le(org_unit, "/dropbox/folders/"))
         except D2LError:
@@ -246,6 +275,9 @@ class SyncEngine:
             assessment = f.get("Assessment") or {}
             rubrics = assessment.get("Rubrics") or []
             attachments = f.get("Attachments") or []
+            if attachments:
+                self._download_assignment_attachments(org_unit, f.get("Id"), f.get("Name"),
+                                                      attachments, course_dir)
             availability = f.get("Availability") or None
             self.db.upsert_assignment(course_id, {
                 "title": f.get("Name", "Assignment"),
