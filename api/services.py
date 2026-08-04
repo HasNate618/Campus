@@ -6,6 +6,7 @@ logic (agent/) and mutations (mutate_* tools, audit_log).
 from __future__ import annotations
 
 import datetime
+import json
 import sqlite3
 import threading
 from pathlib import Path
@@ -148,7 +149,12 @@ def list_assignments(course_id: int, upcoming_only: bool = False) -> list[dict]:
     if upcoming_only:
         q += " AND due_at IS NOT NULL AND due_at >= datetime('now')"
     q += " ORDER BY due_at"
-    return _rows(q, args)
+    rows = _rows(q, args)
+    for r in rows:
+        rj = r.get("rubrics_json")
+        r["rubrics"] = json.loads(rj) if rj else []
+        r.pop("rubrics_json", None)
+    return rows
 
 
 def list_announcements(course_id: int | None = None, limit: int = 20) -> list[dict]:

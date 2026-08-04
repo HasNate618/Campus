@@ -31,7 +31,38 @@ export interface Assignment {
   weight?: number | null
   status: string
   url?: string | null
+  rubrics?: Rubric[]
   notes?: string | null
+}
+
+export interface RubricLevel {
+  Id: number
+  Name: string
+  Points?: number
+}
+
+export interface RubricCell {
+  Feedback?: { Text?: string; Html?: string }
+  Description?: { Text?: string; Html?: string }
+}
+
+export interface RubricCriterion {
+  Id: number
+  Name: string
+  Cells?: RubricCell[]
+}
+
+export interface RubricGroup {
+  Name?: string
+  Levels?: RubricLevel[]
+  Criteria?: RubricCriterion[]
+}
+
+export interface Rubric {
+  RubricId: number
+  Name: string
+  ScoringMethod?: number
+  CriteriaGroups?: RubricGroup[]
 }
 
 export interface ContentNode {

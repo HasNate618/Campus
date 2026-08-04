@@ -212,6 +212,10 @@ class SyncEngine:
                     desc = obj.get("Html") or obj.get("Text") or None
                     if desc:
                         break
+            # rubrics ride inside the folder's Assessment object (D2L sends
+            # the full rubric: criteria groups, levels, per-cell feedback)
+            assessment = f.get("Assessment") or {}
+            rubrics = assessment.get("Rubrics") or []
             self.db.upsert_assignment(course_id, {
                 "title": f.get("Name", "Assignment"),
                 "description": desc,
@@ -219,6 +223,7 @@ class SyncEngine:
                 "weight": None,
                 "brightspace_folder_id": f.get("Id"),
                 "url": f"{self.cfg.base_url}/d2l/lms/dropbox/user/folders/{f.get('Id')}/",
+                "rubrics_json": json.dumps(rubrics) if rubrics else None,
             })
 
     # ── news (announcements) ────────────────────────────────────────────

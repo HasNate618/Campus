@@ -1184,6 +1184,49 @@
     overflow: hidden;
   }
 
+  .rubric-view {
+    width: 100%;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--glass-border);
+  }
+
+  .rubric-name {
+    margin: 0 0 8px;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--text-2);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .rubric-table {
+    width: auto;
+    max-width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 12px;
+    font-size: 11.5px;
+  }
+
+  .rubric-table th,
+  .rubric-table td {
+    border: 1px solid var(--glass-border);
+    padding: 6px 8px;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .rubric-table th {
+    background: var(--glass-bg-strong);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .rubric-table .rubric-crit {
+    font-weight: 600;
+    min-width: 150px;
+  }
+
   .assign-card .assign-scroll {
     flex: 1;
     min-height: 0;
