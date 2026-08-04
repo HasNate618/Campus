@@ -18,6 +18,7 @@ export interface Announcement {
   course_code?: string
   title: string
   body?: string | null
+  body_html?: string | null
   author?: string | null
   posted_at?: string | null
 }

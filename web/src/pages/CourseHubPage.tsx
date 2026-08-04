@@ -6,17 +6,23 @@ import { api } from '@/api/client'
 import { ChatView } from '@/chat/ChatView'
 import { useChat } from '@/chat/ChatContext'
 import { SplitPane } from '@/components/SplitPane'
+import { sanitizeHtml } from '@/lib/sanitize'
 import { courseColor } from '@/lib/courses'
 import { fmtDateTime, fmtRelative } from '@/lib/format'
 import type { Announcement, Course, CourseHub } from '@/types'
 
 function AnnouncementRow({ a }: { a: Announcement }) {
-  // Full body, never clamped — the overview panel scrolls internally.
+  // Rich HTML body (links + real paragraph spacing) when the sync has it —
+  // falls back to the plain text body (pre-wrap) until the next sync.
   return (
     <div className="row" style={{ alignItems: 'flex-start' }}>
       <div className="row-main">
         <div className="row-title">{a.title}</div>
-        {a.body && <div className="row-sub" style={{ whiteSpace: 'pre-wrap' }}>{a.body}</div>}
+        {a.body_html ? (
+          <div className="md html" dangerouslySetInnerHTML={{ __html: sanitizeHtml(a.body_html) }} />
+        ) : a.body ? (
+          <div className="row-sub" style={{ whiteSpace: 'pre-wrap' }}>{a.body}</div>
+        ) : null}
       </div>
       <span className="chip" title={a.posted_at ?? undefined}>
         {fmtRelative(a.posted_at)}

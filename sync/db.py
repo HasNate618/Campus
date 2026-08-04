@@ -18,6 +18,15 @@ class DB:
         self.conn = sqlite3.connect(str(db_path))
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Idempotent column migrations for DBs seeded before schema.sql
+        grew new columns (CREATE TABLE IF NOT EXISTS never alters)."""
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(announcements)")}
+        if "body_html" not in cols:
+            self.conn.execute("ALTER TABLE announcements ADD COLUMN body_html TEXT")
+            self.conn.commit()
 
     # ── courses ─────────────────────────────────────────────────────────
     def get_course_by_code(self, code: str) -> sqlite3.Row | None:
@@ -116,16 +125,16 @@ class DB:
             (ann["brightspace_id"],)).fetchone()
         if existing:
             self.conn.execute(
-                """UPDATE announcements SET title=?, body=?, author=?,
+                """UPDATE announcements SET title=?, body=?, body_html=?, author=?,
                    posted_at=?, is_pinned=? WHERE id=?""",
-                (ann["title"], ann.get("body", ""), ann.get("author"),
+                (ann["title"], ann.get("body", ""), ann.get("body_html", ""), ann.get("author"),
                  ann.get("posted_at"), int(ann.get("is_pinned", False)), existing["id"]))
             self.conn.commit()
             return False
         self.conn.execute(
-            """INSERT INTO announcements (course_id, title, body, author, posted_at, is_pinned, brightspace_id)
-               VALUES (?,?,?,?,?,?,?)""",
-            (course_id, ann["title"], ann.get("body", ""), ann.get("author"),
+            """INSERT INTO announcements (course_id, title, body, body_html, author, posted_at, is_pinned, brightspace_id)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (course_id, ann["title"], ann.get("body", ""), ann.get("body_html", ""), ann.get("author"),
              ann.get("posted_at"), int(ann.get("is_pinned", False)), ann["brightspace_id"]))
         self.conn.commit()
         return True
