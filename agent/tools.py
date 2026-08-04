@@ -169,7 +169,24 @@ def harness_get_announcements(db: DB, cfg: Config, args: dict) -> dict:
         q += " AND a.posted_at >= datetime('now', ?)"; params.append(f"-{int(args['days'])} days")
     q += " ORDER BY a.posted_at DESC LIMIT 30"
     rows = db.conn.execute(q, params).fetchall()
-    return {"announcements": _rows_as_dicts(rows)}
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["body"] = _strip_html(d.get("body"))
+        out.append(d)
+    return {"announcements": out}
+
+
+def _strip_html(body: str | None) -> str:
+    """Announcement bodies are stored as raw HTML — convert to readable text."""
+    import html as html_mod
+    s = body or ""
+    s = re.sub(r"<br\s*/?>", "\n", s)
+    s = re.sub(r"</p>", "\n", s)
+    s = re.sub(r"<[^>]+>", "", s)
+    s = html_mod.unescape(s)
+    s = re.sub(r"[ \t]+", " ", s)
+    return "\n".join(ln.strip() for ln in s.splitlines() if ln.strip())
 
 
 def harness_get_facts(db: DB, cfg: Config, args: dict) -> dict:
@@ -227,9 +244,14 @@ def content_read_file(db: DB, cfg: Config, args: dict) -> dict:
     offset = max(int(args.get("offset", 0)), 0)
     limit = min(int(args.get("limit", 200)), 1000)
     chunk = "\n".join(lines[offset:offset + limit])
+    if offset >= total:
+        note = f"offset {offset} is past the end — the file has {total} lines; read from offset 0"
+    else:
+        end = min(offset + len(lines[offset:offset + limit]), total)
+        note = f"lines {offset}-{end} of {total}; use offset/limit to page further"
     return {"path": str(path), "content": chunk,
             "offset": offset, "total_lines": total,
-            "note": f"lines {offset}-{offset + len(lines[offset:offset + limit])} of {total}; use offset/limit to page further"}
+            "note": note}
 
 
 def content_grep(db: DB, cfg: Config, args: dict) -> dict:
