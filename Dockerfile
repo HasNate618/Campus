@@ -15,7 +15,7 @@ RUN npm run build
 FROM python:3.12-slim
 # playwright chromium system deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        git ripgrep curl ca-certificates \
+        git ripgrep curl ca-certificates antiword \
         libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
         libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
         libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2 \
