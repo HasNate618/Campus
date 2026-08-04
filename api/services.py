@@ -155,6 +155,16 @@ def _parse_assignment(r: dict) -> dict:
         g = _row("SELECT group_name FROM course_groups WHERE course_id=? AND category_name=?",
                  (r["course_id"], r["group_category"]))
         r["group_name"] = g["group_name"] if g else None
+    # closed = the folder's availability window ended (no dates = open forever)
+    av = r.get("availability") or {}
+    end = av.get("EndDate")
+    r["closed"] = False
+    if end:
+        try:
+            d = datetime.datetime.fromisoformat(end.replace("Z", "+00:00"))
+            r["closed"] = d < datetime.datetime.now(datetime.timezone.utc)
+        except ValueError:
+            pass
     return r
 
 
