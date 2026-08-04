@@ -1,6 +1,6 @@
 import { Link, useParams } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, ChevronRight, ChevronsUpDown, Columns2, Download, ExternalLink, Maximize2 } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Download, ExternalLink } from 'lucide-react'
 import { api } from '@/api/client'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
@@ -18,8 +18,6 @@ function fileExt(path: string): string {
 }
 
 /** Content page view modes: two-pane desktop layout vs single-panel. */
-type ViewMode = 'sideBySide' | 'fullWidth'
-
 /** Per-kind chip for the tree + viewer, derived from the file path/format. */
 function kindChip(file: FileRecord, format?: FileFormat): { label: string; cls: string } {
   const ext = fileExt(file.path)
@@ -270,26 +268,6 @@ export function ContentPage() {
   const children = (parentId: number) => nodes.filter((n) => n.parent_id === parentId)
   const fileForNode = (id: number) => files.find((f) => f.content_node_id === id)
 
-  // View mode: 'fullWidth' (default) = single panel — the URL drives it;
-  // no node selected = tree full-width, node selected = content full-width
-  // with the All-topics back button. 'sideBySide' = two-pane desktop layout,
-  // tree always visible beside the viewer (empty-state hint when nothing is
-  // selected). Persisted per-browser.
-  const [viewMode, setViewMode] = useState<ViewMode>(() => {
-    try {
-      return localStorage.getItem('hc.content.viewMode') === 'sideBySide' ? 'sideBySide' : 'fullWidth'
-    } catch {
-      return 'fullWidth'
-    }
-  })
-  useEffect(() => {
-    try {
-      localStorage.setItem('hc.content.viewMode', viewMode)
-    } catch {
-      /* storage unavailable — keep in-memory only */
-    }
-  }, [viewMode])
-
   // Collapsible tree (per-module).
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
   const toggleModule = (id: number) =>
@@ -299,27 +277,10 @@ export function ContentPage() {
       else next.add(id)
       return next
     })
-  const allCollapsed = modules.length > 0 && modules.every((m) => collapsed.has(m.id))
 
   return (
-    <div className={`split split-mode-${viewMode === 'sideBySide' ? 'split' : 'full'}${nid != null ? ' has-selection' : ''}`}>
+    <div className={`split split-mode-full${nid != null ? ' has-selection' : ''}`}>
       <div className="card split-tree">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '0 4px 6px' }}>
-          <button
-            className="icon-btn view-toggle"
-            onClick={() => setViewMode((m) => (m === 'fullWidth' ? 'sideBySide' : 'fullWidth'))}
-            title={viewMode === 'fullWidth' ? 'Show the content tree beside the viewer' : 'Show one panel at a time'}
-          >
-            {viewMode === 'fullWidth' ? <Columns2 size={14} /> : <Maximize2 size={14} />}
-          </button>
-          <button
-            className="icon-btn"
-            onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(modules.map((m) => m.id)))}
-            title={allCollapsed ? 'Expand all modules' : 'Collapse all modules'}
-          >
-            <ChevronsUpDown size={14} />
-          </button>
-        </div>
         {modules.length === 0 && <div className="empty compact">No content synced.</div>}
         {modules.map((mod) => (
           <div key={mod.id}>
@@ -372,13 +333,6 @@ export function ContentPage() {
                 >
                   <ArrowLeft size={13} /> All topics
                 </Link>
-                <button
-                  onClick={() => setViewMode((m) => (m === 'fullWidth' ? 'sideBySide' : 'fullWidth'))}
-                  title={viewMode === 'fullWidth' ? 'Show the content tree beside the viewer' : 'Show one panel at a time'}
-                  className="icon-btn view-toggle"
-                >
-                  {viewMode === 'fullWidth' ? <Columns2 size={14} /> : <Maximize2 size={14} />}
-                </button>
               </div>
               <div className="viewer-title">{selectedNode.title}</div>
               {selectedFile && <div className="viewer-path">{selectedFile.path}</div>}
