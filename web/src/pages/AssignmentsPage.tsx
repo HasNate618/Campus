@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ClipboardList } from 'lucide-react'
 import { api } from '@/api/client'
@@ -35,9 +35,9 @@ export function AssignmentsPage() {
     return a.due_at.localeCompare(b.due_at)
   })
 
-  const individual = sorted.filter((a) => !a.group_category)
-  const groupWork = sorted.filter((a) => a.group_category)
-  const groupName = groupWork[0]?.group_name
+  // sectioned by the dropbox category tag (Labs, Project); untagged first
+  const untagged = sorted.filter((a) => !a.category)
+  const tags = [...new Set(sorted.map((a) => a.category).filter(Boolean))].sort()
 
   const row = (a: Assignment) => {
     const s = statusChip(a)
@@ -70,20 +70,16 @@ export function AssignmentsPage() {
         {!loading && sorted.length === 0 && (
           <div className="empty compact">No assignments synced for this course.</div>
         )}
-        {!loading && individual.length > 0 && (
-          <>
-            <p className="rubric-name">Individual</p>
-            {individual.map(row)}
-          </>
-        )}
-        {!loading && groupWork.length > 0 && (
-          <>
-            <p className="rubric-name" style={{ marginTop: 8 }}>
-              Group work{groupName ? ` · ${groupName}` : ''}
-            </p>
-            {groupWork.map(row)}
-          </>
-        )}
+        {!loading && untagged.map(row)}
+        {!loading &&
+          tags.map((tag) => (
+            <Fragment key={tag}>
+              <p className="rubric-name" style={{ marginTop: 8 }}>
+                {tag}
+              </p>
+              {sorted.filter((a) => a.category === tag).map(row)}
+            </Fragment>
+          ))}
       </div>
     </div>
   )
