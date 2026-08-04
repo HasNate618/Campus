@@ -805,29 +805,59 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [sessions, streamTurn],
   )
 
-  const deleteMessage = useCallback((sessionId: string, nodeId: string) => {
-    setSessions((ss) =>
-      ss.map((s) => {
-        if (s.id !== sessionId) return s
-        const doomed = collectSubtree(s.nodes, nodeId)
-        const target = s.nodes.find((n) => n.id === nodeId)
-        const activeDoomed = s.activeNodeId ? doomed.has(s.activeNodeId) : false
-        const nodes = s.nodes
-          .filter((n) => !doomed.has(n.id))
-          .map((n) =>
-            n.children.some((c) => doomed.has(c))
-              ? { ...n, children: n.children.filter((c) => !doomed.has(c)) }
-              : n,
-          )
-        let activeNodeId = activeDoomed ? (target?.parentId ?? null) : s.activeNodeId
-        // safety: never leave the path rooted at a missing node
-        if (activeNodeId && !nodes.some((n) => n.id === activeNodeId)) {
-          activeNodeId = nodes[nodes.length - 1]?.id ?? null
+  const deleteMessage = useCallback(
+    (sessionId: string, nodeId: string) => {
+      const session = sessions.find((s) => s.id === sessionId)
+      if (!session) return
+      const target = session.nodes.find((n) => n.id === nodeId)
+      if (!target) return
+      const parentId = target.parentId
+      // Delete JUST this message and REJOIN the conversation: direct
+      // user/assistant children re-parent to the deleted node's parent, so
+      // deleting a middle user message no longer wipes every later message
+      // (the old behavior forced deleting the assistant reply first).
+      // Tool/intermediate nodes are artifacts and die with their parent.
+      const kids = session.nodes.filter((n) => n.parentId === nodeId)
+      const rejoin = kids.filter((k) => k.role !== 'tool' && !(k.role === 'assistant' && k.intermediate))
+      const artifactIds = new Set(kids.filter((k) => !rejoin.some((r) => r.id === k.id)).map((k) => k.id))
+      const nodes = session.nodes
+        .filter((n) => n.id !== nodeId && !artifactIds.has(n.id))
+        .map((n) => {
+          if (n.id === parentId) {
+            const keep = n.children.filter((c) => c !== nodeId && !artifactIds.has(c))
+            return { ...n, children: [...keep, ...rejoin.map((k) => k.id)] }
+          }
+          return rejoin.some((k) => k.id === n.id) ? { ...n, parentId } : n
+        })
+      // active node: if we deleted the active message, fall back to a
+      // remaining sibling branch first (deleting a regenerated v2 shows v1),
+      // then to the parent
+      let activeNodeId = session.activeNodeId
+      if (activeNodeId === nodeId) {
+        const parent = nodes.find((n) => n.id === parentId)
+        const siblings = (parent?.children ?? [])
+          .map((id) => nodes.find((n) => n.id === id))
+          .filter((n): n is MsgNode => !!n && n.role !== 'tool')
+        activeNodeId = siblings.length ? siblings[siblings.length - 1]!.id : parentId
+      }
+      // safety: never leave the path rooted at a missing node
+      if (activeNodeId && !nodes.some((n) => n.id === activeNodeId)) {
+        activeNodeId = nodes[nodes.length - 1]?.id ?? null
+      }
+      if (nodes.length === 0) {
+        // the last message is gone → the session is empty → drop it entirely
+        if (session.serverId != null) {
+          api.chatSessionDelete(session.serverId).catch((e) => console.error('[chat-sync] delete failed:', e))
         }
-        return { ...s, updatedAt: Date.now(), activeNodeId, nodes }
-      }),
-    )
-  }, [])
+        setSessions((ss) => ss.filter((s) => s.id !== sessionId))
+        return
+      }
+      setSessions((ss) =>
+        ss.map((s) => (s.id === sessionId ? { ...s, updatedAt: Date.now(), activeNodeId, nodes } : s)),
+      )
+    },
+    [sessions],
+  )
 
   const setActiveBranch = useCallback((sessionId: string, nodeId: string) => {
     setActiveNode(sessionId, nodeId)
