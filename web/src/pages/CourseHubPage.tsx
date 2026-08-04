@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useParams } from 'react-router-dom'
-import { Bell, CalendarDays } from 'lucide-react'
+import { Bell, CalendarDays, Columns2, Maximize2 } from 'lucide-react'
 import { api } from '@/api/client'
 import { ChatView } from '@/chat/ChatView'
 import { useChat } from '@/chat/ChatContext'
@@ -50,10 +50,21 @@ function AnnouncementRow({ a }: { a: Announcement }) {
   )
 }
 
+type CourseViewMode = 'split' | 'full'
+
+function loadViewMode(): CourseViewMode {
+  try {
+    return localStorage.getItem('hc.course.viewMode') === 'full' ? 'full' : 'split'
+  } catch {
+    return 'split'
+  }
+}
+
 export function CourseLayout() {
   const { courseId } = useParams()
   const cid = Number(courseId)
   const [course, setCourse] = useState<Course | null>(null)
+  const [viewMode, setViewMode] = useState<CourseViewMode>(loadViewMode)
   const { setLastCourse } = useChat()
 
   useEffect(() => {
@@ -62,41 +73,68 @@ export function CourseLayout() {
     api.course(cid).then(setCourse).catch(console.error)
   }, [cid, setLastCourse])
 
+  const toggleView = () => {
+    setViewMode((m) => {
+      const next: CourseViewMode = m === 'split' ? 'full' : 'split'
+      try {
+        localStorage.setItem('hc.course.viewMode', next)
+      } catch {
+        /* non-fatal — the toggle still works for this session */
+      }
+      return next
+    })
+  }
+
+  const page = (
+    <div className="page course-page">
+      <header className="course-head">
+        <div className="course-head-main">
+          <div className="course-head-title">
+            {course && (
+              <span className="dot" style={{ background: courseColor(course), width: 10, height: 10 }} />
+            )}
+            <h1 className="page-title">{course?.code ?? '…'}</h1>
+            {course && <span className="chip">{course.term}</span>}
+          </div>
+          <p className="page-sub">{course?.name ?? ''}</p>
+        </div>
+        <div className="course-head-right">
+          <button
+            className="icon-btn desktop-only"
+            onClick={toggleView}
+            title={viewMode === 'split' ? 'Full width (hide chat)' : 'Side by side (chat + page)'}
+          >
+            {viewMode === 'split' ? <Maximize2 size={14} /> : <Columns2 size={14} />}
+          </button>
+          <nav className="tabs">
+            <NavLink to={`/courses/${cid}`} end className={({ isActive }) => `tab-link${isActive ? ' active' : ''}`}>
+              Overview
+            </NavLink>
+            <NavLink to={`/courses/${cid}/content`} className={({ isActive }) => `tab-link${isActive ? ' active' : ''}`}>
+              Content
+            </NavLink>
+            <NavLink to={`/courses/${cid}/assignments`} className={({ isActive }) => `tab-link${isActive ? ' active' : ''}`}>
+              Assignments
+            </NavLink>
+          </nav>
+        </div>
+      </header>
+      <div className="course-scroll">
+        <div className="page-col">
+          <Outlet />
+        </div>
+      </div>
+    </div>
+  )
+
+  if (viewMode === 'full') return page
+
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <SplitPane
         storageKey="hc.split.course"
         left={<ChatView key={cid} courseId={cid} course={course ?? undefined} />}
-        right={
-          <div className="page">
-            <div className="page-col">
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  {course && (
-                    <span className="dot" style={{ background: courseColor(course), width: 10, height: 10 }} />
-                  )}
-                  <h1 className="page-title">{course?.code ?? '…'}</h1>
-                  {course && <span className="chip">{course.term}</span>}
-                </div>
-                <p className="page-sub">{course?.name ?? ''}</p>
-              </div>
-
-              <nav className="tabs">
-                <NavLink to={`/courses/${cid}`} end className={({ isActive }) => `tab-link${isActive ? ' active' : ''}`}>
-                  Overview
-                </NavLink>
-                <NavLink to={`/courses/${cid}/content`} className={({ isActive }) => `tab-link${isActive ? ' active' : ''}`}>
-                  Content
-                </NavLink>
-                <NavLink to={`/courses/${cid}/assignments`} className={({ isActive }) => `tab-link${isActive ? ' active' : ''}`}>
-                  Assignments
-                </NavLink>
-              </nav>
-
-              <Outlet />
-            </div>
-          </div>
-        }
+        right={page}
       />
     </div>
   )
