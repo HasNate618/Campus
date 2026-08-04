@@ -8,6 +8,7 @@ import type { Assignment } from '@/types'
 function statusChip(a: Assignment): { cls: string; label: string } {
   if (a.status === 'submitted' || a.status === 'graded') return { cls: 'chip green', label: a.status }
   if (a.status === 'extended') return { cls: 'chip amber', label: a.status }
+  if (a.closed) return { cls: 'chip', label: 'Closed' }
   if (isPast(a.due_at)) return { cls: 'chip red', label: 'overdue' }
   return { cls: 'chip', label: 'open' }
 }
@@ -46,7 +47,12 @@ export function AssignmentsPage() {
         className="row"
         key={a.id}
         to={`/courses/${cid}/assignments/${a.id}`}
-        style={{ alignItems: 'center', textDecoration: 'none', color: 'inherit' }}
+        style={{
+          alignItems: 'center',
+          textDecoration: 'none',
+          color: 'inherit',
+          opacity: a.closed ? 0.55 : 1,
+        }}
       >
         <div className="row-main">
           <div className="row-title">

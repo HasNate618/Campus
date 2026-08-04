@@ -31,6 +31,7 @@ export interface Assignment {
   weight?: number | null
   status: string
   url?: string | null
+  closed?: boolean
   rubrics?: Rubric[]
   category?: string | null
   group_category?: string | null
