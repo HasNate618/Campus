@@ -46,8 +46,8 @@ export function CourseLayout() {
             )}
             <h1 className="page-title">{course?.code ?? '…'}</h1>
             {course && <span className="chip">{course.term}</span>}
+            <p className="page-sub course-head-name">{course?.name ?? ''}</p>
           </div>
-          <p className="page-sub">{course?.name ?? ''}</p>
         </div>
         <div className="course-head-right">
           <nav className="tabs">
@@ -75,8 +75,8 @@ export function CourseLayout() {
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <SplitPane
         storageKey="hc.split.course"
-        left={<ChatView key={cid} courseId={cid} course={course ?? undefined} />}
-        right={page}
+        left={page}
+        right={<ChatView key={cid} courseId={cid} course={course ?? undefined} />}
       />
     </div>
   )
