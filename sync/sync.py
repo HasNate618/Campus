@@ -193,7 +193,7 @@ class SyncEngine:
                 self.deltas.append({"kind": "file_changed", "path": rel})
 
     # ── dropbox (assignments) ───────────────────────────────────────────
-    def _download_assignment_attachments(self, org_unit: int, folder_id: int,
+    def _download_assignment_attachments(self, course_id: int, org_unit: int, folder_id: int,
                                          folder_name: str, attachments: list,
                                          course_dir: Path) -> None:
         """Download dropbox folder attachments into Assignments/<name>/ and
@@ -216,6 +216,14 @@ class SyncEngine:
             if dest.exists() and dest.stat().st_size > 0:
                 rel = dest.relative_to(course_dir).as_posix()
                 at["local"] = f"{course_dir.parent.name}/{course_dir.name}/{rel}"
+                # register with the corpus so extraction + the AI's file tools
+                # treat it like content (kind='assignment', source='brightspace')
+                try:
+                    self.db.upsert_file(course_id, at["local"], "assignment", "brightspace",
+                                        hashlib.sha256(dest.read_bytes()).hexdigest(),
+                                        dest.stat().st_size)
+                except Exception:
+                    pass
 
     def sync_dropbox(self, course_id: int, org_unit: int) -> None:
         course = self.db.conn.execute(
@@ -276,7 +284,7 @@ class SyncEngine:
             rubrics = assessment.get("Rubrics") or []
             attachments = f.get("Attachments") or []
             if attachments:
-                self._download_assignment_attachments(org_unit, f.get("Id"), f.get("Name"),
+                self._download_assignment_attachments(course_id, org_unit, f.get("Id"), f.get("Name"),
                                                       attachments, course_dir)
             availability = f.get("Availability") or None
             self.db.upsert_assignment(course_id, {

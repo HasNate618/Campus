@@ -8,6 +8,7 @@ Families per DESIGN.md:
 """
 from __future__ import annotations
 
+import datetime
 import json
 import re
 import subprocess
@@ -46,7 +47,9 @@ def _rows_as_dicts(rows) -> list[dict]:
 
 def harness_list_assignments(db: DB, cfg: Config, args: dict) -> dict:
     course_id = _resolve_course(db, args.get("course"))
-    q = """SELECT a.id, c.code, a.title, a.due_at, a.status, a.weight, a.notes
+    q = """SELECT a.id, c.code, a.title, a.due_at, a.status, a.weight, a.notes,
+                  a.description, a.url, a.category, a.group_category, a.points,
+                  a.availability_json, a.rubrics_json, a.attachments_json
            FROM assignments a JOIN courses c ON c.id=a.course_id WHERE 1=1"""
     params = []
     if course_id:
@@ -56,9 +59,30 @@ def harness_list_assignments(db: DB, cfg: Config, args: dict) -> dict:
     if args.get("due_within_days"):
         q += " AND a.due_at IS NOT NULL AND a.due_at <= datetime('now', ?)"
         params.append(f"+{int(args['due_within_days'])} days")
+    if args.get("assignment_id"):
+        q += " AND a.id=?"; params.append(int(args["assignment_id"]))
     q += " ORDER BY a.due_at"
     rows = db.conn.execute(q, params).fetchall()
-    return {"assignments": _rows_as_dicts(rows)}
+    out = []
+    for r in rows:
+        d = dict(r)
+        av = json.loads(d.pop("availability_json") or "{}") or {}
+        end = (av or {}).get("EndDate")
+        d["closed"] = False
+        if end:
+            try:
+                d["closed"] = datetime.datetime.fromisoformat(end.replace("Z", "+00:00")) < datetime.datetime.now(datetime.timezone.utc)
+            except ValueError:
+                pass
+        d["rubrics"] = [rub.get("Name") for rub in json.loads(d.pop("rubrics_json") or "[]")]
+        d["attachments"] = [{"name": at.get("FileName"), "local": at.get("local")}
+                            for at in json.loads(d.pop("attachments_json") or "[]")]
+        if d.get("group_category"):
+            g = db.conn.execute("SELECT group_name FROM course_groups WHERE course_id=? AND category_name=?",
+                                (d["course_id"] if d.get("course_id") else course_id, d["group_category"])).fetchone()
+            d["group_name"] = g["group_name"] if g else None
+        out.append(d)
+    return {"assignments": out}
 
 
 def harness_get_announcements(db: DB, cfg: Config, args: dict) -> dict:
@@ -437,11 +461,12 @@ def _tool(name: str, description: str, handler, required: list | None = None, **
 TOOLS = {
     "harness_list_assignments": _tool(
         "harness_list_assignments",
-        "List assignments from synced data. Filter by course code, status (open/in_progress/submitted/graded/extended), or due within N days.",
+        "List assignments for a course with full metadata (due, status, points, category, group, description, rubric names, attachment paths). Pass assignment_id for a single assignment's full detail.",
         harness_list_assignments,
-        course={"type": "string", "description": "course code, e.g. 'SE 2250B'"},
+        course={"type": "string"},
         status={"type": "string"},
         due_within_days={"type": "integer"},
+        assignment_id={"type": "integer"},
     ),
     "harness_get_announcements": _tool(
         "harness_get_announcements",
