@@ -45,6 +45,7 @@ class Config:
     auto_extract_pdfs: bool = True  # extract after sync (cloud engine by default)
     digest_pdf_excerpt_chars: int = 2000  # PDF markdown excerpt fed to the digest
     term_dates: dict = field(default_factory=dict)  # {"2026F": "2026-09-01"} — anchors class events
+    digest_announcement_days: int = 365  # digest backfills undigested announcements this far back (self-limiting: each is digested once)
 
     @classmethod
     def load(cls, path: Path | None = None) -> "Config":
