@@ -53,8 +53,7 @@ def course_hub(course_id: int) -> dict | None:
     if not course:
         return None
     announcements = _rows(
-        "SELECT * FROM announcements WHERE course_id=? ORDER BY posted_at DESC LIMIT 10",
-        (course_id,))
+        "SELECT * FROM announcements WHERE course_id=? ORDER BY posted_at DESC", (course_id,))
     events = events_next_days(7, course_id=course_id)
     assignments_upcoming = _rows(
         """SELECT * FROM assignments WHERE course_id=? AND due_at IS NOT NULL

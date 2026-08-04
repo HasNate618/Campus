@@ -163,7 +163,8 @@ CREATE TABLE IF NOT EXISTS announcements (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     course_id   INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
     title       TEXT NOT NULL,
-    body        TEXT,                                    -- markdown
+    body        TEXT,                                    -- plain text (AI digest / fallback)
+    body_html   TEXT,                                    -- rich HTML: links + paragraph spacing (UI)
     author      TEXT,
     posted_at   TEXT,
     is_pinned   INTEGER NOT NULL DEFAULT 0,

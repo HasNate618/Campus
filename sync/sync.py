@@ -318,10 +318,12 @@ class SyncEngine:
 
         for n in items:
             body = (n.get("Body") or {}).get("Text", "")
+            body_html = (n.get("Body") or {}).get("Html", "")
             is_new = self.db.upsert_announcement(course_id, {
                 "brightspace_id": n.get("Id"),
                 "title": n.get("Title", "(announcement)"),
                 "body": body,
+                "body_html": body_html,
                 "author": author_of(n),
                 "posted_at": n.get("StartDate"),
                 "is_pinned": n.get("IsPinned", False),
