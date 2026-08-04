@@ -1924,9 +1924,17 @@
       display: none;
     }
 
-    .split-left,
+    /* mobile: the course pane (left) shows, the docked chat (right) hides —
+       chat lives in its own tab on phones. The inline width:pct from the
+       SplitPane would otherwise keep the course pane at half width. */
+    .split-right,
     .split-divider {
       display: none;
+    }
+
+    .split-left {
+      width: 100% !important;
+      flex: 1;
     }
 
     .desktop-only {

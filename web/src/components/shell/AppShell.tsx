@@ -6,8 +6,8 @@ import { Sidebar } from './Sidebar'
 
 const MOBILE_TABS = [
   { to: '/', label: 'Home', icon: Home, end: true },
-  { to: '/courses', label: 'Courses', icon: BookOpen, end: false },
   { to: '/chat', label: 'Chat', icon: MessageSquare, end: true },
+  { to: '/courses', label: 'Courses', icon: BookOpen, end: false },
 ]
 
 export function AppShell() {
