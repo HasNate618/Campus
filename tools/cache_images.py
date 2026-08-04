@@ -71,9 +71,12 @@ def cache_course_images(cfg: Config, db: DB, course_id: int) -> dict:
     def local_for(url: str) -> str | None:
         if url in seen:
             return seen[url]
-        name = _safe_name(url)
+        # relative enforced paths (e.g. /content/enforced/155130-.../img.png)
+        # resolve against the Brightspace origin for the download
+        fetch_url = cfg.base_url + url if url.startswith("/") else url
+        name = _safe_name(fetch_url)
         dest = assets_dir / name
-        if not _download(url, dest, headers):
+        if not _download(fetch_url, dest, headers):
             stats["failed"] += 1
             seen[url] = ""
             return None
@@ -84,7 +87,7 @@ def cache_course_images(cfg: Config, db: DB, course_id: int) -> dict:
     def rewrite(html: str) -> str:
         def repl(m: re.Match) -> str:
             src = m.group(2)
-            if not any(h in src for h in HOSTS):
+            if not any(h in src for h in HOSTS) and not src.startswith("/content/enforced/"):
                 return m.group(0)
             local = local_for(src)
             if not local:
@@ -96,7 +99,8 @@ def cache_course_images(cfg: Config, db: DB, course_id: int) -> dict:
     for row in db.conn.execute(
             "SELECT id, description FROM content_nodes WHERE course_id=? AND description IS NOT NULL",
             (course_id,)).fetchall():
-        if not row["description"] or "brightspace.com" not in row["description"]:
+        if not row["description"] or ("brightspace.com" not in row["description"]
+                                      and "/content/enforced/" not in row["description"]):
             continue
         new_desc = rewrite(row["description"])
         if new_desc != row["description"]:
