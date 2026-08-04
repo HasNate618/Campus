@@ -143,15 +143,22 @@ function ViewerBody({
 }) {
   // Module landing page (Brightspace HTML).
   if (node.node_type === 'module') {
-    const hasDesc = !!node.description?.trim()
+    const desc = node.description?.trim() ?? ''
+    const hasDesc = desc.length > 0
+    // Brightspace mirrors the unit banner INTO the module description (the
+    // description renders it + the landing text). The Unit Introduction
+    // topic holds the SAME banner (plus the Western logo) — re-extracting
+    // it here would duplicate both. Only fall back to the intro topic's
+    // images when the description has none of its own.
+    const descHasImages = /<img\b/i.test(desc)
     return (
       <>
         {hasDesc && (
-          <div className="md html" dangerouslySetInnerHTML={{ __html: sanitizeHtml(node.description ?? '') }} />
+          <div className="md html" dangerouslySetInnerHTML={{ __html: sanitizeHtml(desc) }} />
         )}
-        {introFile ? (
+        {!descHasImages && introFile ? (
           <ModuleIntro file={introFile} />
-        ) : file ? (
+        ) : !descHasImages && file ? (
           <FileBody file={file} contentInfo={contentInfo} loading={loading} showMd={showMd} />
         ) : !hasDesc ? (
           <div className="empty compact">This module has no landing page content.</div>
