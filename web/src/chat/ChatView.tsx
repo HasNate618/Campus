@@ -9,6 +9,7 @@ import {
   GraduationCap,
   History,
   Loader2,
+  Paperclip,
   RefreshCw,
   SquarePen,
   Trash2,
@@ -19,7 +20,7 @@ import { courseColor } from '@/lib/courses'
 import { fmtRelative } from '@/lib/format'
 import { api } from '@/api/client'
 import { useZenPostProcess } from '@/lib/zenMd'
-import { useChat, pathFor, type MsgNode, type StreamStatus } from './ChatContext'
+import { useChat, pathFor, type MsgNode } from './ChatContext'
 import type { Course } from '@/types'
 
 const SUGGESTIONS = [
@@ -74,65 +75,6 @@ function greeting(): string {
   return 'Good evening'
 }
 
-/** Build hash baked into index.html by vite (buildMeta plugin) — lets you
- *  tell which bundle is live at a glance (stale index.html = old hash). */
-const BUILD_HASH =
-  (typeof document !== 'undefined'
-    ? document.querySelector('meta[name="build"]')?.getAttribute('content')
-    : undefined) ?? 'dev'
-
-/** One-glance stream diagnosis. Every phase is rendered so the next failure
- *  tells us exactly where it broke:
- *   - 'loading'  → session list fetch in flight
- *   - 'connecting' → POST /api/chat fired, no SSE event yet (stuck here =
- *     the request never reached the server or the stream never opened)
- *   - 'streaming' → events arriving (last event + count ticker)
- *   - 'done'     → done event received
- *   - 'error'    → exact failure text
- */
-function StreamStatusLine({ status }: { status: StreamStatus }) {
-  const { phase, lastEvent, eventCount, error } = status
-  let dot = '●'
-  let cls = 'st-idle'
-  let text: string
-  switch (phase) {
-    case 'loading':
-      dot = '⟳'
-      cls = 'st-busy'
-      text = 'loading sessions…'
-      break
-    case 'connecting':
-      dot = '⟳'
-      cls = 'st-busy'
-      text = 'connecting…'
-      break
-    case 'streaming':
-      dot = '⟳'
-      cls = 'st-busy'
-      text = `streaming · ${lastEvent ?? 'event'}${eventCount != null ? ` × ${eventCount}` : ''}`
-      break
-    case 'done':
-      dot = '✓'
-      cls = 'st-ok'
-      text = `done${eventCount != null ? ` · token × ${eventCount}` : ''}`
-      break
-    case 'error':
-      dot = '⚠'
-      cls = 'st-err'
-      text = `error: ${error ?? 'unknown'}`
-      break
-    default:
-      text = 'idle'
-  }
-  return (
-    <div className={`stream-status ${cls}`} title="Chat pipeline status — this line always shows what the stream is doing">
-      <span className="st-dot">{dot}</span>
-      <span>{text}</span>
-      <span className="st-build">build {BUILD_HASH}</span>
-    </div>
-  )
-}
-
 interface Props {
   courseId: number
   course?: Course
@@ -144,7 +86,6 @@ interface Props {
 export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
   const {
     busy,
-    streamStatus,
     sessionsFor,
     activeFor,
     openSession,
@@ -162,7 +103,15 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [modelOpen, setModelOpen] = useState(false)
+  const [modelQuery, setModelQuery] = useState('')
   const [models, setModels] = useState<string[]>([])
+  const filteredModels = useMemo(
+    () =>
+      modelQuery.trim()
+        ? models.filter((m) => m.toLowerCase().includes(modelQuery.trim().toLowerCase()))
+        : models,
+    [models, modelQuery],
+  )
   const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({})
   const [expandedThinking, setExpandedThinking] = useState<Record<string, boolean>>({})
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
@@ -523,47 +472,6 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
           <span className="chat-head-title">{session?.title ?? 'New chat'}</span>
         )}
 
-        <div ref={modelRef} style={{ position: 'relative' }}>
-          <button className="scope-pill" onClick={() => setModelOpen((o) => !o)} title={model ?? 'Default model'}>
-            <Cpu size={13} />
-            <span style={{ maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {model ? shortModel(model) : 'Model'}
-            </span>
-            <ChevronDown size={12} />
-          </button>
-          {modelOpen && (
-            <div className="popover course-picker" style={{ maxHeight: 340, overflowY: 'auto', width: 280 }}>
-              <button
-                className={`popover-item${!model ? ' selected' : ''}`}
-                onClick={() => {
-                  setModel(null)
-                  setModelOpen(false)
-                }}
-              >
-                <span className="popover-title">Default (config)</span>
-              </button>
-              {models.length === 0 && (
-                <p style={{ margin: '6px 10px', fontSize: 12, color: 'var(--text-3)' }}>Loading models…</p>
-              )}
-              {models.map((m) => (
-                <button
-                  key={m}
-                  className={`popover-item${model === m ? ' selected' : ''}`}
-                  onClick={() => {
-                    setModel(m)
-                    setModelOpen(false)
-                  }}
-                  title={m}
-                >
-                  <span className="popover-title" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {m}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
         {session && path.length > 0 && (
           <button className="icon-btn" onClick={() => newChat(courseId)} title="New chat">
             <SquarePen size={15} />
@@ -621,26 +529,6 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
       </div>
 
       <div className="input-dock">
-        <StreamStatusLine status={streamStatus} />
-        {lastAssistant && (
-          <div className="context-bar">
-            {lastAssistant.streaming ? (
-              <span style={{ color: 'var(--violet)' }}>
-                ⟳ streaming {lastAssistant.content.length.toLocaleString()} chars…
-              </span>
-            ) : (
-              <>
-                <span>{lastAssistant.model ? shortModel(lastAssistant.model) : '—'}</span>
-                {lastAssistant.tokens?.total_tokens ? (
-                  <span>
-                    · {fmtTokens(lastAssistant.tokens.completion_tokens)} out ·{' '}
-                    {fmtTokens(lastAssistant.tokens.total_tokens)} this turn
-                  </span>
-                ) : null}
-              </>
-            )}
-          </div>
-        )}
         <div className="chat-input">
           <textarea
             value={input}
@@ -658,6 +546,75 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
           >
             {busy ? <Loader2 size={16} className="animate-spin" /> : <ArrowUp size={16} />}
           </button>
+        </div>
+        <div className="input-tools">
+          <span className="ctx-meter" title="Context used so far vs the 200K window">
+            {lastAssistant?.tokens?.prompt_tokens != null
+              ? `${fmtTokens(lastAssistant.tokens.prompt_tokens)}/${fmtTokens(200000)}`
+              : ''}
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div ref={modelRef} style={{ position: 'relative' }}>
+              <button
+                className="scope-pill"
+                onClick={() => {
+                  setModelOpen((o) => !o)
+                  setModelQuery('')
+                }}
+                title={model ?? 'Default model'}
+              >
+                <Cpu size={12} />
+                <span style={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {model ? shortModel(model) : 'Default'}
+                </span>
+                <ChevronDown size={11} />
+              </button>
+              {modelOpen && (
+                <div className="popover course-picker" style={{ width: 280, maxHeight: 330, display: 'flex', flexDirection: 'column' }}>
+                  <input
+                    autoFocus
+                    value={modelQuery}
+                    onChange={(e) => setModelQuery(e.target.value)}
+                    placeholder="Search models…"
+                    className="model-search"
+                  />
+                  <div style={{ overflowY: 'auto', flex: 1 }}>
+                    <button
+                      className={`popover-item${!model ? ' selected' : ''}`}
+                      onClick={() => {
+                        setModel(null)
+                        setModelOpen(false)
+                      }}
+                    >
+                      <span className="popover-title">Default (config)</span>
+                    </button>
+                    {filteredModels.length === 0 && (
+                      <p style={{ margin: '6px 10px', fontSize: 12, color: 'var(--text-3)' }}>No matching models.</p>
+                    )}
+                    {filteredModels.map((m) => (
+                      <button
+                        key={m}
+                        className={`popover-item${model === m ? ' selected' : ''}`}
+                        onClick={() => {
+                          setModel(m)
+                          setModelOpen(false)
+                        }}
+                        title={m}
+                      >
+                        <span className="popover-title" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {m}
+                        </span>
+                        {model === m && <Check size={13} style={{ flexShrink: 0 }} />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <button className="icon-btn" disabled title="File upload coming soon" aria-label="Attach file">
+              <Paperclip size={13} />
+            </button>
+          </div>
         </div>
       </div>
     </div>

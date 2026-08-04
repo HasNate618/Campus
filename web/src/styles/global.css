@@ -83,7 +83,7 @@
     --radius-panel: 16px;
     --radius-card: 14px;
     --radius-ctl: 10px;
-    --sidebar-w: 264px;
+    --sidebar-w: 176px;
     --sidebar-w-collapsed: 62px;
   }
 
@@ -131,11 +131,12 @@
     flex-shrink: 0;
     margin: 12px 0 12px 12px;
     border-radius: var(--radius-panel);
-    background: var(--glass-bg);
+    /* Zen transparency: near-clear tint with NO page-level blur or shadow —
+       the page background is transparent so the Zen browser's own
+       transparency/blur shows through the sidebar (a backdrop-filter here
+       smears the transparent backdrop and reads as an opaque panel). */
+    background: rgba(255, 255, 255, 0.02);
     border: 1px solid var(--glass-border);
-    box-shadow: var(--glass-shadow);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -149,8 +150,8 @@
   .brand {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 14px 14px 10px;
+    gap: 8px;
+    padding: 14px 12px 10px;
     white-space: nowrap;
   }
 
@@ -175,9 +176,9 @@
   .nav-item {
     display: flex;
     align-items: center;
-    gap: 11px;
+    gap: 8px;
     margin: 0 10px;
-    padding: 8px 10px;
+    padding: 8px 8px;
     border-radius: var(--radius-ctl);
     border: none;
     background: none;
@@ -221,7 +222,7 @@
   }
 
   .section-label {
-    padding: 16px 20px 7px;
+    padding: 14px 14px 7px;
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.08em;
@@ -280,6 +281,65 @@
 
   .page-col.wide {
     max-width: 1080px;
+  }
+
+  /* course page: the header (title + tabs) is PINNED — only the content
+     column scrolls. The page itself stops scrolling (flex column, overflow
+     hidden) and .course-scroll owns the scroll. */
+  .course-page {
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .course-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 14px 20px 12px;
+    border-bottom: 1px solid var(--glass-border);
+    background: rgba(12, 12, 16, 0.72);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    z-index: 5;
+  }
+
+  .course-head-main {
+    min-width: 0;
+  }
+
+  .course-head-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .course-head-title .page-title {
+    margin: 0;
+  }
+
+  .course-head-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+  }
+
+  .course-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 20px 20px 40px;
+  }
+
+  /* the split-right page rules above give .page a padding the pinned layout
+     must override (specificity: .split-right .page.course-page wins) */
+  .split-right .page.course-page {
+    padding: 0;
   }
 
   .page-title {
@@ -812,26 +872,6 @@
     padding: 4px 0 8px;
   }
 
-  /* Self-reporting chat pipeline status — always visible so a broken stream
-     is diagnosable at a glance (phase + last event + exact error + build). */
-  .stream-status {
-    display: flex;
-    gap: 6px;
-    justify-content: center;
-    align-items: center;
-    font-size: 10.5px;
-    font-family: var(--font-mono);
-    color: var(--text-3);
-    padding: 2px 0 6px;
-    min-height: 16px;
-    user-select: none;
-  }
-  .stream-status .st-dot { width: 12px; text-align: center; }
-  .stream-status .st-build { opacity: 0.55; }
-  .stream-status.st-busy { color: var(--violet); }
-  .stream-status.st-ok { color: #4ade80; }
-  .stream-status.st-err { color: #f87171; }
-
   .chat-input-area {
     width: 100%;
     background: var(--glass-bg);
@@ -851,6 +891,35 @@
 
   .input-dock {
     padding: 8px 20px 18px;
+  }
+
+  /* bottom tools row under the input: context meter + model selector +
+     attach stub. Same width as .chat-input so the controls align with the
+     bar edges. */
+  .input-tools {
+    max-width: 740px;
+    margin: 8px auto 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .input-tools .ctx-meter {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--text-3);
+    white-space: nowrap;
+  }
+
+  .input-tools .scope-pill {
+    font-size: 11.5px;
+    padding: 4px 10px;
+  }
+
+  .input-tools .icon-btn {
+    width: 24px;
+    height: 24px;
   }
 
   .chat-input {
@@ -1499,8 +1568,8 @@
     flex: 1;
     display: flex;
     align-items: center;
-    gap: 9px;
-    padding: 7px 4px 7px 10px;
+    gap: 7px;
+    padding: 7px 2px 7px 8px;
     border: none;
     background: none;
     font: inherit;
@@ -1677,6 +1746,14 @@
 
     .page {
       padding: 20px 16px 96px;
+    }
+
+    .course-head {
+      padding: 12px 16px 10px;
+    }
+
+    .course-scroll {
+      padding: 16px 16px 96px;
     }
 
     .input-dock {

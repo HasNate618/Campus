@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { CalendarDays, Sunrise } from 'lucide-react'
+import { CalendarDays, Home } from 'lucide-react'
 import { api } from '@/api/client'
 import { CalendarCard } from '@/components/CalendarCard'
 import { SyncCard } from '@/components/SyncCard'
@@ -42,7 +42,7 @@ export function TodayPage() {
     <div className="page">
       <div className="page-col wide">
         <div>
-          <h1 className="page-title">Today</h1>
+          <h1 className="page-title">Home</h1>
           <p className="page-sub">{today}</p>
         </div>
 
@@ -50,7 +50,7 @@ export function TodayPage() {
           <div className="dash-col">
             <div className="card">
               <p className="card-title">
-                <Sunrise size={14} /> Digest
+                <Home size={14} /> Digest
                 {digest && (
                   <span style={{ marginLeft: 'auto', fontWeight: 400, color: 'var(--text-3)' }}>
                     {fmtRelative(digest.generated_at)}

@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { ClipboardList } from 'lucide-react'
 import { api } from '@/api/client'
+import { ZenMarkdown } from '@/lib/ZenMarkdown'
+import { sanitizeHtml } from '@/lib/sanitize'
 import { fmtDue, isPast } from '@/lib/format'
 import type { Assignment } from '@/types'
 
@@ -40,7 +42,7 @@ export function AssignmentsPage() {
       {sorted.map((a) => {
         const s = statusChip(a)
         return (
-          <div className="row" key={a.id}>
+          <div className="row" key={a.id} style={{ alignItems: 'flex-start' }}>
             <div className="row-main">
               <div className="row-title">{a.title}</div>
               <div className="row-sub">
@@ -48,6 +50,12 @@ export function AssignmentsPage() {
                 {a.weight != null ? ` · ${a.weight}%` : ''}
                 {a.notes ? ` · ${a.notes}` : ''}
               </div>
+              {/* Full description, never collapsed/truncated, rendered with
+                  the site's zen markdown styling. Brightspace HTML is
+                  sanitized first (marked passes raw HTML through). */}
+              {a.description?.trim() ? (
+                <ZenMarkdown content={sanitizeHtml(a.description)} />
+              ) : null}
             </div>
             <span className={s.cls}>{s.label}</span>
           </div>
