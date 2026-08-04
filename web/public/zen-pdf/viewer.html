@@ -263,6 +263,7 @@ input[type="range"] { accent-color: #4ade7f; }
 
   const state = {
     scale: 1,
+    userZoomed: false,
     pdfDoc: null,
     zenMode: params.get("zen") !== "0",
     keepImagesColor: params.get("imgcolor") !== "0",
@@ -1028,6 +1029,7 @@ input[type="range"] { accent-color: #4ade7f; }
       }
       const prevScale = state.scale;
       state.scale = fitScale;
+      state.userZoomed = false;
       return Math.abs(prevScale - state.scale) > 0.01;
     } catch (e) {
       return false;
@@ -1901,8 +1903,8 @@ input[type="range"] { accent-color: #4ade7f; }
       if (e.key === 'F11') { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{}); else document.exitFullscreen().catch(()=>{}); e.preventDefault(); return; }
 
       // zoom = -
-       if (e.key === '=') { state.scale = Math.min(state.scale * 1.1, 4); await rerenderRenderedPages(); e.preventDefault(); return; }
-       if (e.key === '-') { state.scale = Math.max(state.scale / 1.1, 0.1); await rerenderRenderedPages(); e.preventDefault(); return; }
+       if (e.key === '=') { state.userZoomed = true; state.scale = Math.min(state.scale * 1.1, 4); await rerenderRenderedPages(); e.preventDefault(); return; }
+       if (e.key === '-') { state.userZoomed = true; state.scale = Math.max(state.scale / 1.1, 0.1); await rerenderRenderedPages(); e.preventDefault(); return; }
       if (e.key === '0') {
          await resetToFitWidth({ pageNumber: state.currentPage });
          e.preventDefault();
@@ -1981,7 +1983,7 @@ input[type="range"] { accent-color: #4ade7f; }
         const widthChanged = window.innerWidth !== lastWindowWidth;
         lastWindowWidth = window.innerWidth;
         if (!widthChanged) return;
-        const scaleChanged = await adjustScaleToMode({ pageNumber: state.currentPage, skipWhenZoomedIn: true });
+        const scaleChanged = await adjustScaleToMode({ pageNumber: state.currentPage, skipWhenZoomedIn: state.userZoomed });
         if (scaleChanged || hasDisplayScaleChange()) {
           await rerenderRenderedPages();
           alignFitWidthView();

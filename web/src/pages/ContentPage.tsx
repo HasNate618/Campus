@@ -96,18 +96,20 @@ function ViewerBody({
   file,
   contentInfo,
   loading,
+  showMd,
 }: {
   node: ContentNode
   file: FileRecord | null
   contentInfo: FileContent | null
   loading: boolean
+  showMd: boolean
 }) {
   // Module landing page (Brightspace HTML).
   if (node.node_type === 'module') {
     if (node.description?.trim()) {
       return <div className="md html" dangerouslySetInnerHTML={{ __html: sanitizeHtml(node.description) }} />
     }
-    if (file) return <FileBody file={file} contentInfo={contentInfo} loading={loading} />
+    if (file) return <FileBody file={file} contentInfo={contentInfo} loading={loading} showMd={showMd} />
     return <div className="empty compact">This module has no landing page content.</div>
   }
 
@@ -129,22 +131,20 @@ function ViewerBody({
   }
 
   if (!file) return <div className="empty compact">No file attached to this topic.</div>
-  return <FileBody file={file} contentInfo={contentInfo} loading={loading} />
+  return <FileBody file={file} contentInfo={contentInfo} loading={loading} showMd={showMd} />
 }
 
 function FileBody({
   file,
   contentInfo,
   loading,
+  showMd,
 }: {
   file: FileRecord
   contentInfo: FileContent | null
   loading: boolean
+  showMd: boolean
 }) {
-  // PDFs: original file by default; extracted text (zen-rendered) as an option.
-  const [showMd, setShowMd] = useState(false)
-  useEffect(() => setShowMd(false), [file.id])
-
   if (loading) return <div className="empty compact">Loading…</div>
   if (!contentInfo) return <div className="empty compact">Couldn&apos;t load this file.</div>
 
@@ -173,18 +173,6 @@ function FileBody({
     case 'pdf':
       return (
         <div className="pdf-zen">
-          {(rawUrl || content) && (
-            <div className="viewer-actions" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
-              {rawUrl && (
-                <button className="btn btn-outline btn-sm" onClick={() => setShowMd((s) => !s)}>
-                  {showMd ? 'View original PDF' : 'View extracted text'}
-                </button>
-              )}
-              {file.processed === 0 && (
-                <span className="viewer-note">Text extraction pending — showing the original PDF.</span>
-              )}
-            </div>
-          )}
           {showMd && content ? (
             <div className="pdf-text-view">
               <ZenMarkdown content={content} />
@@ -245,6 +233,9 @@ export function ContentPage() {
 
   const selectedNode = nid != null ? nodes.find((n) => n.id === nid) ?? null : null
   const selectedFile = nid != null ? files.find((f) => f.content_node_id === nid) ?? null : null
+  // PDFs: original file by default; extracted text (zen-rendered) as an option.
+  const [showMd, setShowMd] = useState(false)
+  useEffect(() => setShowMd(false), [nid])
 
   useEffect(() => {
     if (!selectedFile) {
@@ -360,6 +351,15 @@ export function ContentPage() {
                 >
                   {viewMode === 'fullWidth' ? <Columns2 size={14} /> : <Maximize2 size={14} />}
                 </button>
+                {contentInfo?.format === 'pdf' && selectedFile && (
+                  <button
+                    className="btn btn-outline btn-sm"
+                    onClick={() => setShowMd((s) => !s)}
+                    title="Toggle between the original PDF and the extracted text"
+                  >
+                    {showMd ? 'Original PDF' : 'Extracted text'}
+                  </button>
+                )}
               </div>
               <div className="viewer-title">{selectedNode.title}</div>
               {selectedFile && <div className="viewer-path">{selectedFile.path}</div>}
@@ -376,6 +376,7 @@ export function ContentPage() {
                 file={selectedFile}
                 contentInfo={contentInfo}
                 loading={loadingContent}
+                showMd={showMd}
               />
             </motion.div>
           </>
