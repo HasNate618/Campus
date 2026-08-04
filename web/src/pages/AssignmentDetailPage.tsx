@@ -112,11 +112,24 @@ export function AssignmentDetailPage() {
         <>
           <p className="rubric-name">Attachments</p>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-            {a.attachments.map((at) => (
-              <span key={at.FileId} className="chip">
-                <Paperclip size={11} style={{ verticalAlign: -2 }} /> {at.FileName}
-              </span>
-            ))}
+            {a.attachments.map((at) =>
+              at.local ? (
+                <a
+                  key={at.FileId}
+                  className="chip"
+                  href={`/api/assets/${encodeURI(at.local)}`}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  style={{ textDecoration: 'none', color: 'inherit' }}
+                >
+                  <Paperclip size={11} style={{ verticalAlign: -2 }} /> {at.FileName}
+                </a>
+              ) : (
+                <span key={at.FileId} className="chip">
+                  <Paperclip size={11} style={{ verticalAlign: -2 }} /> {at.FileName}
+                </span>
+              )
+            )}
           </div>
         </>
       ) : null}

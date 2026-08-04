@@ -36,9 +36,12 @@ export function AssignmentsPage() {
     return a.due_at.localeCompare(b.due_at)
   })
 
-  // sectioned by the dropbox category tag (Labs, Project); untagged first
-  const untagged = sorted.filter((a) => !a.category)
-  const tags = [...new Set(sorted.map((a) => a.category).filter(Boolean))].sort()
+  // sectioned by the dropbox category tag (Labs, Project); untagged first,
+  // closed assignments sink to a Closed section at the bottom
+  const openItems = sorted.filter((a) => !a.closed)
+  const closedItems = sorted.filter((a) => a.closed)
+  const untagged = openItems.filter((a) => !a.category)
+  const tags = [...new Set(openItems.map((a) => a.category).filter(Boolean))].sort()
 
   const row = (a: Assignment) => {
     const s = statusChip(a)
@@ -83,9 +86,17 @@ export function AssignmentsPage() {
               <p className="rubric-name" style={{ marginTop: 8 }}>
                 {tag}
               </p>
-              {sorted.filter((a) => a.category === tag).map(row)}
+              {openItems.filter((a) => a.category === tag).map(row)}
             </Fragment>
           ))}
+        {!loading && closedItems.length > 0 && (
+          <>
+            <p className="rubric-name" style={{ marginTop: 8 }}>
+              Closed
+            </p>
+            {closedItems.map(row)}
+          </>
+        )}
       </div>
     </div>
   )
