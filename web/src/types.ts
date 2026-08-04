@@ -32,6 +32,11 @@ export interface Assignment {
   status: string
   url?: string | null
   rubrics?: Rubric[]
+  category?: string | null
+  group_category?: string | null
+  points?: number | null
+  attachments?: { FileId: number; FileName: string; Size: number }[] | null
+  availability?: { StartDate?: string; EndDate?: string } | null
   notes?: string | null
 }
 

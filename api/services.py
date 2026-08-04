@@ -143,28 +143,27 @@ def get_file_raw_path(file_id: int) -> Path | None:
 
 
 # ── assignments / announcements ─────────────────────────────────────────
+def _parse_assignment(r: dict) -> dict:
+    for col, key in (("rubrics_json", "rubrics"), ("attachments_json", "attachments"),
+                     ("availability_json", "availability")):
+        j = r.get(col)
+        r[key] = json.loads(j) if j else None
+        r.pop(col, None)
+    return r
+
+
 def list_assignments(course_id: int, upcoming_only: bool = False) -> list[dict]:
     q = "SELECT * FROM assignments WHERE course_id=?"
     args: tuple = (course_id,)
     if upcoming_only:
         q += " AND due_at IS NOT NULL AND due_at >= datetime('now')"
     q += " ORDER BY due_at"
-    rows = _rows(q, args)
-    for r in rows:
-        rj = r.get("rubrics_json")
-        r["rubrics"] = json.loads(rj) if rj else []
-        r.pop("rubrics_json", None)
-    return rows
+    return [_parse_assignment(r) for r in _rows(q, args)]
 
 
 def get_assignment(course_id: int, assignment_id: int) -> dict | None:
     r = _row("SELECT * FROM assignments WHERE course_id=? AND id=?", (course_id, assignment_id))
-    if not r:
-        return None
-    rj = r.get("rubrics_json")
-    r["rubrics"] = json.loads(rj) if rj else []
-    r.pop("rubrics_json", None)
-    return r
+    return _parse_assignment(r) if r else None
 
 
 def list_announcements(course_id: int | None = None, limit: int = 20) -> list[dict]:

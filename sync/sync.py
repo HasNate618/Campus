@@ -198,6 +198,20 @@ class SyncEngine:
             folders = self.client.get(self.client.le(org_unit, "/dropbox/folders/"))
         except D2LError:
             return
+        # dropbox categories (Project/Labs) + lp group categories (group
+        # assignments' "Project" category) so folders' ids become names
+        categories: dict = {}
+        try:
+            for c in self.client.get(self.client.le(org_unit, "/dropbox/categories/")):
+                categories[c.get("Id")] = c.get("Name")
+        except D2LError:
+            pass
+        group_cats: dict = {}
+        try:
+            for g in self.client.get(self.client.lp(f"/{org_unit}/groupcategories/")):
+                group_cats[g.get("GroupCategoryId")] = g.get("Name")
+        except D2LError:
+            pass
         for f in folders:
             if f.get("IsCategory", False):
                 continue
@@ -216,6 +230,8 @@ class SyncEngine:
             # the full rubric: criteria groups, levels, per-cell feedback)
             assessment = f.get("Assessment") or {}
             rubrics = assessment.get("Rubrics") or []
+            attachments = f.get("Attachments") or []
+            availability = f.get("Availability") or None
             self.db.upsert_assignment(course_id, {
                 "title": f.get("Name", "Assignment"),
                 "description": desc,
@@ -224,6 +240,11 @@ class SyncEngine:
                 "brightspace_folder_id": f.get("Id"),
                 "url": f"{self.cfg.base_url}/d2l/lms/dropbox/user/folders/{f.get('Id')}/",
                 "rubrics_json": json.dumps(rubrics) if rubrics else None,
+                "category": categories.get(f.get("CategoryId")),
+                "group_category": group_cats.get(f.get("GroupTypeId")),
+                "points": assessment.get("ScoreDenominator"),
+                "attachments_json": json.dumps(attachments) if attachments else None,
+                "availability_json": json.dumps(availability) if availability else None,
             })
 
     # ── news (announcements) ────────────────────────────────────────────
