@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, ClipboardList, ExternalLink, Paperclip } from 'lucide-react'
+import { ArrowLeft, ClipboardList, ExternalLink, Paperclip, Users } from 'lucide-react'
 import { api } from '@/api/client'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
 import { sanitizeHtml } from '@/lib/sanitize'
@@ -93,8 +93,12 @@ export function AssignmentDetailPage() {
           <ClipboardList size={12} style={{ verticalAlign: -2 }} /> {fmtDue(a.due_at)}
         </span>
         {a.points != null ? <span>· {a.points} pts</span> : null}
-        {a.category ? <span className="chip">{a.category}</span> : null}
-        {a.group_category ? <span className="chip">{a.group_category} · group</span> : null}
+        {a.category ? <span className="chip" title="Dropbox category">{a.category}</span> : null}
+        {a.group_category ? (
+          <span className="chip" title={`Group category: ${a.group_category} — team submission`}>
+            <Users size={11} style={{ verticalAlign: -2 }} /> Group work
+          </span>
+        ) : null}
         {a.weight != null ? <span>· {a.weight}%</span> : null}
         {a.availability?.EndDate ? <span>· closes {fmtDue(a.availability.EndDate)}</span> : null}
         {a.url && (
