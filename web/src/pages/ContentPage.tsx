@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, ChevronRight, Download, ExternalLink } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { ArrowLeft, ChevronRight, Columns2, Download, ExternalLink, Maximize2 } from 'lucide-react'
 import { api } from '@/api/client'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
@@ -18,6 +19,8 @@ function fileExt(path: string): string {
 }
 
 /** Content page view modes: two-pane desktop layout vs single-panel. */
+type ViewMode = 'sideBySide' | 'fullWidth'
+
 /** Per-kind chip for the tree + viewer, derived from the file path/format. */
 function kindChip(file: FileRecord, format?: FileFormat): { label: string; cls: string } {
   const ext = fileExt(file.path)
@@ -268,6 +271,23 @@ export function ContentPage() {
   const children = (parentId: number) => nodes.filter((n) => n.parent_id === parentId)
   const fileForNode = (id: number) => files.find((f) => f.content_node_id === id)
 
+  // View mode (toggled from the viewer header): 'fullWidth' (default) = one
+  // panel at a time; 'sideBySide' = tree beside the viewer.
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    try {
+      return localStorage.getItem('hc.content.viewMode') === 'sideBySide' ? 'sideBySide' : 'fullWidth'
+    } catch {
+      return 'fullWidth'
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem('hc.content.viewMode', viewMode)
+    } catch {
+      /* storage unavailable — keep in-memory only */
+    }
+  }, [viewMode])
+
   // Collapsible tree (per-module).
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
   const toggleModule = (id: number) =>
@@ -279,7 +299,7 @@ export function ContentPage() {
     })
 
   return (
-    <div className={`split split-mode-full${nid != null ? ' has-selection' : ''}`}>
+    <div className={`split split-mode-${viewMode === 'sideBySide' ? 'split' : 'full'}${nid != null ? ' has-selection' : ''}`}>
       <div className="card split-tree">
         {modules.length === 0 && <div className="empty compact">No content synced.</div>}
         {modules.map((mod) => (
@@ -333,16 +353,31 @@ export function ContentPage() {
                 >
                   <ArrowLeft size={13} /> All topics
                 </Link>
+                <button
+                  onClick={() => setViewMode((m) => (m === 'fullWidth' ? 'sideBySide' : 'fullWidth'))}
+                  title={viewMode === 'fullWidth' ? 'Show the content tree beside the viewer' : 'Show one panel at a time'}
+                  className="icon-btn view-toggle"
+                >
+                  {viewMode === 'fullWidth' ? <Columns2 size={14} /> : <Maximize2 size={14} />}
+                </button>
               </div>
               <div className="viewer-title">{selectedNode.title}</div>
               {selectedFile && <div className="viewer-path">{selectedFile.path}</div>}
             </div>
-            <ViewerBody
-              node={selectedNode}
-              file={selectedFile}
-              contentInfo={contentInfo}
-              loading={loadingContent}
-            />
+            <motion.div
+              key={nid ?? 'none'}
+              style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.15 }}
+            >
+              <ViewerBody
+                node={selectedNode}
+                file={selectedFile}
+                contentInfo={contentInfo}
+                loading={loadingContent}
+              />
+            </motion.div>
           </>
         )}
       </div>

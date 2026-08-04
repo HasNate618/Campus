@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet, useParams } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useParams } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import { Bell, CalendarDays } from 'lucide-react'
 import { api } from '@/api/client'
 import { ChatView } from '@/chat/ChatView'
@@ -27,6 +28,7 @@ function AnnouncementRow({ a }: { a: Announcement }) {
 export function CourseLayout() {
   const { courseId } = useParams()
   const cid = Number(courseId)
+  const { pathname } = useLocation()
   const [course, setCourse] = useState<Course | null>(null)
   const { setLastCourse } = useChat()
 
@@ -65,7 +67,15 @@ export function CourseLayout() {
       </header>
       <div className="course-scroll">
         <div className="page-col">
-          <Outlet />
+          <motion.div
+            key={pathname}
+            style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.16 }}
+          >
+            <Outlet />
+          </motion.div>
         </div>
       </div>
     </div>

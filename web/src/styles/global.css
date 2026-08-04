@@ -1418,6 +1418,43 @@
     background: transparent;
   }
 
+  /* PDFs: the viewer fills the course pane and the frame auto-resizes with
+     it — and in full-width mode the pdf spans the whole pane, breaking out
+     of the narrow content column. */
+  .split-viewer.pdf-mode {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .split-viewer.pdf-mode .zen-pdf-frame {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+  }
+
+  .split-viewer.pdf-mode .pdf-zen {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .course-scroll:has(.split-viewer.pdf-mode) {
+    overflow: hidden;
+  }
+
+  .course-scroll:has(.split-viewer.pdf-mode) > .page-col {
+    height: 100%;
+    max-width: none;
+  }
+
+  .course-scroll:has(.split-viewer.pdf-mode) .split {
+    height: 100%;
+    grid-template-rows: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
   /* keep wide Brightspace HTML inside the pane, never the viewport */
   .md {
     overflow-wrap: break-word;
