@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS assignments (
                 CHECK (source IN ('brightspace','manual','ai','seed')),
     brightspace_folder_id INTEGER,                       -- for submission sync
     url         TEXT,
+    rubrics_json TEXT,                                   -- D2L Assessment.Rubrics payload
     notes       TEXT,                                    -- AI/user annotations (extensions etc)
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
