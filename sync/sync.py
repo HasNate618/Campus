@@ -212,6 +212,21 @@ class SyncEngine:
                 group_cats[g.get("GroupCategoryId")] = g.get("Name")
         except D2LError:
             pass
+        # the user's team per group category — the "Group 29" prefix that
+        # Brightspace shows on group assignments
+        try:
+            me = (self.client.get(self.client.lp("/users/whoami")) or {}).get("Identifier")
+            for cat_id, cat_name in group_cats.items():
+                try:
+                    for g in self.client.get(self.client.lp(f"/{org_unit}/groupcategories/{cat_id}/groups/")):
+                        # whoami Identifier is a string; enrollments are ints
+                        if any(str(x) == str(me) for x in (g.get("Enrollments") or [])):
+                            self.db.upsert_course_group(course_id, cat_name, g.get("Name"))
+                            break
+                except D2LError:
+                    pass
+        except D2LError:
+            pass
         for f in folders:
             if f.get("IsCategory", False):
                 continue

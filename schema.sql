@@ -38,6 +38,15 @@ CREATE TABLE IF NOT EXISTS course_sessions (
 );
 
 -- ── Academic work ──────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS course_groups (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    course_id     INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+    category_name TEXT NOT NULL,
+    group_name    TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(course_id, category_name)
+);
+
 CREATE TABLE IF NOT EXISTS assignments (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     course_id   INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,

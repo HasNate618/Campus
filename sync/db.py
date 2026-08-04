@@ -131,6 +131,16 @@ class DB:
         return True
 
     # ── assignments ─────────────────────────────────────────────────────
+    def upsert_course_group(self, course_id: int, category_name: str, group_name: str) -> None:
+        """The user's team in a group category (e.g. 'Group 29' in 'Project')."""
+        self.conn.execute(
+            """INSERT INTO course_groups (course_id, category_name, group_name)
+               VALUES (?,?,?)
+               ON CONFLICT(course_id, category_name)
+               DO UPDATE SET group_name=excluded.group_name""",
+            (course_id, category_name, group_name))
+        self.conn.commit()
+
     def upsert_assignment(self, course_id: int, a: dict) -> tuple[int, bool]:
         """a keys: title, description, due_at, weight, brightspace_folder_id, url,
         rubrics_json, category, group_category, points, attachments_json,
