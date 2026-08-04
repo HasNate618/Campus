@@ -30,6 +30,7 @@ export interface Assignment {
   due_at?: string | null
   weight?: number | null
   status: string
+  url?: string | null
   notes?: string | null
 }
 
