@@ -15,6 +15,20 @@ import { streamChat, api, type ChatServerSession } from '@/api/client'
  *  node to activeNodeId. Regenerating an assistant message forks the tree
  *  (new sibling); editing a user message rewinds (subtree deleted, re-sent).
  */
+/** One step of an assistant turn, in canonical order: each contiguous
+ *  reasoning run is a thought step; each tool call is a tool step. The
+ *  final response content lives on the node itself, not in steps. */
+export interface StepItem {
+  kind: 'thought' | 'tool'
+  /** thought: accumulated reasoning text for this segment */
+  text?: string
+  /** tool: the tool name */
+  tool?: string
+  args?: unknown
+  done?: boolean
+  result?: unknown
+}
+
 export interface MsgNode {
   id: string
   parentId: string | null
@@ -26,6 +40,8 @@ export interface MsgNode {
   thinkingDone?: boolean
   /** Mid-turn narration hidden from the UI + branch chips. */
   intermediate?: boolean
+  /** Ordered thought/tool steps of this turn (absent on pre-steps chats). */
+  steps?: StepItem[]
   model?: string
   tokens?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
   tool?: string
@@ -502,6 +518,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       let assistantId: string | null = null
       let turnThinking = ''
       let receivedDone = false
+      // ordered thought/tool steps of this turn — each contiguous reasoning
+      // run is a thought step; each tool call is a tool step
+      let steps: StepItem[] = []
+      let openThought = -1
+      const closeThought = () => {
+        openThought = -1
+      }
+      const ensureThought = () => {
+        if (openThought === -1) {
+          steps = [...steps, { kind: 'thought', text: '' }]
+          openThought = steps.length - 1
+        }
+      }
+      const patchSteps = (id: string) => patchNode(sid, id, (n) => ({ ...n, steps }))
       // per-stream event ticker for the self-reporting status line
       let lastEvent: string | undefined
       const eventCounts: Record<string, number> = {}
@@ -512,7 +542,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         appendNode(sid, {
           id: assistantId, parentId: userNodeId, children: [], role: 'assistant',
           content: '', streaming: true, thinking: seedThinking ?? '', thinkingDone: false,
-          createdAt: Date.now(),
+          steps: [], createdAt: Date.now(),
         })
         setActiveNode(sid, assistantId)
         return assistantId
@@ -540,9 +570,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           if (event === 'reasoning') {
             turnThinking += (d.text as string) ?? ''
             const id = ensureAssistant()
-            patchNode(sid, id, (n) => ({ ...n, thinking: (n.thinking ?? '') + ((d.text as string) ?? '') }))
+            ensureThought()
+            const chunk = (d.text as string) ?? ''
+            steps = steps.map((s, i) => (i === openThought ? { ...s, text: (s.text ?? '') + chunk } : s))
+            patchNode(sid, id, (n) => ({ ...n, thinking: (n.thinking ?? '') + chunk, steps }))
           } else if (event === 'token') {
             const id = ensureAssistant(turnThinking || undefined)
+            closeThought()
             patchNode(sid, id, (n) => ({
               ...n,
               content: n.content + ((d.text as string) ?? ''),
@@ -551,18 +585,28 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               // tool_start hid this node as mid-turn narration — real content
               // tokens mean the answer is back, so show it again
               intermediate: false,
+              steps,
             }))
           } else if (event === 'tool_start') {
             // keep the assistant node VISIBLE (its tool chips render live as
             // each tool starts: running → done) — hiding it made every tool
             // call invisible until the final answer began
+            const id = ensureAssistant()
+            closeThought()
+            steps = [...steps, { kind: 'tool', tool: (d.tool as string) ?? 'tool', args: d.args, done: false }]
             const toolId = makeUuid()
             appendNode(sid, {
               id: toolId, parentId: assistantId ?? userNodeId, children: [], role: 'tool',
               content: '', tool: (d.tool as string) ?? 'tool', args: d.args, done: false,
               open: false, createdAt: Date.now(),
             })
+            patchSteps(id)
           } else if (event === 'tool_end') {
+            steps = steps.map((s) =>
+              s.kind === 'tool' && s.tool === (d.tool as string) && !s.done
+                ? { ...s, done: true, result: d.result }
+                : s,
+            )
             setSessions((ss) =>
               ss.map((s) =>
                 s.id !== sid
@@ -578,8 +622,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                     },
               ),
             )
+            if (assistantId) patchSteps(assistantId)
           } else if (event === 'done') {
             receivedDone = true
+            closeThought()
             setStreamStatus({ phase: 'done', lastEvent: 'done', eventCount: eventCounts.token })
             if (!assistantId) {
               // nothing streamed at all — surface the final answer directly
@@ -587,7 +633,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               appendNode(sid, {
                 id, parentId: userNodeId, children: [], role: 'assistant',
                 content: (d.answer as string) ?? '', streaming: false, thinkingDone: true,
-                thinking: turnThinking || undefined, createdAt: Date.now(),
+                thinking: turnThinking || undefined, steps, createdAt: Date.now(),
               })
               setActiveNode(sid, id)
             } else {
@@ -599,6 +645,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 thinking: n.thinking || turnThinking || undefined,
                 model: (d.model as string) || undefined,
                 tokens: (d.usage as MsgNode['tokens']) || undefined,
+                steps,
               }))
             }
           } else if (event === 'error') {
@@ -606,6 +653,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             // right after, so surface the exact message AS A VISIBLE NODE
             // (a status line alone is invisible — the user saw thinking +
             // tools then nothing)
+            closeThought()
             setStreamStatus({
               phase: 'error',
               lastEvent: 'error',
@@ -618,6 +666,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 streaming: false,
                 intermediate: false,
                 content: (n.content || '') + '\n\n' + errText,
+                steps,
               }))
             } else {
               const id = makeUuid()
@@ -629,6 +678,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 content: errText,
                 streaming: false,
                 thinkingDone: true,
+                steps,
                 createdAt: Date.now(),
               })
               setActiveNode(sid, id)
@@ -641,6 +691,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       )
         .catch((err) => {
           // surface stream failures IN the chat — never silent
+          closeThought()
           const errMsg = String(err?.message ?? err) || 'unknown stream error'
           setStreamStatus({ phase: 'error', lastEvent: 'error', error: errMsg })
           if (assistantId) {
@@ -649,13 +700,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               streaming: false,
               thinkingDone: true,
               content: n.content || `⚠ Stream failed: ${errMsg}`,
+              steps,
             }))
           } else {
             const eid = makeUuid()
             appendNode(sid, {
               id: eid, parentId: userNodeId, children: [], role: 'assistant',
               content: `⚠ Stream failed: ${errMsg}`, streaming: false, thinkingDone: true,
-              createdAt: Date.now(),
+              steps, createdAt: Date.now(),
             })
             setActiveNode(sid, eid)
           }
@@ -676,7 +728,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             appendNode(sid, {
               id: eid, parentId: userNodeId, children: [], role: 'assistant',
               content: '⚠ The response ended before completing (no done event). Try again.',
-              streaming: false, thinkingDone: true, createdAt: Date.now(),
+              streaming: false, thinkingDone: true, steps, createdAt: Date.now(),
             })
             setActiveNode(sid, eid)
           } else if (!receivedDone && assistantId) {
@@ -685,6 +737,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               streaming: false,
               thinkingDone: true,
               content: n.content || '⚠ The response ended before completing. Try again.',
+              steps,
             }))
           }
           busyRef.current = false

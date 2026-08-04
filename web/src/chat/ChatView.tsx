@@ -20,7 +20,7 @@ import { courseColor } from '@/lib/courses'
 import { fmtRelative } from '@/lib/format'
 import { api } from '@/api/client'
 import { useZenPostProcess } from '@/lib/zenMd'
-import { useChat, pathFor, type MsgNode } from './ChatContext'
+import { useChat, pathFor, type MsgNode, type StepItem } from './ChatContext'
 import type { Course } from '@/types'
 
 const SUGGESTIONS = [
@@ -113,8 +113,8 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
         : models,
     [models, modelQuery],
   )
-  const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({})
-  const [expandedThinking, setExpandedThinking] = useState<Record<string, boolean>>({})
+  const [expandedSteps, setExpandedSteps] = useState<Record<string, boolean>>({})
+  const [expandedStepDetail, setExpandedStepDetail] = useState<Record<string, boolean>>({})
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -154,15 +154,73 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
     if (busy || nearBottom) el.scrollTop = el.scrollHeight
   }, [session?.nodes, session?.activeNodeId, session?.id, busy])
 
-  /** Tool children of an assistant node. */
+  /** Tool children of an assistant node (fallback + tree semantics). */
   const toolChildren = (assistantId: string): MsgNode[] =>
     session?.nodes.filter((n) => n.parentId === assistantId && n.role === 'tool') ?? []
 
-  const toggleTools = (assistantId: string) =>
-    setExpandedTools((t) => ({ ...t, [assistantId]: !t[assistantId] }))
+  /** A short humanized purpose for a tool call, from its most meaningful
+   *  argument (the "to do thing" in "Using some_tool to do thing"). */
+  const toolPurpose = (tool: string, args?: unknown): string => {
+    const a = (args ?? {}) as Record<string, unknown>
+    const pick = (...keys: string[]): string => {
+      for (const k of keys) {
+        const v = a[k]
+        if (typeof v === 'string' && v.trim()) return v.trim()
+        if (typeof v === 'number') return String(v)
+      }
+      return ''
+    }
+    const trunc = (s: string) => (s.length > 72 ? `${s.slice(0, 69)}…` : s)
+    switch (tool) {
+      case 'content_read_file':
+        return trunc(pick('path'))
+      case 'content_grep':
+      case 'web_search':
+        return `search '${trunc(pick('query'))}'`
+      case 'web_read':
+        return trunc(pick('url'))
+      case 'course_map':
+      case 'content_list_files':
+      case 'harness_list_assignments':
+      case 'harness_get_announcements':
+      case 'harness_get_facts':
+        return pick('course')
+      case 'terminal_run':
+        return trunc(pick('command'))
+      case 'file_write':
+        return trunc(pick('path'))
+      case 'mutate_add_fact':
+        return trunc(pick('fact'))
+      case 'mutate_add_event':
+        return trunc(pick('title'))
+      case 'mutate_update_assignment': {
+        const id = pick('id')
+        const due = pick('due_at')
+        if (due) return `#${id} due ${trunc(due)}`
+        return id ? `#${id}` : ''
+      }
+      default:
+        return ''
+    }
+  }
 
-  const toggleThinking = (nodeId: string) =>
-    setExpandedThinking((t) => ({ ...t, [nodeId]: !t[nodeId] }))
+  /** Ordered steps of an assistant turn: the recorded list, or (for chats
+   *  saved before steps existed) synthesized from thinking + tool children. */
+  const stepsFor = (node: MsgNode): StepItem[] => {
+    if (node.steps?.length) return node.steps
+    const out: StepItem[] = []
+    if (node.thinking) out.push({ kind: 'thought', text: node.thinking })
+    for (const t of toolChildren(node.id)) {
+      out.push({ kind: 'tool', tool: t.tool, args: t.args, done: t.done, result: t.result })
+    }
+    return out
+  }
+
+  const toggleSteps = (assistantId: string) =>
+    setExpandedSteps((s) => ({ ...s, [assistantId]: !s[assistantId] }))
+
+  const toggleStepDetail = (key: string) =>
+    setExpandedStepDetail((s) => ({ ...s, [key]: !s[key] }))
 
   const startEdit = (node: MsgNode) => {
     setEditingNodeId(node.id)
@@ -175,32 +233,80 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
     setEditingNodeId(null)
   }
 
-  const renderToolRow = (node: MsgNode, key: string): ReactNode => (
-    <motion.div
-      key={key}
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.18 }}
-      style={{ display: 'flex', flexDirection: 'column' }}
-    >
-      <button
-        className="tool-chip"
-        onClick={() => toggleTools(node.parentId ?? '')}
-        style={{ cursor: 'default' }}
+  /** One step row of an assistant turn — thought (expandable thinking text)
+   *  or tool ("Using X to …", expandable args/result). */
+  const renderStepRow = (node: MsgNode, s: StepItem, i: number, key: string): ReactNode => {
+    const detailKey = `${node.id}:${i}`
+    const open = !!expandedStepDetail[detailKey]
+    if (s.kind === 'thought') {
+      return (
+        <motion.div
+          key={key}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.18 }}
+          style={{ display: 'flex', flexDirection: 'column' }}
+        >
+          <button
+            className="tool-chip"
+            onClick={() => toggleStepDetail(detailKey)}
+            title={node.thinkingDone ? 'Show chain-of-thought' : 'Chain-of-thought streaming'}
+          >
+            {node.thinkingDone ? <Brain size={13} /> : <Loader2 size={13} className="animate-spin" />}
+            <span>{node.thinkingDone ? 'Thought' : 'Thinking…'}</span>
+            <ChevronDown
+              size={12}
+              style={{
+                transform: open ? 'rotate(180deg)' : 'none',
+                transition: 'transform 120ms ease',
+                opacity: 0.6,
+              }}
+            />
+          </button>
+          {open && (
+            <div
+              className="tool-detail"
+              style={{ fontStyle: 'italic', maxHeight: 'min(40vh, 320px)', overflowY: 'auto' }}
+            >
+              {s.text ?? node.thinking ?? ''}
+            </div>
+          )}
+        </motion.div>
+      )
+    }
+    const purpose = toolPurpose(s.tool ?? '', s.args)
+    return (
+      <motion.div
+        key={key}
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.18 }}
+        style={{ display: 'flex', flexDirection: 'column' }}
       >
-        {node.done ? <Check size={13} /> : <Loader2 size={13} className="animate-spin" />}
-        <Wrench size={13} />
-        {node.tool}
-        <span style={{ opacity: 0.6 }}>{node.done ? '· done' : '· running'}</span>
-      </button>
-      {expandedTools[node.parentId ?? ''] && (
-        <div className="tool-detail">
-          {node.args != null && `args:   ${formatDetail(node.args)}\n`}
-          {node.done ? `result: ${formatDetail(node.result) || '—'}` : 'running…'}
-        </div>
-      )}
-    </motion.div>
-  )
+        <button className="tool-chip" onClick={() => toggleStepDetail(detailKey)}>
+          {s.done ? <Check size={13} /> : <Loader2 size={13} className="animate-spin" />}
+          <Wrench size={13} />
+          <span>Using {s.tool}</span>
+          {purpose && <span style={{ opacity: 0.6 }}>· {purpose}</span>}
+          <span style={{ opacity: 0.6 }}>{s.done ? '· done' : '· running'}</span>
+          <ChevronDown
+            size={12}
+            style={{
+              transform: open ? 'rotate(180deg)' : 'none',
+              transition: 'transform 120ms ease',
+              opacity: 0.6,
+            }}
+          />
+        </button>
+        {open && (
+          <div className="tool-detail">
+            {s.args != null && `args:   ${formatDetail(s.args)}\n`}
+            {s.done ? `result: ${formatDetail(s.result) || '—'}` : 'running…'}
+          </div>
+        )}
+      </motion.div>
+    )
+  }
 
   const renderBranchChips = (node: MsgNode): ReactNode => {
     const kids =
@@ -286,9 +392,11 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
       if (node.role === 'assistant' && node.intermediate) continue
 
       if (node.role === 'assistant') {
-        const tools = toolChildren(node.id)
-        const toolsDone = tools.every((t) => t.done)
-        const thinkingOpen = !!expandedThinking[node.id]
+        const steps = stepsFor(node)
+        // live while streaming; collapsed into one pill once done (expandable)
+        const stepsOpen = !!node.streaming || !!expandedSteps[node.id]
+        const nThoughts = steps.filter((s) => s.kind === 'thought').length
+        const nTools = steps.length - nThoughts
         out.push(
           <motion.div
             key={key}
@@ -297,53 +405,33 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
             transition={{ duration: 0.18 }}
             style={{ display: 'flex', flexDirection: 'column' }}
           >
-              {tools.length > 0 &&
-                (toolsDone && !expandedTools[node.id] ? (
-                  <button className="tool-chip" onClick={() => toggleTools(node.id)} title="Expand tool calls" style={{ color: 'var(--text-3)' }}>
-                    <Wrench size={13} />
-                    {tools.length} tool call{tools.length === 1 ? '' : 's'}
-                    <ChevronDown size={12} style={{ opacity: 0.6 }} />
-                  </button>
-                ) : (
-                  tools.map((t) => renderToolRow(t, `${session.id}-tool-${t.id}`))
-                ))}
-              <div className="msg-assistant">
-              {node.thinking ? (
-                <div style={{ marginBottom: 8 }}>
-                  <button
-                    className="tool-chip"
-                    onClick={() => toggleThinking(node.id)}
-                    style={{ color: 'var(--text-2)', fontFamily: 'inherit', fontSize: 12 }}
-                    title={node.thinkingDone ? 'Show chain-of-thought' : 'Chain-of-thought streaming'}
-                  >
-                    {node.thinkingDone ? (
-                      <Brain size={12} />
-                    ) : (
-                      <Loader2 size={12} className="animate-spin" />
-                    )}
-                    <span>{node.thinkingDone ? 'Thought' : 'Thinking…'}</span>
-                    <ChevronDown
-                      size={12}
-                      style={{
-                        transform: thinkingOpen ? 'rotate(180deg)' : 'none',
-                        transition: 'transform 120ms ease',
-                        opacity: 0.6,
-                      }}
-                    />
-                  </button>
-                  {thinkingOpen && (
-                    <div
-                      className="tool-detail"
-                      style={{ fontStyle: 'italic', maxHeight: 'min(40vh, 320px)', overflowY: 'auto' }}
+              {steps.length > 0 && (
+                <div className="msg-steps">
+                  {!stepsOpen ? (
+                    <button
+                      className="tool-chip"
+                      onClick={() => toggleSteps(node.id)}
+                      title="Expand steps"
+                      style={{ color: 'var(--text-3)' }}
                     >
-                      {node.thinking}
-                    </div>
+                      <Brain size={13} />
+                      <Wrench size={13} />
+                      <span>
+                        {steps.length} step{steps.length === 1 ? '' : 's'}
+                        {nTools > 0 ? ` · ${nTools} tool call${nTools === 1 ? '' : 's'}` : ''}
+                        {nThoughts > 0 ? ` · ${nThoughts} thought${nThoughts === 1 ? '' : 's'}` : ''}
+                      </span>
+                      <ChevronDown size={12} style={{ opacity: 0.6 }} />
+                    </button>
+                  ) : (
+                    steps.map((s, i) => renderStepRow(node, s, i, `${session.id}-step-${node.id}-${i}`))
                   )}
                 </div>
-              ) : null}
-              <ChatMd content={node.content} />
-              {node.streaming && <span className="stream-cursor" />}
-            </div>
+              )}
+              <div className="msg-assistant">
+                <ChatMd content={node.content} />
+                {node.streaming && <span className="stream-cursor" />}
+              </div>
 
             <div className="msg-actions">
               {!busy && node.thinkingDone && (

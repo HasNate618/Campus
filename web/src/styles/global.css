@@ -813,6 +813,16 @@
     margin-top: 6px;
   }
 
+  /* ordered thought/tool steps of an assistant turn, above the content */
+  .msg-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 6px;
+    align-self: flex-start;
+    max-width: 100%;
+  }
+
   .msg-actions {
     display: flex;
     gap: 4px;
