@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, ClipboardList, ExternalLink } from 'lucide-react'
+import { ArrowLeft, ClipboardList, ExternalLink, Paperclip } from 'lucide-react'
 import { api } from '@/api/client'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
 import { sanitizeHtml } from '@/lib/sanitize'
@@ -88,17 +88,33 @@ export function AssignmentDetailPage() {
         </h2>
         <span className={s.cls}>{s.label}</span>
       </div>
-      <div className="row-sub" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+      <div className="row-sub" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <span>
           <ClipboardList size={12} style={{ verticalAlign: -2 }} /> {fmtDue(a.due_at)}
         </span>
+        {a.points != null ? <span>· {a.points} pts</span> : null}
+        {a.category ? <span className="chip">{a.category}</span> : null}
+        {a.group_category ? <span className="chip">{a.group_category} · group</span> : null}
         {a.weight != null ? <span>· {a.weight}%</span> : null}
+        {a.availability?.EndDate ? <span>· closes {fmtDue(a.availability.EndDate)}</span> : null}
         {a.url && (
           <a className="btn btn-outline btn-sm" href={a.url} target="_blank" rel="noreferrer noopener">
             <ExternalLink size={12} /> Open in Brightspace
           </a>
         )}
       </div>
+      {a.attachments?.length ? (
+        <>
+          <p className="rubric-name">Attachments</p>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+            {a.attachments.map((at) => (
+              <span key={at.FileId} className="chip">
+                <Paperclip size={11} style={{ verticalAlign: -2 }} /> {at.FileName}
+              </span>
+            ))}
+          </div>
+        </>
+      ) : null}
       {a.description?.trim() && (
         <>
           <p className="rubric-name">Description</p>

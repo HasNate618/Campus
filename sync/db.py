@@ -133,7 +133,8 @@ class DB:
     # ── assignments ─────────────────────────────────────────────────────
     def upsert_assignment(self, course_id: int, a: dict) -> tuple[int, bool]:
         """a keys: title, description, due_at, weight, brightspace_folder_id, url,
-        rubrics_json. Returns (id, is_new). Never clobbers user notes."""
+        rubrics_json, category, group_category, points, attachments_json,
+        availability_json. Returns (id, is_new). Never clobbers user notes."""
         existing = self.conn.execute(
             "SELECT id FROM assignments WHERE course_id=? AND brightspace_folder_id=?",
             (course_id, a["brightspace_folder_id"]),
@@ -141,20 +142,26 @@ class DB:
         if existing:
             self.conn.execute(
                 """UPDATE assignments SET title=?, description=?, due_at=?, weight=?,
-                   url=?, rubrics_json=?,
+                   url=?, rubrics_json=?, category=?, group_category=?, points=?,
+                   attachments_json=?, availability_json=?,
                    status=CASE WHEN status='extended' THEN 'extended' ELSE 'open' END,
                    updated_at=datetime('now') WHERE id=?""",
                 (a["title"], a.get("description"), a.get("due_at"), a.get("weight"),
-                 a.get("url"), a.get("rubrics_json"), existing["id"]),
+                 a.get("url"), a.get("rubrics_json"), a.get("category"),
+                 a.get("group_category"), a.get("points"), a.get("attachments_json"),
+                 a.get("availability_json"), existing["id"]),
             )
             self.conn.commit()
             return existing["id"], False
         cur = self.conn.execute(
             """INSERT INTO assignments (course_id, title, description, due_at, weight,
-               source, brightspace_folder_id, url, rubrics_json)
-               VALUES (?,?,?,?,?,'brightspace',?,?,?)""",
+               source, brightspace_folder_id, url, rubrics_json, category,
+               group_category, points, attachments_json, availability_json)
+               VALUES (?,?,?,?,?,'brightspace',?,?,?,?,?,?,?,?)""",
             (course_id, a["title"], a.get("description"), a.get("due_at"),
-             a.get("weight"), a["brightspace_folder_id"], a.get("url"), a.get("rubrics_json")),
+             a.get("weight"), a["brightspace_folder_id"], a.get("url"),
+             a.get("rubrics_json"), a.get("category"), a.get("group_category"),
+             a.get("points"), a.get("attachments_json"), a.get("availability_json")),
         )
         self.conn.commit()
         return cur.lastrowid, True
