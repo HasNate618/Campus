@@ -91,26 +91,73 @@ function ZenPdfFrame({ rawUrl, fileId, filename }: { rawUrl: string; fileId: num
   return <iframe key={fileId} className="zen-pdf-frame" src={src} title={filename} allow="fullscreen" />
 }
 
+/** Fetch + render a module child's content inline — Brightspace keeps the
+ *  unit banner image inside the "Unit Introduction" topic, so a unit's
+ *  landing page shows its introduction (and image) right there. */
+function ModuleIntro({ file }: { file: FileRecord }) {
+  const [info, setInfo] = useState<FileContent | null>(null)
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    api
+      .fileContent(file.id)
+      .then((c) => {
+        if (!cancelled) setInfo(c)
+      })
+      .catch(console.error)
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [file.id])
+  if (loading) return <div className="empty compact">Loading…</div>
+  if (!info) return null
+  const { content, format, rawUrl } = info
+  const filename = filenameOf(file)
+  if (format === 'html' && content) {
+    return <div className="md html" dangerouslySetInnerHTML={{ __html: sanitizeHtml(content) }} />
+  }
+  if (format === 'markdown' && content) return <ZenMarkdown content={content} />
+  if (format === 'pdf' && rawUrl) return <ZenPdfFrame rawUrl={rawUrl} fileId={file.id} filename={filename} />
+  if (rawUrl) return <EmptyFile rawUrl={rawUrl} filename={filename} />
+  return null
+}
+
 function ViewerBody({
   node,
   file,
+  introFile,
   contentInfo,
   loading,
   showMd,
 }: {
   node: ContentNode
   file: FileRecord | null
+  introFile: FileRecord | null
   contentInfo: FileContent | null
   loading: boolean
   showMd: boolean
 }) {
   // Module landing page (Brightspace HTML).
   if (node.node_type === 'module') {
-    if (node.description?.trim()) {
-      return <div className="md html" dangerouslySetInnerHTML={{ __html: sanitizeHtml(node.description) }} />
-    }
-    if (file) return <FileBody file={file} contentInfo={contentInfo} loading={loading} showMd={showMd} />
-    return <div className="empty compact">This module has no landing page content.</div>
+    const hasDesc = !!node.description?.trim()
+    return (
+      <>
+        {hasDesc && (
+          <div className="md html" dangerouslySetInnerHTML={{ __html: sanitizeHtml(node.description ?? '') }} />
+        )}
+        {introFile ? (
+          <ModuleIntro file={introFile} />
+        ) : file ? (
+          <FileBody file={file} contentInfo={contentInfo} loading={loading} showMd={showMd} />
+        ) : !hasDesc ? (
+          <div className="empty compact">This module has no landing page content.</div>
+        ) : null}
+      </>
+    )
   }
 
   // External link topic.
@@ -233,6 +280,15 @@ export function ContentPage() {
 
   const selectedNode = nid != null ? nodes.find((n) => n.id === nid) ?? null : null
   const selectedFile = nid != null ? files.find((f) => f.content_node_id === nid) ?? null : null
+  // Unit landing pages: Brightspace keeps the banner inside the Unit
+  // Introduction topic — surface it on the module page too.
+  const introFile =
+    selectedNode?.node_type === 'module'
+      ? (() => {
+          const intro = nodes.find((n) => n.parent_id === selectedNode.id && /intro/i.test(n.title))
+          return intro ? (files.find((f) => f.content_node_id === intro.id) ?? null) : null
+        })()
+      : null
   // PDFs: original file by default; extracted text (zen-rendered) as an option.
   const [showMd, setShowMd] = useState(false)
   useEffect(() => setShowMd(false), [nid])
@@ -374,6 +430,7 @@ export function ContentPage() {
               <ViewerBody
                 node={selectedNode}
                 file={selectedFile}
+                introFile={introFile}
                 contentInfo={contentInfo}
                 loading={loadingContent}
                 showMd={showMd}

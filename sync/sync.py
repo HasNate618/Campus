@@ -100,11 +100,17 @@ class SyncEngine:
                  sort_base: int = 0) -> None:
             for idx, item in enumerate(modules):
                 bs_id = item.get("Id")
+                # Brightspace sends Description as {Text, Html} — prefer the
+                # HTML: module landing pages (course schedule tables, banner
+                # images, embedded hyperlinks like the Git/Unity tutorial)
+                # only survive in the Html form; .Text flattens them.
+                desc_obj = item.get("Description") or {}
+                description = desc_obj.get("Html") or desc_obj.get("Text") or None
                 node = {
                     "brightspace_id": bs_id,
                     "parent_brightspace_id": parent_bs_id,
                     "title": item.get("Title", "untitled"),
-                    "description": (item.get("Description") or {}).get("Text"),
+                    "description": description,
                     "is_hidden": item.get("IsHidden", False),
                     "is_locked": item.get("IsLocked", False),
                     "sort_order": sort_base + idx,
