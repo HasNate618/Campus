@@ -139,6 +139,25 @@ def harness_list_assignments(db: DB, cfg: Config, args: dict) -> dict:
     return {"assignments": out}
 
 
+def harness_sync_delta(db: DB, cfg: Config, args: dict) -> dict:
+    """What changed on the last N syncs: run stats + the latest digest log."""
+    limit = min(max(int(args.get("limit", 5)), 1), 20)
+    rows = db.conn.execute(
+        "SELECT id, started_at, finished_at, status, trigger, courses_processed, "
+        "files_new, files_changed, announcements_new, facts_added, pdfs_extracted, error "
+        "FROM sync_runs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    runs = _rows_as_dicts(rows)
+    log = ""
+    if runs:
+        lp = db.conn.execute("SELECT log_path FROM sync_runs WHERE id=?", (runs[0]["id"],)).fetchone()
+        if lp and lp["log_path"]:
+            try:
+                log = Path(lp["log_path"]).read_text(errors="replace")[-3000:]
+            except OSError:
+                pass
+    return {"runs": runs, "latest_log": log}
+
+
 def harness_get_announcements(db: DB, cfg: Config, args: dict) -> dict:
     course_id = _resolve_course(db, args.get("course"))
     q = """SELECT c.code, a.title, a.body, a.posted_at, a.author
@@ -521,6 +540,12 @@ TOOLS = {
         status={"type": "string"},
         due_within_days={"type": "integer"},
         assignment_id={"type": "integer"},
+    ),
+    "harness_sync_delta": _tool(
+        "harness_sync_delta",
+        "What changed on recent syncs: run stats (files new/changed, announcements, facts) and the latest digest log. Use to answer 'what changed since the last sync' without re-reading content.",
+        harness_sync_delta,
+        limit={"type": "integer", "description": "how many recent runs (default 5)"},
     ),
     "harness_get_announcements": _tool(
         "harness_get_announcements",

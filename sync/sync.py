@@ -387,8 +387,31 @@ class SyncEngine:
         except Exception:
             return False
 
+    def _extract_doc(self, path: Path) -> bool:
+        """Word .doc → text via antiword → .md sibling (the AI's
+        content_read_file auto-falls-back to the .md sibling)."""
+        try:
+            md = path.with_suffix(".md")
+            if md.exists() and md.stat().st_size > 0:
+                return True
+            if path.suffix.lower() == ".docx":
+                import docx  # python-docx
+                text = "\n".join(p.text for p in docx.Document(str(path)).paragraphs)
+            else:
+                out = subprocess.run(["antiword", str(path)], capture_output=True,
+                                     text=True, timeout=60)
+                if out.returncode != 0:
+                    return False
+                text = out.stdout
+            if text.strip():
+                md.write_text(text, encoding="utf-8")
+                return True
+        except Exception:
+            pass
+        return False
+
     def run_extraction_queue(self, course_id: int | None = None) -> int:
-        """Serialize extraction of unprocessed PDFs (one at a time — the
+        """Serialize extraction of unprocessed files (one at a time — the
         pdf-extractor worker is single and local engine is slow). Never
         blocks the sync critical path: called after digest."""
         done = 0
@@ -396,6 +419,12 @@ class SyncEngine:
             self.db.conn.execute("SELECT * FROM files WHERE processed=0").fetchall()
         for row in rows:
             path = Path(self.cfg.data_root) / row["path"]
+            if path.suffix.lower() in (".doc", ".docx"):
+                if self._extract_doc(path):
+                    done += 1
+                    print(f"  extracted: {row['path']}", flush=True)
+                self.db.mark_processed(row["id"])  # one attempt; .md sibling persists
+                continue
             if path.suffix.lower() != ".pdf":
                 self.db.mark_processed(row["id"])  # not a PDF — nothing to extract
                 continue
