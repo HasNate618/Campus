@@ -1,5 +1,5 @@
 import { Link, useParams } from 'react-router-dom'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowLeft, ChevronRight, Columns2, Download, ExternalLink, Maximize2 } from 'lucide-react'
 import { api } from '@/api/client'
@@ -272,6 +272,23 @@ export function ContentPage() {
   const [files, setFiles] = useState<FileRecord[]>([])
   const [contentInfo, setContentInfo] = useState<FileContent | null>(null)
   const [loadingContent, setLoadingContent] = useState(false)
+  // The tree hides (display:none) while a topic is viewed in full-width
+  // mode — hiding zeroes its scrollTop, and the reset happens inside React
+  // Router's navigation transition, so no scroll-event guard can tell it
+  // from a real scroll. Capture the position at CLICK time instead (the
+  // tree is fully laid out then) and restore it when returning to the list.
+  const treeRef = useRef<HTMLDivElement>(null)
+  const treeScrollRef = useRef(0)
+  const prevNidRef = useRef(nid)
+
+  useEffect(() => {
+    if (nid === null && prevNidRef.current !== null && treeRef.current) {
+      requestAnimationFrame(() => {
+        if (treeRef.current) treeRef.current.scrollTop = treeScrollRef.current
+      })
+    }
+    prevNidRef.current = nid
+  }, [nid])
 
   useEffect(() => {
     setNodes([])
@@ -354,7 +371,15 @@ export function ContentPage() {
 
   return (
     <div className={`split split-mode-${viewMode === 'sideBySide' ? 'split' : 'full'}${nid != null ? ' has-selection' : ''}`}>
-      <div className="card split-tree">
+      <div
+        className="card split-tree"
+        ref={treeRef}
+        onClickCapture={() => {
+          // capture the tree's position at the moment a topic is clicked
+          // (before the router's transition hides the tree)
+          if (treeRef.current) treeScrollRef.current = treeRef.current.scrollTop
+        }}
+      >
         {modules.length === 0 && <div className="empty compact">No content synced.</div>}
         {modules.map((mod) => (
           <div key={mod.id}>
