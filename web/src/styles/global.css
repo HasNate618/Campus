@@ -1444,8 +1444,13 @@
     color: var(--amber);
   }
 
-  /* extracted-text fallback rendered on the same zen surface */
+  /* extracted-text fallback rendered on the same zen surface — the page is
+     overflow:hidden in pdf-mode, so THIS div must own the scroll */
   .pdf-zen .pdf-text-view {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    width: 100%;
     padding: 2px 4px 6px;
   }
 
