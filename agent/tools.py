@@ -39,15 +39,63 @@ def _resolve_course(db: DB, code: str | None) -> int | None:
     return row["id"] if row else None
 
 
+def _require_course(db: DB, code: str | None) -> int | None:
+    """Like _resolve_course but raises on an explicitly-given unknown code —
+    a silent empty result for a typo'd course wastes a whole turn."""
+    cid = _resolve_course(db, code)
+    if code and cid is None:
+        raise ValueError(f"Unknown course {code!r} — use a code like 'SE 2250B' or an id from harness_get_courses")
+    return cid
+
+
 def _rows_as_dicts(rows) -> list[dict]:
     return [dict(r) for r in rows]
 
 
 # ── handlers ────────────────────────────────────────────────────────────
 
+def _assignment_state(d: dict) -> str:
+    """Single intuitive state: closed (availability ended) wins, then
+    submitted/graded, then overdue, else open."""
+    if d.get("closed"):
+        return "closed"
+    if d.get("status") in ("submitted", "graded"):
+        return d["status"]
+    if d.get("due_at") and d["due_at"] < datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"):
+        return "overdue"
+    return "open"
+
+
+def _rubric_text(rubrics: list) -> list[str]:
+    """Compact human-readable rubric: criteria with their levels, points and
+    per-level descriptions — small enough to survive the context window."""
+    out = []
+    for rb in rubrics:
+        out.append(f"[{rb.get('Name')}]")
+        for g in rb.get("CriteriaGroups") or []:
+            gname = g.get("Name")
+            if gname:
+                out.append(f"  {gname}:")
+            for crit in g.get("Criteria") or []:
+                cells = crit.get("Cells") or []
+                parts = []
+                for li, lv in enumerate(g.get("Levels") or []):
+                    pts = lv.get("Points")
+                    cell = cells[li] if li < len(cells) else {}
+                    txt = ((cell.get("Description") or {}).get("Text")
+                           or (cell.get("Feedback") or {}).get("Text") or "").strip()
+                    head = lv.get("Name") or ""
+                    if pts is not None:
+                        head += f" ({pts} pts)"
+                    parts.append(f"{head}: {txt[:140]}" if txt else head)
+                out.append(f"    - {crit.get('Name')} — " + " | ".join(parts))
+    return out
+
+
 def harness_list_assignments(db: DB, cfg: Config, args: dict) -> dict:
-    course_id = _resolve_course(db, args.get("course"))
-    q = """SELECT a.id, c.code, a.title, a.due_at, a.status, a.weight, a.notes,
+    # course is optional: omit it to aggregate across all courses
+    course_id = _require_course(db, args.get("course"))
+    q = """SELECT a.id, c.code, a.course_id, a.title, a.due_at, a.status, a.weight, a.notes,
                   a.description, a.url, a.category, a.group_category, a.points,
                   a.availability_json, a.rubrics_json, a.attachments_json
            FROM assignments a JOIN courses c ON c.id=a.course_id WHERE 1=1"""
@@ -57,9 +105,11 @@ def harness_list_assignments(db: DB, cfg: Config, args: dict) -> dict:
     if args.get("status"):
         q += " AND a.status=?"; params.append(args["status"])
     if args.get("due_within_days"):
-        q += " AND a.due_at IS NOT NULL AND a.due_at <= datetime('now', ?)"
+        # lower bound too: only assignments due from now until now+N days
+        q += " AND a.due_at IS NOT NULL AND a.due_at >= datetime('now') AND a.due_at <= datetime('now', ?)"
         params.append(f"+{int(args['due_within_days'])} days")
-    if args.get("assignment_id"):
+    detail = bool(args.get("assignment_id"))
+    if detail:
         q += " AND a.id=?"; params.append(int(args["assignment_id"]))
     q += " ORDER BY a.due_at"
     rows = db.conn.execute(q, params).fetchall()
@@ -74,12 +124,16 @@ def harness_list_assignments(db: DB, cfg: Config, args: dict) -> dict:
                 d["closed"] = datetime.datetime.fromisoformat(end.replace("Z", "+00:00")) < datetime.datetime.now(datetime.timezone.utc)
             except ValueError:
                 pass
-        d["rubrics"] = [rub.get("Name") for rub in json.loads(d.pop("rubrics_json") or "[]")]
+        d["state"] = _assignment_state(d)
+        rubrics = json.loads(d.pop("rubrics_json") or "[]")
+        d["rubrics"] = [rub.get("Name") for rub in rubrics]
+        if detail:
+            d["rubric_detail"] = _rubric_text(rubrics)
         d["attachments"] = [{"name": at.get("FileName"), "local": at.get("local")}
                             for at in json.loads(d.pop("attachments_json") or "[]")]
         if d.get("group_category"):
             g = db.conn.execute("SELECT group_name FROM course_groups WHERE course_id=? AND category_name=?",
-                                (d["course_id"] if d.get("course_id") else course_id, d["group_category"])).fetchone()
+                                (d["course_id"], d["group_category"])).fetchone()
             d["group_name"] = g["group_name"] if g else None
         out.append(d)
     return {"assignments": out}
@@ -197,19 +251,19 @@ def content_grep(db: DB, cfg: Config, args: dict) -> dict:
 
 
 def mutate_update_assignment(db: DB, cfg: Config, args: dict) -> dict:
-    course_id = _resolve_course(db, args.get("course"))
-    ident = args.get("id") or args.get("title")
-    q = "SELECT * FROM assignments WHERE 1=1"
-    params = []
-    if args.get("id"):
-        q += " AND id=?"; params.append(int(args["id"]))
-    elif ident:
-        q += " AND title LIKE ?"; params.append(f"%{ident}%")
+    # id-first: duplicate titles exist (per-section dropboxes) so fuzzy title
+    # matching can silently hit the wrong row. The id comes from
+    # harness_list_assignments.
+    if not args.get("id"):
+        return {"error": "id is required — get it from harness_list_assignments (titles are not unique)"}
+    course_id = _require_course(db, args.get("course"))
+    q = "SELECT * FROM assignments WHERE id=?"
+    params: list = [int(args["id"])]
     if course_id:
         q += " AND course_id=?"; params.append(course_id)
     row = db.conn.execute(q + " LIMIT 1", params).fetchone()
     if not row:
-        return {"error": "assignment not found"}
+        return {"error": f"assignment id {args['id']} not found"}
     before = dict(row)
     updates, params = [], []
     for field in ("due_at", "status", "notes"):
@@ -461,7 +515,7 @@ def _tool(name: str, description: str, handler, required: list | None = None, **
 TOOLS = {
     "harness_list_assignments": _tool(
         "harness_list_assignments",
-        "List assignments for a course with full metadata (due, status, points, category, group, description, rubric names, attachment paths). Pass assignment_id for a single assignment's full detail.",
+        "List assignments. course is OPTIONAL — omit it to aggregate across all courses (e.g. 'what's due this week'). due_within_days = only assignments due from now until now+N days. Each row: id, code, title, due_at, state (open/closed/overdue/submitted/graded — use this, not status), points, category, group/group_name, description, rubric names, attachment paths. Pass assignment_id to get ONE assignment with rubric_detail (full criteria with levels + points).",
         harness_list_assignments,
         course={"type": "string"},
         status={"type": "string"},
@@ -496,7 +550,7 @@ TOOLS = {
     ),
     "content_read_file": _tool(
         "content_read_file",
-        "Read a text/markdown file from the synced corpus. Path is relative to data_root (e.g. '2025W/SE2250B/content/Course Overview/SE2250 2025-2026 outline.md'). Use offset/limit to page through long files (default 200 lines, max 1000).",
+        "Read a text/markdown file from the synced corpus. Path is relative to data_root (e.g. '2025W/SE2250B/content/Course Overview/SE2250 2025-2026 outline.md'). Use offset/limit to page through long files (default 200 lines, max 1000). Binary files (.pdf/.doc attachments) auto-fall-back to their extracted .md sibling when one exists; raw binaries return bytes (not useful). Extraction status: processed=1 means extraction was attempted, not that text exists — for a .pdf, prefer the .md sibling or course_map's extracted flag.",
         content_read_file,
         required=["path"],
         path={"type": "string"},
@@ -519,11 +573,11 @@ TOOLS = {
     ),
     "mutate_update_assignment": _tool(
         "mutate_update_assignment",
-        "Update an assignment's due_at (ISO datetime), status, or notes. Audited. Use when the user reports a change (extension, completion...).",
+        "Update an assignment's due_at (ISO datetime), status, or notes. Audited. id is REQUIRED (get it from harness_list_assignments) — titles are not unique. Use when the user reports a change (extension, completion...).",
         mutate_update_assignment,
+        required=["id"],
         course={"type": "string"},
         id={"type": "integer"},
-        title={"type": "string", "description": "or match by title"},
         due_at={"type": "string", "description": "ISO 8601"},
         status={"type": "string", "enum": ["open", "in_progress", "submitted", "graded", "extended"]},
         notes={"type": "string"},
