@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { ClipboardList } from 'lucide-react'
+import { ClipboardList, ExternalLink } from 'lucide-react'
 import { api } from '@/api/client'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
 import { sanitizeHtml } from '@/lib/sanitize'
@@ -28,7 +28,13 @@ export function AssignmentsPage() {
       .finally(() => setLoading(false))
   }, [cid])
 
-  const sorted = [...assignments].sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? ''))
+  // due date ascending; no-due assignments sink to the bottom
+  const sorted = [...assignments].sort((a, b) => {
+    if (!a.due_at && !b.due_at) return a.title.localeCompare(b.title)
+    if (!a.due_at) return 1
+    if (!b.due_at) return -1
+    return a.due_at.localeCompare(b.due_at)
+  })
 
   return (
     <div className="card assign-card">
@@ -55,7 +61,20 @@ export function AssignmentsPage() {
                   <ZenMarkdown content={sanitizeHtml(a.description)} />
                 ) : null}
               </div>
-              <span className={s.cls}>{s.label}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                {a.url && (
+                  <a
+                    className="icon-btn"
+                    href={a.url}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    title="Open in Brightspace"
+                  >
+                    <ExternalLink size={13} />
+                  </a>
+                )}
+                <span className={s.cls}>{s.label}</span>
+              </div>
             </div>
           )
         })}

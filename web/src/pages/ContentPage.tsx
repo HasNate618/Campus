@@ -91,9 +91,9 @@ function ZenPdfFrame({ rawUrl, fileId, filename }: { rawUrl: string; fileId: num
   return <iframe key={fileId} className="zen-pdf-frame" src={src} title={filename} allow="fullscreen" />
 }
 
-/** Fetch + render a module child's content inline — Brightspace keeps the
- *  unit banner image inside the "Unit Introduction" topic, so a unit's
- *  landing page shows its introduction (and image) right there. */
+/** Render just the banner images from a module's Unit Introduction topic
+ *  inline on the unit landing page — not the whole topic (that would clone
+ *  the intro text into the section page). */
 function ModuleIntro({ file }: { file: FileRecord }) {
   const [info, setInfo] = useState<FileContent | null>(null)
   const [loading, setLoading] = useState(true)
@@ -114,16 +114,16 @@ function ModuleIntro({ file }: { file: FileRecord }) {
     }
   }, [file.id])
   if (loading) return <div className="empty compact">Loading…</div>
-  if (!info) return null
-  const { content, format, rawUrl } = info
-  const filename = filenameOf(file)
-  if (format === 'html' && content) {
-    return <div className="md html" dangerouslySetInnerHTML={{ __html: sanitizeHtml(content) }} />
-  }
-  if (format === 'markdown' && content) return <ZenMarkdown content={content} />
-  if (format === 'pdf' && rawUrl) return <ZenPdfFrame rawUrl={rawUrl} fileId={file.id} filename={filename} />
-  if (rawUrl) return <EmptyFile rawUrl={rawUrl} filename={filename} />
-  return null
+  if (!info || info.format !== 'html' || !info.content) return null
+  // pull just the <img> elements out of the intro HTML
+  const imgs = (info.content.match(/<img[^>]+>/gi) ?? []).slice(0, 3)
+  if (imgs.length === 0) return null
+  return (
+    <div
+      className="md html module-intro-banners"
+      dangerouslySetInnerHTML={{ __html: sanitizeHtml(imgs.join('\n')) }}
+    />
+  )
 }
 
 function ViewerBody({
