@@ -105,6 +105,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
   const [modelOpen, setModelOpen] = useState(false)
   const [modelQuery, setModelQuery] = useState('')
   const [models, setModels] = useState<string[]>([])
+  const [contexts, setContexts] = useState<Record<string, number>>({})
   const filteredModels = useMemo(
     () =>
       modelQuery.trim()
@@ -126,6 +127,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
       .models()
       .then((d) => {
         if (d.models?.length) setModels(d.models)
+        if (d.contexts) setContexts(d.contexts)
       })
       .catch(() => {})
   }, [])
@@ -134,6 +136,15 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
   const courseSessions = sessionsFor(courseId)
   const path = session ? pathFor(session) : []
   const lastAssistant = [...path].reverse().find((n) => n.role === 'assistant' && !n.intermediate)
+  // real context window of the selected model (bifrost reports context_length);
+  // fall back to the configured default model's window when none is selected
+  const ctxMax = model
+    ? (contexts[model] ?? null)
+    : (contexts['opencode-go/deepseek-v4-flash'] ?? contexts['DeepSeek/deepseek-v4-flash'] ?? null)
+  const ctxText =
+    lastAssistant?.tokens?.prompt_tokens != null
+      ? `${fmtTokens(lastAssistant.tokens.prompt_tokens)}${ctxMax ? `/${fmtTokens(ctxMax)}` : ''}`
+      : ''
 
   useEffect(() => {
     const el = scrollRef.current
@@ -538,6 +549,72 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
             rows={1}
             disabled={busy}
           />
+          <span className="ctx-meter" title="Context used so far vs the selected model's window">
+            {ctxText}
+          </span>
+          <div ref={modelRef} style={{ position: 'relative' }}>
+            <button
+              className="scope-pill"
+              onClick={() => {
+                setModelOpen((o) => !o)
+                setModelQuery('')
+              }}
+              title={model ?? 'Default model'}
+            >
+              <Cpu size={12} />
+              <span style={{ maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {model ? shortModel(model) : 'Default'}
+              </span>
+              <ChevronDown size={11} />
+            </button>
+            {modelOpen && (
+              <div
+                className="popover course-picker"
+                style={{ bottom: 'calc(100% + 8px)', top: 'auto', width: 280, maxHeight: 330, display: 'flex', flexDirection: 'column' }}
+              >
+                <input
+                  autoFocus
+                  value={modelQuery}
+                  onChange={(e) => setModelQuery(e.target.value)}
+                  placeholder="Search models…"
+                  className="model-search"
+                />
+                <div style={{ overflowY: 'auto', flex: 1 }}>
+                  <button
+                    className={`popover-item${!model ? ' selected' : ''}`}
+                    onClick={() => {
+                      setModel(null)
+                      setModelOpen(false)
+                    }}
+                  >
+                    <span className="popover-title">Default (config)</span>
+                  </button>
+                  {filteredModels.length === 0 && (
+                    <p style={{ margin: '6px 10px', fontSize: 12, color: 'var(--text-3)' }}>No matching models.</p>
+                  )}
+                  {filteredModels.map((m) => (
+                    <button
+                      key={m}
+                      className={`popover-item${model === m ? ' selected' : ''}`}
+                      onClick={() => {
+                        setModel(m)
+                        setModelOpen(false)
+                      }}
+                      title={m}
+                    >
+                      <span className="popover-title" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {m}
+                      </span>
+                      {model === m && <Check size={13} style={{ flexShrink: 0 }} />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <button className="icon-btn" disabled title="File upload coming soon" aria-label="Attach file">
+            <Paperclip size={13} />
+          </button>
           <button
             className="send-btn"
             onClick={submit}
@@ -546,75 +623,6 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
           >
             {busy ? <Loader2 size={16} className="animate-spin" /> : <ArrowUp size={16} />}
           </button>
-        </div>
-        <div className="input-tools">
-          <span className="ctx-meter" title="Context used so far vs the 200K window">
-            {lastAssistant?.tokens?.prompt_tokens != null
-              ? `${fmtTokens(lastAssistant.tokens.prompt_tokens)}/${fmtTokens(200000)}`
-              : ''}
-          </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div ref={modelRef} style={{ position: 'relative' }}>
-              <button
-                className="scope-pill"
-                onClick={() => {
-                  setModelOpen((o) => !o)
-                  setModelQuery('')
-                }}
-                title={model ?? 'Default model'}
-              >
-                <Cpu size={12} />
-                <span style={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {model ? shortModel(model) : 'Default'}
-                </span>
-                <ChevronDown size={11} />
-              </button>
-              {modelOpen && (
-                <div className="popover course-picker" style={{ width: 280, maxHeight: 330, display: 'flex', flexDirection: 'column' }}>
-                  <input
-                    autoFocus
-                    value={modelQuery}
-                    onChange={(e) => setModelQuery(e.target.value)}
-                    placeholder="Search models…"
-                    className="model-search"
-                  />
-                  <div style={{ overflowY: 'auto', flex: 1 }}>
-                    <button
-                      className={`popover-item${!model ? ' selected' : ''}`}
-                      onClick={() => {
-                        setModel(null)
-                        setModelOpen(false)
-                      }}
-                    >
-                      <span className="popover-title">Default (config)</span>
-                    </button>
-                    {filteredModels.length === 0 && (
-                      <p style={{ margin: '6px 10px', fontSize: 12, color: 'var(--text-3)' }}>No matching models.</p>
-                    )}
-                    {filteredModels.map((m) => (
-                      <button
-                        key={m}
-                        className={`popover-item${model === m ? ' selected' : ''}`}
-                        onClick={() => {
-                          setModel(m)
-                          setModelOpen(false)
-                        }}
-                        title={m}
-                      >
-                        <span className="popover-title" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {m}
-                        </span>
-                        {model === m && <Check size={13} style={{ flexShrink: 0 }} />}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-            <button className="icon-btn" disabled title="File upload coming soon" aria-label="Attach file">
-              <Paperclip size={13} />
-            </button>
-          </div>
         </div>
       </div>
     </div>

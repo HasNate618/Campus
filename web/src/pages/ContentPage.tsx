@@ -302,11 +302,11 @@ export function ContentPage() {
   const allCollapsed = modules.length > 0 && modules.every((m) => collapsed.has(m.id))
 
   return (
-    <div className={`split split-mode-${viewMode}${nid != null ? ' has-selection' : ''}`}>
+    <div className={`split split-mode-${viewMode === 'sideBySide' ? 'split' : 'full'}${nid != null ? ' has-selection' : ''}`}>
       <div className="card split-tree">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '0 4px 6px' }}>
           <button
-            className="btn btn-outline btn-sm"
+            className="btn btn-outline btn-sm view-toggle"
             onClick={() => setViewMode((m) => (m === 'fullWidth' ? 'sideBySide' : 'fullWidth'))}
             title={viewMode === 'fullWidth' ? 'Show the content tree beside the viewer' : 'Show one panel at a time'}
           >
@@ -372,9 +372,9 @@ export function ContentPage() {
                   <ArrowLeft size={13} /> All topics
                 </Link>
                 <button
-                  className="btn btn-outline btn-sm"
                   onClick={() => setViewMode((m) => (m === 'fullWidth' ? 'sideBySide' : 'fullWidth'))}
                   title={viewMode === 'fullWidth' ? 'Show the content tree beside the viewer' : 'Show one panel at a time'}
+                  className="btn btn-outline btn-sm view-toggle"
                 >
                   {viewMode === 'fullWidth' ? 'Side by side' : 'Full width'}
                 </button>

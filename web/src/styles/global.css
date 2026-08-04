@@ -83,7 +83,7 @@
     --radius-panel: 16px;
     --radius-card: 14px;
     --radius-ctl: 10px;
-    --sidebar-w: 176px;
+    --sidebar-w: 200px;
     --sidebar-w-collapsed: 62px;
   }
 
@@ -131,12 +131,11 @@
     flex-shrink: 0;
     margin: 12px 0 12px 12px;
     border-radius: var(--radius-panel);
-    /* Zen transparency: near-clear tint with NO page-level blur or shadow —
-       the page background is transparent so the Zen browser's own
-       transparency/blur shows through the sidebar (a backdrop-filter here
-       smears the transparent backdrop and reads as an opaque panel). */
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--glass-bg);
     border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -896,28 +895,21 @@
   /* bottom tools row under the input: context meter + model selector +
      attach stub. Same width as .chat-input so the controls align with the
      bar edges. */
-  .input-tools {
-    max-width: 740px;
-    margin: 8px auto 0;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-  }
-
-  .input-tools .ctx-meter {
+  .ctx-meter {
     font-size: 11px;
     font-family: var(--font-mono);
     color: var(--text-3);
     white-space: nowrap;
+    align-self: flex-end;
+    padding-bottom: 6px;
   }
 
-  .input-tools .scope-pill {
+  .chat-input .scope-pill {
     font-size: 11.5px;
     padding: 4px 10px;
   }
 
-  .input-tools .icon-btn {
+  .chat-input .icon-btn {
     width: 24px;
     height: 24px;
   }
@@ -1137,6 +1129,37 @@
   }
 
   /* ---------- content tree ---------- */
+
+  .course-scroll > .page-col {
+    height: 100%;
+    min-height: 0;
+  }
+
+  /* overview: the announcements panel owns the scroll — the viewport never
+     scrolls, Upcoming stays visible below it */
+  .overview-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .overview-body .announce-card {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .overview-body .announce-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    margin: 0 -8px -8px 0;
+    padding-right: 8px;
+  }
 
   .split {
     display: grid;
@@ -1728,6 +1751,10 @@
 
   @media (max-width: 860px) {
     .sidebar {
+      display: none;
+    }
+
+    .view-toggle {
       display: none;
     }
 
