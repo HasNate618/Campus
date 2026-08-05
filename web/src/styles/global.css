@@ -621,23 +621,24 @@
     font: inherit;
     font-size: 12.5px;
     font-weight: 600;
-    color: var(--text-2);
-    /* full glass treatment, matching the chat-input surface — a visibly
-       raised pill, not a flat control */
-    background: var(--glass-bg-strong);
-    border: 1px solid var(--glass-border-strong);
+    color: var(--text-1);
+    /* full glass treatment, matching the chat-input surface — a VISIBLY
+       raised glass pill (lighter surface + inner highlight), not a flat
+       dark control */
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 999px;
     padding: 5px 12px;
     cursor: pointer;
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
-    box-shadow: var(--glass-shadow);
+    box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.08);
     transition: color 120ms ease, border-color 120ms ease;
   }
 
   .scope-pill:hover {
     color: var(--text-1);
-    border-color: var(--glass-border-strong);
+    border-color: rgba(255, 255, 255, 0.3);
   }
 
   .popover {
@@ -680,6 +681,29 @@
 
   .popover-item.selected {
     color: var(--violet);
+  }
+
+  /* model picker search box — no browser default focus ring (the white
+     outline), just the app's subtle glass border + violet on focus */
+  .model-search {
+    width: 100%;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    color: var(--text-1);
+    font: inherit;
+    font-size: 12.5px;
+    padding: 6px 10px;
+    outline: none;
+    margin-bottom: 4px;
+  }
+
+  .model-search::placeholder {
+    color: var(--text-3);
+  }
+
+  .model-search:focus {
+    border-color: var(--violet-border);
   }
 
   .chat-scroll {
@@ -848,12 +872,13 @@
     max-width: 100%;
   }
 
-  /* narration steps between tool batches read as regular assistant text */
+  /* narration steps between tool batches read as regular assistant text —
+     full-opacity text, not a faded/transparent tone */
   .step-narration {
     margin: 0;
     font-size: 13px;
     line-height: 1.5;
-    color: var(--text-2);
+    color: var(--text-1);
   }
 
   .msg-actions {
@@ -1591,6 +1616,30 @@
   }
 
   .tree-topic.selected {
+    background: var(--violet-soft);
+    color: var(--violet);
+  }
+
+  /* extra files under a topic (e.g. an embedded lecture deck PDF beside its
+     html wrapper) — indented sub-rows, click to open that file */
+  .tree-file {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px 5px 44px;
+    border-radius: 8px;
+    color: var(--text-3);
+    text-decoration: none;
+    font-size: 12.5px;
+    transition: background 120ms ease, color 120ms ease;
+  }
+
+  .tree-file:hover {
+    background: var(--glass-bg-strong);
+    color: var(--text-1);
+  }
+
+  .tree-file.selected {
     background: var(--violet-soft);
     color: var(--violet);
   }
