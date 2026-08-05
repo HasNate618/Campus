@@ -511,6 +511,21 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
     return () => document.removeEventListener('mousedown', close)
   }, [historyOpen, pickerOpen, modelOpen])
 
+  // Workspace "Ask AI" button → prefilled prompt lands here and sends
+  useEffect(() => {
+    const h = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { text?: string } | undefined
+      const text = detail?.text
+      if (text && send(courseId, text)) {
+        setInput('')
+        resetInputHeight()
+      }
+    }
+    window.addEventListener('campus:ask-ai', h)
+    return () => window.removeEventListener('campus:ask-ai', h)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [courseId])
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()

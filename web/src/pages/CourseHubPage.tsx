@@ -68,6 +68,9 @@ export function CourseLayout() {
             <NavLink to={`/courses/${cid}/assignments`} className={({ isActive }) => `tab-link${isActive ? ' active' : ''}`}>
               Assignments
             </NavLink>
+            <NavLink to={`/courses/${cid}/workspace`} className={({ isActive }) => `tab-link${isActive ? ' active' : ''}`}>
+              Workspace
+            </NavLink>
           </nav>
         </div>
       </header>

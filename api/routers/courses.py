@@ -37,6 +37,53 @@ def content_tree(course_id: int):
     return {"nodes": nodes, "files": files}
 
 
+@router.get("/{course_id}/workspace/tree")
+def workspace_tree(course_id: int):
+    tree = services.workspace_tree(course_id)
+    if tree is None:
+        raise HTTPException(404, "Course not found")
+    return tree
+
+
+@router.get("/{course_id}/workspace/file")
+def workspace_file_read(course_id: int, path: str = Query(...)):
+    try:
+        return services.workspace_read(course_id, path)
+    except FileNotFoundError:
+        raise HTTPException(404, "File not found")
+    except (ValueError, PermissionError) as e:
+        raise HTTPException(400, str(e))
+
+
+@router.put("/{course_id}/workspace/file")
+def workspace_file_write(course_id: int, path: str = Query(...), payload: dict = None):
+    content = (payload or {}).get("content", "")
+    if content is None:
+        raise HTTPException(400, "content required")
+    try:
+        result = services.workspace_write(course_id, path, content)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    except (ValueError, PermissionError) as e:
+        raise HTTPException(400 if not isinstance(e, PermissionError) else 403, str(e))
+    services.workspace_audit("write", course_id, path, {"size": result["size"],
+                                                        "before": result["before"],
+                                                        "after": result["after"]})
+    return result
+
+
+@router.delete("/{course_id}/workspace/file")
+def workspace_file_delete(course_id: int, path: str = Query(...)):
+    try:
+        result = services.workspace_delete(course_id, path)
+    except FileNotFoundError:
+        raise HTTPException(404, "File not found")
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    services.workspace_audit("delete", course_id, path, {"size": result["size"]})
+    return result
+
+
 @router.get("/{course_id}/assignments")
 def assignments(course_id: int, upcoming: bool = False):
     if not services.get_course(course_id):

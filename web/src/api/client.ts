@@ -8,6 +8,7 @@ import type {
   FileContent,
   FileRecord,
   SyncRun,
+  WorkspaceTree,
 } from '../types'
 
 const BASE = '/api'
@@ -28,6 +29,12 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
   return res.json()
 }
 
+async function request<T>(path: string, init: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, init)
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  return res.json()
+}
+
 export const api = {
   health: () => get<{ status: string; db: boolean }>('/health'),
   courses: (activeOnly = true) => get<Course[]>(`/courses?active_only=${activeOnly}`),
@@ -37,6 +44,17 @@ export const api = {
   assignments: (id: number, upcoming = false) =>
     get<Assignment[]>(`/courses/${id}/assignments?upcoming=${upcoming}`),
   assignment: (courseId: number, id: number) => get<Assignment>(`/courses/${courseId}/assignments/${id}`),
+  workspaceTree: (courseId: number) => get<WorkspaceTree>(`/courses/${courseId}/workspace/tree`),
+  workspaceRead: (courseId: number, path: string) =>
+    get<{ text: string | null; viewable: boolean; asset: string | null }>(`/courses/${courseId}/workspace/file?path=${encodeURIComponent(path)}`),
+  workspaceWrite: (courseId: number, path: string, content: string) =>
+    request<{ path: string; size: number }>(`/courses/${courseId}/workspace/file?path=${encodeURIComponent(path)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    }),
+  workspaceDelete: (courseId: number, path: string) =>
+    request<{ path: string }>(`/courses/${courseId}/workspace/file?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
   announcements: (courseId?: number, limit = 20) => {
     const q = new URLSearchParams({ limit: String(limit) })
     if (courseId != null) q.set('course_id', String(courseId))
