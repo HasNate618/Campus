@@ -87,6 +87,17 @@ export function AssignmentDetailPage() {
           {a.title}
         </h2>
         <span className={s.cls}>{s.label}</span>
+        {a.url && (
+          <a
+            className="btn btn-outline btn-sm"
+            style={{ marginLeft: 'auto' }}
+            href={a.url}
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            <ExternalLink size={12} /> Open in Brightspace
+          </a>
+        )}
       </div>
       <div className="assign-meta">
         <span className="kv-key">Due</span>
@@ -122,11 +133,6 @@ export function AssignmentDetailPage() {
             <span className="kv-key">Closes</span>
             <span className="kv-value">{fmtDue(a.availability.EndDate)}</span>
           </>
-        )}
-        {a.url && (
-          <a className="btn btn-outline btn-sm kv-action" href={a.url} target="_blank" rel="noreferrer noopener">
-            <ExternalLink size={12} /> Open in Brightspace
-          </a>
         )}
       </div>
       {a.attachments?.length ? (
