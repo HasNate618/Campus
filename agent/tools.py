@@ -12,6 +12,7 @@ import datetime
 import json
 import re
 import subprocess
+import uuid
 from pathlib import Path
 
 import httpx
@@ -363,6 +364,95 @@ def mutate_add_event(db: DB, cfg: Config, args: dict) -> dict:
     return {"created": True, "event_id": cur.lastrowid}
 
 
+def quiz_start(db: DB, cfg: Config, args: dict) -> dict:
+    """Start a free-recall quiz over active memory facts. Blind-graded:
+    every answer is graded against ONLY the fact — never the chat history
+    or course material — so grades can't flatter. Returns the first
+    question; the AI relays it, the user answers, then quiz_grade checks it
+    and returns the next question."""
+    db.conn.execute(
+        """CREATE TABLE IF NOT EXISTS quiz_attempts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, quiz_id TEXT NOT NULL,
+            course_id INTEGER, fact_id INTEGER, question TEXT, answer_key TEXT,
+            user_answer TEXT, grade TEXT, feedback TEXT, selection_json TEXT,
+            created_at TEXT DEFAULT (datetime('now')), graded_at TEXT)""")
+    cid = _resolve_course(db, args.get("course"))
+    topic = args.get("topic")
+    try:
+        count = max(1, min(int(args.get("count") or 5), 10))
+    except (TypeError, ValueError):
+        count = 5
+    q = "SELECT id, course_id, fact, category FROM memory_facts WHERE is_active=1"
+    params: list = []
+    if cid:
+        q += " AND course_id=?"
+        params.append(cid)
+    if topic:
+        q += " AND (category LIKE ? OR fact LIKE ?)"
+        params += [f"%{topic}%", f"%{topic}%"]
+    # skip facts quizzed in the last 7 days — the answers sit in the chat
+    # history, so re-asking them would be trivial
+    q += (" AND id NOT IN (SELECT fact_id FROM quiz_attempts"
+          " WHERE graded_at IS NOT NULL AND created_at > datetime('now','-7 days'))")
+    q += " ORDER BY RANDOM() LIMIT ?"
+    params.append(count)
+    facts = [dict(r) for r in db.conn.execute(q, params).fetchall()]
+    if not facts:
+        return {"error": "no quiz-able facts — the digest hasn't produced active facts yet (live term only), or everything recent was just quizzed"}
+    # abandoned quizzes (started >30min ago, never graded) don't block the next
+    db.conn.execute("DELETE FROM quiz_attempts WHERE graded_at IS NULL AND created_at < datetime('now','-30 minutes')")
+    from agent.quiz import make_question
+    quiz_id = uuid.uuid4().hex[:12]
+    fact = facts[0]
+    question = make_question(cfg, fact["fact"], fact["category"])
+    db.conn.execute(
+        "INSERT INTO quiz_attempts (quiz_id, course_id, fact_id, question, answer_key, selection_json) "
+        "VALUES (?,?,?,?,?,?)",
+        (quiz_id, fact["course_id"], fact["id"], question, fact["fact"],
+         json.dumps([f["id"] for f in facts[1:]])))
+    db.conn.commit()
+    return {"quiz_id": quiz_id, "question": question, "position": 1, "total": len(facts)}
+
+
+def quiz_grade(db: DB, cfg: Config, args: dict) -> dict:
+    """Grade the latest unanswered quiz question (blind — the grader sees
+    only the answer key + the user's words). Returns the grade, feedback,
+    and the next question, or a summary when the quiz is done."""
+    row = db.conn.execute(
+        "SELECT * FROM quiz_attempts WHERE graded_at IS NULL ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if not row:
+        return {"error": "no active quiz question — call quiz_start first"}
+    answer = (args.get("answer") or "").strip()
+    if not answer:
+        return {"error": "answer is required"}
+    from agent.quiz import blind_grade, make_question
+    grade, feedback = blind_grade(cfg, row["answer_key"], answer)
+    db.conn.execute(
+        "UPDATE quiz_attempts SET user_answer=?, grade=?, feedback=?, graded_at=datetime('now') "
+        "WHERE id=?",
+        (answer, grade, feedback, row["id"]))
+    remaining = json.loads(row["selection_json"] or "[]")
+    if not remaining:
+        graded = db.conn.execute(
+            "SELECT grade FROM quiz_attempts WHERE quiz_id=?", (row["quiz_id"],)).fetchall()
+        correct = sum(1 for g in graded if g["grade"] == "correct")
+        db.conn.commit()
+        return {"grade": grade, "feedback": feedback, "done": True,
+                "summary": f"{correct}/{len(graded)} correct"}
+    nxt = db.conn.execute(
+        "SELECT id, course_id, fact, category FROM memory_facts WHERE id=?", (remaining[0],)).fetchone()
+    question = make_question(cfg, nxt["fact"], nxt["category"])
+    db.conn.execute(
+        "INSERT INTO quiz_attempts (quiz_id, course_id, fact_id, question, answer_key, selection_json) "
+        "VALUES (?,?,?,?,?,?)",
+        (row["quiz_id"], nxt["course_id"], nxt["id"], question, nxt["fact"],
+         json.dumps(remaining[1:])))
+    db.conn.commit()
+    return {"grade": grade, "feedback": feedback, "done": False,
+            "next_question": question}
+
+
 def search_corpus(db: DB, cfg: Config, args: dict) -> dict:
     """Semantic search over the course corpus: extracted content, notes, work
     files, assignment attachments, announcements, syllabus, active facts.
@@ -690,6 +780,21 @@ TOOLS = {
         fact={"type": "string"},
         category={"type": "string"},
         confidence={"type": "number"},
+    ),
+    "quiz_start": _tool(
+        "quiz_start",
+        "Start a free-recall quiz over the course's active memory facts (blind-graded). After it returns the first question, ask the user; when they answer, call quiz_grade with their answer — never answer quiz questions for the user or show the answer key. Keep relaying each returned next_question and calling quiz_grade until done, then report the summary naturally.",
+        quiz_start,
+        course={"type": "string", "description": "optional course code, e.g. 'SE 2250B'"},
+        topic={"type": "string", "description": "optional topic/category filter, e.g. 'project' or 'assignment'"},
+        count={"type": "number", "description": "how many questions (default 5, max 10)"},
+    ),
+    "quiz_grade": _tool(
+        "quiz_grade",
+        "Grade the latest quiz question: blind-graded against the answer key only. Pass the user's exact answer. Returns the grade (correct/partial/wrong), feedback, and the next question, or a summary when the quiz is done.",
+        quiz_grade,
+        required=["answer"],
+        answer={"type": "string", "description": "the user's answer to the current quiz question"},
     ),
     "search_corpus": _tool(
         "search_corpus",

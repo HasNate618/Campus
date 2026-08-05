@@ -38,6 +38,24 @@ CREATE TABLE IF NOT EXISTS course_sessions (
 );
 
 -- ── Academic work ──────────────────────────────────────────────────────
+-- quiz-me: free-recall receipts (blind-graded). selection_json carries the
+-- remaining fact ids of the quiz chain; quiz_id links a whole session so the
+-- summary can count grades. These rows are the FSRS (S2) input later.
+CREATE TABLE IF NOT EXISTS quiz_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    quiz_id TEXT NOT NULL,
+    course_id INTEGER,
+    fact_id INTEGER,
+    question TEXT,
+    answer_key TEXT,
+    user_answer TEXT,
+    grade TEXT,
+    feedback TEXT,
+    selection_json TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    graded_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS course_groups (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     course_id     INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
