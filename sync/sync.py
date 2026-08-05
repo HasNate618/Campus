@@ -543,6 +543,13 @@ class SyncEngine:
 
             if not dry_run:
                 self.digest_and_log(run_id, courses)
+                # semantic corpus index (incremental — embeddings via bifrost;
+                # best-effort: a bifrost blip must never fail the sync)
+                try:
+                    from sync.search import rebuild as rebuild_index
+                    self.stats["index_chunks"] = rebuild_index(self.cfg, self.db)["chunks"]
+                except Exception as e:
+                    print(f"  index rebuild skipped: {e}")
                 # extraction is a BACKGROUND job — never blocks the sync.
                 # The pdf-extractor worker is single and slow (VLM page-by-
                 # page); an inline queue made every sync hang for minutes.
