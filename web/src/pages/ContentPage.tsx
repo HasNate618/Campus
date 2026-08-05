@@ -1,5 +1,5 @@
-import { Link, useParams } from 'react-router-dom'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowLeft, ChevronRight, Columns2, Download, ExternalLink, Maximize2 } from 'lucide-react'
 import { api } from '@/api/client'
@@ -266,6 +266,8 @@ function FileBody({
 
 export function ContentPage() {
   const { courseId, nodeId } = useParams()
+  const [searchParams] = useSearchParams()
+  const fileParam = searchParams.get('file') ? Number(searchParams.get('file')) : null
   const cid = Number(courseId)
   const nid = nodeId ? Number(nodeId) : null
   const [nodes, setNodes] = useState<ContentNode[]>([])
@@ -303,7 +305,11 @@ export function ContentPage() {
   }, [cid])
 
   const selectedNode = nid != null ? nodes.find((n) => n.id === nid) ?? null : null
-  const selectedFile = nid != null ? files.find((f) => f.content_node_id === nid) ?? null : null
+  const selectedFile = nid != null
+    ? (fileParam != null
+        ? files.find((f) => f.id === fileParam) ?? null
+        : files.find((f) => f.content_node_id === nid) ?? null)
+    : null
   // Unit landing pages: Brightspace keeps the banner inside the Unit
   // Introduction topic — surface it on the module page too.
   const introFile =
@@ -340,8 +346,8 @@ export function ContentPage() {
 
   const modules = nodes.filter((n) => n.parent_id === null)
   const children = (parentId: number) => nodes.filter((n) => n.parent_id === parentId)
-  const fileForNode = (id: number) => files.find((f) => f.content_node_id === id)
-
+  const filesForNode = (id: number) => files.filter((f) => f.content_node_id === id)
+  const fileName = (f: FileRecord) => f.path.split('/').pop() ?? f.path
   // View mode (toggled from the viewer header): 'fullWidth' (default) = one
   // panel at a time; 'sideBySide' = tree beside the viewer.
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
@@ -400,19 +406,37 @@ export function ContentPage() {
             </Link>
             {!collapsed.has(mod.id) &&
               children(mod.id).map((topic) => {
-                const f = fileForNode(topic.id)
+                const fs = filesForNode(topic.id)
+                const f = fs[0] ?? null
                 const chip = f ? kindChip(f) : null
                 return (
-                  <Link
-                    key={topic.id}
-                    to={`/courses/${cid}/content/${topic.id}`}
-                    className={`tree-topic${nid === topic.id ? ' selected' : ''}`}
-                  >
-                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {topic.title}
-                    </span>
-                    {chip && <span className={chip.cls} style={{ padding: '1px 6px' }}>{chip.label}</span>}
-                  </Link>
+                  <Fragment key={topic.id}>
+                    <Link
+                      to={`/courses/${cid}/content/${topic.id}`}
+                      className={`tree-topic${nid === topic.id ? ' selected' : ''}`}
+                    >
+                      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {topic.title}
+                      </span>
+                      {chip && <span className={chip.cls} style={{ padding: '1px 6px' }}>{chip.label}</span>}
+                    </Link>
+                    {fs.length > 1 && fs.slice(1).map((ff) => {
+                      const fchip = kindChip(ff)
+                      return (
+                        <Link
+                          key={ff.id}
+                          to={`/courses/${cid}/content/${topic.id}?file=${ff.id}`}
+                          className={`tree-file${selectedFile?.id === ff.id ? ' selected' : ''}`}
+                          title={ff.path}
+                        >
+                          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {fileName(ff)}
+                          </span>
+                          <span className={fchip.cls} style={{ padding: '1px 6px' }}>{fchip.label}</span>
+                        </Link>
+                      )
+                    })}
+                  </Fragment>
                 )
               })}
           </div>
