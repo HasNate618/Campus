@@ -1233,6 +1233,35 @@
     overflow: hidden;
   }
 
+  /* ---------- assignment detail ---------- */
+
+  /* Key: Value metadata list (title · status row above, description below) */
+  .assign-meta {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    column-gap: 14px;
+    row-gap: 3px;
+    margin: 0 0 16px;
+    font-size: 13.5px;
+    align-items: baseline;
+  }
+
+  .assign-meta .kv-key {
+    color: var(--text-3);
+    font-weight: 600;
+  }
+
+  .assign-meta .kv-value {
+    color: var(--text-1);
+    min-width: 0;
+  }
+
+  .assign-meta .kv-action {
+    grid-column: 2;
+    justify-self: start;
+    margin-top: 4px;
+  }
+
   .rubric-view {
     width: 100%;
     margin-top: 10px;

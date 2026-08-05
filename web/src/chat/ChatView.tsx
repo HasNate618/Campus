@@ -407,25 +407,32 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
           >
               {steps.length > 0 && (
                 <div className="msg-steps">
-                  {!stepsOpen ? (
-                    <button
-                      className="tool-chip"
-                      onClick={() => toggleSteps(node.id)}
-                      title="Expand steps"
-                      style={{ color: 'var(--text-3)' }}
-                    >
-                      <Brain size={13} />
-                      <Wrench size={13} />
-                      <span>
-                        {steps.length} step{steps.length === 1 ? '' : 's'}
-                        {nTools > 0 ? ` · ${nTools} tool call${nTools === 1 ? '' : 's'}` : ''}
-                        {nThoughts > 0 ? ` · ${nThoughts} thought${nThoughts === 1 ? '' : 's'}` : ''}
-                      </span>
-                      <ChevronDown size={12} style={{ opacity: 0.6 }} />
-                    </button>
-                  ) : (
-                    steps.map((s, i) => renderStepRow(node, s, i, `${session.id}-step-${node.id}-${i}`))
-                  )}
+                  <button
+                    className="tool-chip"
+                    onClick={() => {
+                      if (!node.streaming) toggleSteps(node.id)
+                    }}
+                    title={node.streaming ? undefined : stepsOpen ? 'Collapse steps' : 'Expand steps'}
+                    style={{ color: 'var(--text-3)' }}
+                  >
+                    <Brain size={13} />
+                    <Wrench size={13} />
+                    <span>
+                      {steps.length} step{steps.length === 1 ? '' : 's'}
+                      {nTools > 0 ? ` · ${nTools} tool call${nTools === 1 ? '' : 's'}` : ''}
+                      {nThoughts > 0 ? ` · ${nThoughts} thought${nThoughts === 1 ? '' : 's'}` : ''}
+                    </span>
+                    <ChevronDown
+                      size={12}
+                      style={{
+                        transform: stepsOpen ? 'rotate(180deg)' : 'none',
+                        transition: 'transform 120ms ease',
+                        opacity: 0.6,
+                      }}
+                    />
+                  </button>
+                  {stepsOpen &&
+                    steps.map((s, i) => renderStepRow(node, s, i, `${session.id}-step-${node.id}-${i}`))}
                 </div>
               )}
               <div className="msg-assistant">

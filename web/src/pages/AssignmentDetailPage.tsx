@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, ClipboardList, ExternalLink, Paperclip, Users } from 'lucide-react'
+import { ArrowLeft, ExternalLink, Paperclip } from 'lucide-react'
 import { api } from '@/api/client'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { fmtDue, isPast } from '@/lib/format'
@@ -88,21 +88,43 @@ export function AssignmentDetailPage() {
         </h2>
         <span className={s.cls}>{s.label}</span>
       </div>
-      <div className="row-sub" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <span>
-          <ClipboardList size={12} style={{ verticalAlign: -2 }} /> {fmtDue(a.due_at)}
-        </span>
-        {a.points != null ? <span>· {a.points} pts</span> : null}
-        {a.category ? <span className="chip" title="Dropbox category">{a.category}</span> : null}
-        {a.group_category ? (
-          <span className="chip" title={`Group category: ${a.group_category} — team submission`}>
-            <Users size={11} style={{ verticalAlign: -2 }} /> Group work
-          </span>
-        ) : null}
-        {a.weight != null ? <span>· {a.weight}%</span> : null}
-        {a.availability?.EndDate ? <span>· closes {fmtDue(a.availability.EndDate)}</span> : null}
+      <div className="assign-meta">
+        <span className="kv-key">Due</span>
+        <span className="kv-value">{fmtDue(a.due_at)}</span>
+        {a.points != null && (
+          <>
+            <span className="kv-key">Points</span>
+            <span className="kv-value">{a.points} pts</span>
+          </>
+        )}
+        {a.category && (
+          <>
+            <span className="kv-key">Category</span>
+            <span className="kv-value">{a.category}</span>
+          </>
+        )}
+        {a.group_category && (
+          <>
+            <span className="kv-key">Group</span>
+            <span className="kv-value">
+              {a.group_name ? `${a.group_name} — ` : ''}team submission
+            </span>
+          </>
+        )}
+        {a.weight != null && (
+          <>
+            <span className="kv-key">Weight</span>
+            <span className="kv-value">{a.weight}%</span>
+          </>
+        )}
+        {a.availability?.EndDate && (
+          <>
+            <span className="kv-key">Closes</span>
+            <span className="kv-value">{fmtDue(a.availability.EndDate)}</span>
+          </>
+        )}
         {a.url && (
-          <a className="btn btn-outline btn-sm" href={a.url} target="_blank" rel="noreferrer noopener">
+          <a className="btn btn-outline btn-sm kv-action" href={a.url} target="_blank" rel="noreferrer noopener">
             <ExternalLink size={12} /> Open in Brightspace
           </a>
         )}
