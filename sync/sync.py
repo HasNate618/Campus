@@ -192,6 +192,82 @@ class SyncEngine:
                 self.stats["files_changed"] += 1
                 self.deltas.append({"kind": "file_changed", "path": rel})
 
+    # ── embedded resources (PDFs linked inside content HTML) ─────────────
+    EMBEDDED_EXTS = (".pdf", ".ppt", ".pptx", ".doc", ".docx", ".xlsx", ".xls", ".zip")
+
+    def sync_embedded(self, course_id: int, org_unit: int, course_dir: Path) -> None:
+        """Fetch course-content binaries linked inside downloaded HTML
+        (Brightspace Elements Pages link the real deck statically, e.g.
+        /content/enforced/{orgUnit}/Lectures/Version-Control-and-Git.pdf).
+        Saves under content/, registers as a file on the owning topic node
+        (so the dashboard gets a PDF entry), queues extraction, and rewrites
+        the link to /api/assets so it opens locally instead of the raw URL."""
+        content_dir = course_dir / "content"
+        if not content_dir.exists():
+            return
+        try:
+            from tools.cache_images import _session_headers
+            headers = _session_headers(self.cfg)
+        except Exception:
+            return
+        asset_base = f"/api/assets/{course_dir.relative_to(self.cfg.data_root)}"
+        for html in sorted(content_dir.rglob("*.html")):
+            try:
+                raw = html.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            node = self.db.conn.execute(
+                """SELECT f.content_node_id FROM files f WHERE f.path=?""",
+                (str(html.relative_to(self.cfg.data_root)),)).fetchone()
+            node_id = node["content_node_id"] if node else None
+            rewritten = raw
+            for url in re.findall(r'href="(https?://[^"]+)"', raw):
+                # enforced URLs carry the enrollment suffix: /content/enforced/{org_unit}-{ENROLLMENT}/{path}
+                m = re.match(rf"https?://[^/]+/content/enforced/{org_unit}[-A-Za-z0-9_]*/([^\"?#]+)", url)
+                if not m:
+                    continue
+                path_part = urllib.parse.unquote(m.group(1))
+                if not path_part.lower().endswith(self.EMBEDDED_EXTS):
+                    continue
+                filename = _safe_name(path_part.split("/")[-1])
+                dest_dir = content_dir.joinpath(*path_part.split("/")[:-1])
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                dest = dest_dir / filename
+                rel = str(dest.relative_to(self.cfg.data_root))
+                try:
+                    resp = httpx.get(url, headers=headers, follow_redirects=True, timeout=120)
+                    resp.raise_for_status()
+                except Exception:
+                    continue
+                # guard: a 200 with text/html is the D2L login/interstitial
+                # page (stale session cookies) — never save HTML as a binary
+                ctype = (resp.headers.get("content-type") or "").lower()
+                if "html" in ctype:
+                    continue
+                body = resp.content
+                if len(body) > self.cfg.max_file_size or not body:
+                    continue
+                sha = hashlib.sha256(body).hexdigest()
+                kind = "slide" if filename.lower().endswith((".pdf", ".ppt", ".pptx")) else "other"
+                file_id, is_new = self.db.upsert_file(
+                    course_id, rel, kind, "brightspace", sha, len(body), node_id)
+                if is_new:
+                    dest.write_bytes(body)
+                    self.stats["files_new"] += 1
+                    self.deltas.append({"kind": "file_new", "path": rel})
+                else:
+                    existing = self.db.conn.execute(
+                        "SELECT sha256 FROM files WHERE id=?", (file_id,)).fetchone()
+                    if existing and existing["sha256"] != sha:
+                        dest.write_bytes(body)
+                        self.stats["files_changed"] += 1
+                        self.deltas.append({"kind": "file_changed", "path": rel})
+                if node_id is not None:
+                    rewritten = rewritten.replace(
+                        url, f"{asset_base}/{urllib.parse.quote(path_part)}", 1)
+            if rewritten != raw:
+                html.write_text(rewritten, encoding="utf-8")
+
     # ── dropbox (assignments) ───────────────────────────────────────────
     def _download_assignment_attachments(self, course_id: int, org_unit: int, folder_id: int,
                                          folder_name: str, attachments: list,
@@ -525,6 +601,7 @@ class SyncEngine:
                 if dry_run:
                     continue
                 self.sync_content(course["id"], org_unit, course_dir)
+                self.sync_embedded(course["id"], org_unit, course_dir)
                 self.sync_dropbox(course["id"], org_unit)
                 self.sync_news(course["id"], org_unit)
                 self.sync_syllabus(course["id"], org_unit, course_dir)
