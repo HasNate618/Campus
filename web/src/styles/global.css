@@ -645,12 +645,15 @@
     top: calc(100% + 6px);
     right: 8px;
     min-width: 200px;
-    background: rgba(16, 16, 22, 0.92);
+    /* fully opaque neutral fill — the old #101016eb (rgba(16,16,22,.92))
+       read as dark-purple transparent: blue channel +6 over red/green AND
+       the 8% alpha bled the app's purple base through. No backdrop-filter:
+       var(--glass-blur) is blur(20px) saturate(1.4) — the saturation boost
+       over the purple base is what made it VIVIDLY purple. */
+    background: rgb(30, 30, 30);
     border: 1px solid var(--glass-border-strong);
     border-radius: 12px;
     box-shadow: var(--glass-shadow);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
     padding: 5px;
     z-index: 40;
   }
