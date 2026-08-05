@@ -1101,6 +1101,12 @@
     padding: 0;
   }
 
+  /* a code block with its header bar (added by the post-process) needs no
+     extra top padding — the header provides the spacing */
+  .md pre:has(> .code-header) {
+    padding-top: 0;
+  }
+
   .md blockquote {
     border-left: 3px solid var(--violet-border);
     margin: 0.7em 0;
