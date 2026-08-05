@@ -233,10 +233,10 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 11px;
+  font-size: 10px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: var(--text-secondary, #8b949e);
-  padding: 4px 10px;
+  padding: 3px 10px;
   border-bottom: 1px solid var(--code-border, #30363d);
   user-select: none;
 }
@@ -249,16 +249,20 @@
 
 .code-header .copy-btn {
   background: transparent;
-  border: 1px solid var(--code-border, #30363d);
+  border: none;
   color: inherit;
-  font-size: 11px;
+  font-size: inherit;
   font-family: inherit;
-  padding: 2px 8px;
-  border-radius: 6px;
+  padding: 3px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
   cursor: pointer;
+  opacity: 0.75;
 }
 
 .code-header .copy-btn:hover {
+  opacity: 1;
   background: rgba(255, 255, 255, 0.06);
 }
 
