@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
 import { CalendarDays, Home } from 'lucide-react'
+import { ZenMarkdown } from '@/lib/ZenMarkdown'
 import { api } from '@/api/client'
 import { CalendarCard } from '@/components/CalendarCard'
 import { SyncCard } from '@/components/SyncCard'
@@ -58,9 +58,7 @@ export function TodayPage() {
                 )}
               </p>
               {digest ? (
-                <div className="md">
-                  <ReactMarkdown>{digest.markdown}</ReactMarkdown>
-                </div>
+                <ZenMarkdown content={digest.markdown} />
               ) : (
                 <div className="empty compact">No digest yet — it generates after the next sync.</div>
               )}

@@ -1,10 +1,13 @@
 import { useEffect, type RefObject } from 'react'
+import hljs from 'highlight.js'
+import 'highlight.js/styles/github-dark.css'
 
 /**
  * Shared markdown post-processing (used by both the chat renderer and the
  * zen content renderer) — upgrades marked output in place:
  *   1. Mermaid: ```mermaid fences → rendered SVG (lazy import, dark theme)
- *   2. Code blocks: wrapped with a header bar (language + copy button)
+ *   2. Code blocks: syntax-highlighted (highlight.js) + wrapped with a
+ *      header bar (language + copy button)
  * Elements are marked with data-zen-processed so re-runs (per token while
  * streaming) never duplicate work.
  */
@@ -86,10 +89,12 @@ export function useZenPostProcess(ref: RefObject<HTMLElement | null>, _deps: unk
       })
     }
 
-    // 2. Code blocks: header bar with language label + copy button
+    // 2. Code blocks: syntax highlight (highlight.js) + header bar with
+    //    language label + copy button
     root.querySelectorAll<HTMLElement>('pre > code:not([data-zen-processed])').forEach((code) => {
       if (streaming) return
       code.setAttribute('data-zen-processed', '1')
+      hljs.highlightElement(code)
       const pre = code.parentElement
       if (!pre) return
       const langMatch = (code.className || '').match(/language-([\w+#.-]+)/)

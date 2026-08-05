@@ -19,8 +19,7 @@ import {
 import { courseColor } from '@/lib/courses'
 import { fmtRelative } from '@/lib/format'
 import { api } from '@/api/client'
-import { useZenPostProcess } from '@/lib/zenMd'
-import { parseMarkdown } from '@/lib/md'
+import { ZenMarkdown } from '@/lib/ZenMarkdown'
 import { useChat, pathFor, type MsgNode, type StepItem } from './ChatContext'
 import type { Course } from '@/types'
 
@@ -42,23 +41,19 @@ function formatDetail(v: unknown): string {
   }
 }
 
-/** Chat markdown uses the SITE's .md styling (matches announcements, etc.)
- *  + the shared zen post-process (mermaid, copy buttons) + LaTeX/footnotes
- *  via the shared parser. Renders are rAF-throttled so token-by-token
- *  streaming stays smooth (content updates coalesce to one re-render per
- *  frame instead of one per token). memo() keeps finished messages from
- *  re-rendering when the composer re-renders the chat (typing previously
- *  wiped every message's innerHTML — code headers and images flickered). */
+/** Chat markdown is the same unified ZenMarkdown renderer as the content
+ *  pages. Renders are rAF-throttled so token-by-token streaming stays
+ *  smooth (content updates coalesce to one re-render per frame instead of
+ *  one per token). memo() keeps finished messages from re-rendering when
+ *  the composer re-renders the chat (typing previously wiped every
+ *  message's innerHTML — code headers and images flickered). */
 const ChatMd = memo(function ChatMd({ content }: { content: string }) {
-  const ref = useRef<HTMLDivElement>(null)
   const [rendered, setRendered] = useState(content)
   useEffect(() => {
     const raf = requestAnimationFrame(() => setRendered(content))
     return () => cancelAnimationFrame(raf)
   }, [content])
-  const html = useMemo(() => parseMarkdown(rendered), [rendered])
-  useZenPostProcess(ref, [html])
-  return <div ref={ref} className="md" dangerouslySetInnerHTML={{ __html: html }} />
+  return <ZenMarkdown content={rendered} />
 })
 
 function shortModel(id: string): string {
