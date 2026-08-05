@@ -2269,3 +2269,13 @@
     }
   }
 }
+
+/* ── unlayered overrides (must live OUTSIDE @layer components) ── */
+/* highlight.js ships its github-dark theme UNLAYERED, and per cascade
+   layers unlayered rules beat layered ones regardless of specificity —
+   so `code.hljs { background: #0d1117 }` was painting the solid theme
+   background over the glass pre. Restore transparency for highlighted
+   code; the pre's own background shows through. */
+pre code.hljs {
+  background: transparent;
+}
