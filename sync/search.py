@@ -126,13 +126,16 @@ def _corpus(cfg, db) -> list[dict]:
             "text": text, "hash": hashlib.sha256(text.encode()).hexdigest()[:16],
         })
 
-    # disk markdown: content/, notes/, Assignments/ across course dirs
+    # disk markdown + html: content/, notes/, Assignments/ across course dirs
+    # (html = unit introductions / slide wrappers — strip tags, they carry
+    # real text; the sync stores slides that are html pages as .html)
     for top in ("content", "notes", "Assignments"):
-        for md in sorted(root.glob(f"*/*/{top}/**/*.md")):
+        for md in sorted(root.glob(f"*/*/{top}/**/*.md")) + sorted(root.glob(f"*/*/{top}/**/*.html")):
             try:
-                text = md.read_text(encoding="utf-8", errors="replace")
+                raw = md.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
+            text = _strip_html(raw) if md.suffix.lower() == ".html" else raw
             rel = str(md.relative_to(root))
             tc = rel.split("/")[0] + "/" + rel.split("/", 2)[1]
             add(rel, _course_id(db, tc), text)
@@ -176,14 +179,17 @@ def rebuild(cfg, db) -> dict:
                 "embedded_items": 0, "items": len(items)}
     texts = [t for it in todo for t in _chunk(it["text"])]
     vectors = _embed(cfg, texts)
+    vec_iter = iter(vectors)  # consume sequentially — zipping per item from the
+    # head of the list misaligns every item after the first (all get the same
+    # head vectors → identical cosines). This was a real bug; fixed.
     cur = db.conn.cursor()
     for it in todo:
         cur.execute("DELETE FROM chunks WHERE ref=?", (it["ref"],))
-        for idx, (chunk_text, vec) in enumerate(zip(_chunk(it["text"]), vectors)):
+        for idx, chunk_text in enumerate(_chunk(it["text"])):
             cur.execute(
                 "INSERT INTO chunks (course_id, ref, chunk_idx, text, embedding, src_hash) "
                 "VALUES (?,?,?,?,?,?)",
-                (it["course_id"], it["ref"], idx, chunk_text, _pack(vec), it["hash"]),
+                (it["course_id"], it["ref"], idx, chunk_text, _pack(next(vec_iter)), it["hash"]),
             )
     db.conn.commit()
     return {"chunks": db.conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0],
