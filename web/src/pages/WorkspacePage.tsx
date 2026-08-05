@@ -1,8 +1,8 @@
-import { Fragment, useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   Bot, ChevronRight, FileText, FileCode2, FileType,
-  Folder, FolderLock, Lock, Pencil, Plus, RefreshCw, Save, Trash2,
+  Folder, FolderLock, FolderPlus, Lock, Pencil, Plus, RefreshCw, Save, Trash2,
 } from 'lucide-react'
 import { api } from '@/api/client'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
@@ -78,6 +78,23 @@ export function WorkspacePage() {
   const [savedAt, setSavedAt] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [newFileDir, setNewFileDir] = useState<string>('notes')
+  const [externalChange, setExternalChange] = useState(false)
+  const mtimeRef = useRef<string | null>(null)
+  const textRef = useRef(text)
+  textRef.current = text
+  const savedRef = useRef(savedText)
+  savedRef.current = savedText
+
+  const findNode = (nodes: WorkspaceNode[], path: string): WorkspaceNode | null => {
+    for (const n of nodes) {
+      if (n.path === path) return n
+      if (n.children) {
+        const f = findNode(n.children, path)
+        if (f) return f
+      }
+    }
+    return null
+  }
 
   const loadTree = useCallback(() => {
     api.workspaceTree(cid).then(setTree).catch(() => setTree(null)).finally(() => setLoading(false))
@@ -93,6 +110,8 @@ export function WorkspacePage() {
     setPreview(false)
     setAssetUrl(null)
     setNotice(null)
+    setExternalChange(false)
+    mtimeRef.current = n.mtime ?? null
     if (n.type === 'file') {
       try {
         const r = await api.workspaceRead(cid, n.path)
@@ -110,6 +129,38 @@ export function WorkspacePage() {
     }
   }
 
+  // auto-refresh: poll the tree; if the open file changed on disk (e.g. the
+  // AI edited it via file_edit), reload when clean, flag it when dirty
+  useEffect(() => {
+    const iv = setInterval(async () => {
+      const cur = current
+      if (!cur || cur.type !== 'file') return
+      try {
+        const t = await api.workspaceTree(cid)
+        setTree(t)
+        const node = findNode(t.nodes, cur.path)
+        if (!node || node.type !== 'file' || !node.mtime) return
+        if (node.mtime === mtimeRef.current) return
+        mtimeRef.current = node.mtime
+        if (textRef.current === savedRef.current) {
+          const r = await api.workspaceRead(cid, cur.path)
+          if (r.viewable && r.text !== null) {
+            setText(r.text)
+            setSavedText(r.text)
+            setSavedAt('updated')
+            setExternalChange(false)
+          }
+        } else {
+          setExternalChange(true)
+        }
+      } catch {
+        /* transient — retry next tick */
+      }
+    }, 8000)
+    return () => clearInterval(iv)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cid, current])
+
   const save = async () => {
     if (!current || current.type !== 'file' || !current.writable) return
     setBusy(true)
@@ -118,7 +169,11 @@ export function WorkspacePage() {
       setSavedText(text)
       setSavedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
       setNotice(null)
-      loadTree()
+      setExternalChange(false)
+      const t = await api.workspaceTree(cid)
+      setTree(t)
+      const node = findNode(t.nodes, current.path)
+      mtimeRef.current = node?.mtime ?? null
     } catch {
       setNotice('Save failed.')
     } finally {
@@ -159,12 +214,54 @@ export function WorkspacePage() {
 
   const askAi = () => {
     if (!current) return
-    const instruction = prompt('What should the AI do with this file? (it will answer in the chat and can edit the file itself)', 'Give me a brief summary of this file.')
+    const instruction = prompt('What should the AI do with this file? (it answers in the chat and can edit the file itself)')
     if (!instruction) return
-    const tail = text.slice(-600)
+    const kb = (text.length / 1024).toFixed(1)
+    const cap = 8000
+    const content = text.length > cap
+      ? text.slice(0, cap) + `\n… [truncated — ${text.length} chars total; read more with content_read_file if needed]`
+      : text
     window.dispatchEvent(new CustomEvent('campus:ask-ai', {
-      detail: { text: `[Workspace: ${current.path}]\n${instruction}\n\n--- current file content (tail) ---\n${tail}` },
+      detail: {
+        text: `[File: ${current.path} — ${current.kind ?? 'text'}, ${kb} KB]\n` +
+          `The user is working on this file and asked: "${instruction}"\n\n` +
+          `Current content:\n--- BEGIN FILE ---\n${content}\n--- END FILE ---\n\n` +
+          `If the request involves changing the file, apply the edits yourself with ` +
+          `file_edit (scoped snippet edits) — don't just describe them. ` +
+          `If it's a question about the file, answer it in the chat.`,
+      },
     }))
+  }
+
+  const newDir = async () => {
+    const name = prompt(`New folder in ${newFileDir}/ (e.g. 'projects' or 'projects/phase-1')`)
+    if (!name) return
+    try {
+      await api.workspaceMkdir(cid, `${newFileDir}/${name}`)
+      setNotice(null)
+      loadTree()
+    } catch {
+      setNotice('Could not create the folder.')
+    }
+  }
+
+  const reloadExternal = async () => {
+    if (!current) return
+    try {
+      const r = await api.workspaceRead(cid, current.path)
+      if (r.viewable && r.text !== null) {
+        setText(r.text)
+        setSavedText(r.text)
+        setSavedAt('updated')
+      }
+      const t = await api.workspaceTree(cid)
+      setTree(t)
+      const node = findNode(t.nodes, current.path)
+      mtimeRef.current = node?.mtime ?? null
+      setExternalChange(false)
+    } catch {
+      setNotice('Could not reload the file.')
+    }
   }
 
   const isText = current?.kind ? TEXT_KINDS.has(current.kind) : false
@@ -188,6 +285,7 @@ export function WorkspacePage() {
             <option value="notes">notes/</option>
             <option value="work">work/</option>
           </select>
+          <button className="btn btn-outline btn-sm" onClick={newDir} title="New folder"><FolderPlus size={12} /> Folder</button>
           <button className="btn btn-outline btn-sm" onClick={newFile}><Plus size={12} /> New file</button>
         </div>
       </div>
@@ -222,6 +320,12 @@ export function WorkspacePage() {
               </div>
             </div>
             {notice && <p className="ws-notice">{notice}</p>}
+            {externalChange && (
+              <p className="ws-notice" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span>File changed on disk (e.g. the AI edited it).</span>
+                <button className="btn btn-outline btn-sm" onClick={reloadExternal}>Reload</button>
+              </p>
+            )}
             {savedAt && <p className="ws-saved">saved {savedAt}</p>}
             {assetUrl ? (
               <a className="empty compact" style={{ margin: 'auto', textDecoration: 'none' }} href={assetUrl} target="_blank" rel="noreferrer noopener">

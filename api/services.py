@@ -283,6 +283,19 @@ def workspace_delete(course_id: int, rel: str) -> dict:
     return {"path": rel, "size": size}
 
 
+def workspace_mkdir(course_id: int, rel: str) -> dict:
+    course = get_course(course_id) or {}
+    if not course.get("term"):
+        raise ValueError("course not found")
+    if not _writable_rel(rel):
+        raise PermissionError("read-only — only notes/ and work/ are editable")
+    full = _resolve_workspace(course, rel)
+    if full.exists():
+        raise ValueError("already exists")
+    full.mkdir(parents=True, exist_ok=True)
+    return {"path": rel}
+
+
 def workspace_audit(action: str, course_id: int, rel: str, detail: dict) -> None:
     from api.db import get_conn
     try:
