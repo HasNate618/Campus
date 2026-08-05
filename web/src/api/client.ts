@@ -55,6 +55,8 @@ export const api = {
     }),
   workspaceDelete: (courseId: number, path: string) =>
     request<{ path: string }>(`/courses/${courseId}/workspace/file?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
+  workspaceMkdir: (courseId: number, path: string) =>
+    post<{ path: string }>(`/courses/${courseId}/workspace/dir?path=${encodeURIComponent(path)}`),
   announcements: (courseId?: number, limit = 20) => {
     const q = new URLSearchParams({ limit: String(limit) })
     if (courseId != null) q.set('course_id', String(courseId))

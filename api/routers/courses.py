@@ -84,6 +84,16 @@ def workspace_file_delete(course_id: int, path: str = Query(...)):
     return result
 
 
+@router.post("/{course_id}/workspace/dir")
+def workspace_dir_create(course_id: int, path: str = Query(...)):
+    try:
+        result = services.workspace_mkdir(course_id, path)
+    except (ValueError, PermissionError) as e:
+        raise HTTPException(400 if not isinstance(e, PermissionError) else 403, str(e))
+    services.workspace_audit("mkdir", course_id, path, {})
+    return result
+
+
 @router.get("/{course_id}/assignments")
 def assignments(course_id: int, upcoming: bool = False):
     if not services.get_course(course_id):
