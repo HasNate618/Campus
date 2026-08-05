@@ -622,8 +622,10 @@
     font-size: 12.5px;
     font-weight: 600;
     color: var(--text-2);
-    background: var(--glass-bg);
-    border: 1px solid var(--glass-border);
+    /* full glass treatment, matching the chat-input surface — a visibly
+       raised pill, not a flat control */
+    background: var(--glass-bg-strong);
+    border: 1px solid var(--glass-border-strong);
     border-radius: 999px;
     padding: 5px 12px;
     cursor: pointer;
@@ -931,11 +933,6 @@
     white-space: nowrap;
   }
 
-  .chat-input .scope-pill {
-    font-size: 12.5px;
-    padding: 5px 12px;
-  }
-
   .chat-input .icon-btn {
     width: 24px;
     height: 24px;
@@ -957,8 +954,7 @@
     transition: border-color 140ms ease;
   }
 
-  /* textarea + bottom tools row; the attach/ctx/send column sits to the
-     RIGHT of the composer (outside the textarea column) */
+  /* textarea + bottom tools row; send sits alone on the box's right edge */
   .chat-input-main {
     flex: 1;
     min-width: 0;
@@ -966,25 +962,18 @@
     flex-direction: column;
   }
 
-  /* upload button + context meter + send, stacked to the right of the
-     composer box — attach on top, ctx centered, send aligned to the box's
-     bottom edge */
-  .chat-input-side {
-    flex-shrink: 0;
-    align-self: stretch;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 7px;
-    justify-content: flex-end;
-    padding: 2px 2px 2px 4px;
-  }
-
   .input-toolbar {
     display: flex;
     align-items: center;
     gap: 8px;
     padding-top: 8px;
+  }
+
+  /* the upload button sits in the toolbar's left side — compact round
+     control, same glass family */
+  .input-toolbar .attach-btn {
+    width: 26px;
+    height: 26px;
   }
 
   .chat-input:focus-within {
