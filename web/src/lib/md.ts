@@ -94,6 +94,17 @@ function renderFootnotes(md: string): string {
 marked.use({ gfm: true, breaks: true })
 marked.use({ extensions: [katexInline, katexBlock] })
 
+/** While a message is still streaming, the model types the opening fence
+ *  (```python) token by token — marked would render the half-typed fence as
+ *  literal backticks at the top of the block. If the content has an
+ *  unmatched line-start fence, append a closing fence so the partial code
+ *  renders as a (growing) code block instead of raw ``` garbage. */
+function balanceFences(md: string): string {
+  const open = (md.match(/^\s*```/gm) ?? []).length
+  if (open % 2 === 1) return `${md}\n\`\`\``
+  return md
+}
+
 export function parseMarkdown(content: string): string {
-  return (marked.parse(renderFootnotes(content ?? '')) as string) || ''
+  return (marked.parse(balanceFences(renderFootnotes(content ?? ''))) as string) || ''
 }
