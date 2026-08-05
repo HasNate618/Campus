@@ -767,15 +767,16 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
                   </div>
                 )}
               </div>
-              <span className="ctx-meter" title="Context used so far vs the selected model's window">
-                {ctxText}
-              </span>
             </div>
           </div>
-          <button className="attach-btn" disabled title="File upload coming soon" aria-label="Attach file">
-            <Paperclip size={15} />
-          </button>
-          <button
+          <div className="chat-input-side">
+            <button className="attach-btn" disabled title="File upload coming soon" aria-label="Attach file">
+              <Paperclip size={15} />
+            </button>
+            <span className="ctx-meter" title="Context used so far vs the selected model's window">
+              {ctxText}
+            </span>
+            <button
             className="send-btn"
             onClick={submit}
             disabled={busy || !input.trim()}
@@ -783,6 +784,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
           >
             {busy ? <Loader2 size={16} className="animate-spin" /> : <ArrowUp size={16} />}
           </button>
+          </div>
         </div>
       </div>
     </div>
