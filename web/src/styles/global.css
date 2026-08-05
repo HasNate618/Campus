@@ -622,23 +622,22 @@
     font-size: 12.5px;
     font-weight: 600;
     color: var(--text-1);
-    /* full glass treatment, matching the chat-input surface — a VISIBLY
-       raised glass pill (lighter surface + inner highlight), not a flat
-       dark control */
-    background: rgba(255, 255, 255, 0.12);
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    /* near-opaque neutral surface (same as the popovers) — the app's base
+       background is dark PURPLE (hsl 250), so any translucent fill reads
+       as a purple tint; opaque kills it. No backdrop-filter: the pill must
+       not sample the backdrop. */
+    background: rgba(16, 16, 22, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.16);
     border-radius: 999px;
     padding: 5px 12px;
     cursor: pointer;
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
     transition: color 120ms ease, border-color 120ms ease;
   }
 
   .scope-pill:hover {
     color: var(--text-1);
-    border-color: rgba(255, 255, 255, 0.3);
+    border-color: rgba(255, 255, 255, 0.26);
   }
 
   .popover {
