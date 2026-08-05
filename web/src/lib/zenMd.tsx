@@ -41,14 +41,17 @@ export function useZenPostProcess(ref: RefObject<HTMLElement | null>, _deps: unk
     // The heavy DOM scanning below is trailing-debounced (~250ms): during
     // token streaming the text renders at frame rate and the decorations
     // (copy buttons, mermaid) settle right after the message stops growing.
+    // Blocks inside a still-streaming message (.streaming) are skipped so
+    // the header doesn't flicker on every token.
     const scanTimer = window.setTimeout(() => {
     if (!root.isConnected) return
+    const streaming = !!root.closest('.streaming')
 
     // 1. Mermaid blocks → SVG diagrams
     const mermaidBlocks = Array.from(
       root.querySelectorAll<HTMLElement>('pre > code.language-mermaid:not([data-zen-processed])'),
     )
-    if (mermaidBlocks.length) {
+    if (mermaidBlocks.length && !streaming) {
       loadMermaid().then((mm) => {
         mermaidBlocks.forEach((code) => {
           code.setAttribute('data-zen-processed', '1')
@@ -75,6 +78,7 @@ export function useZenPostProcess(ref: RefObject<HTMLElement | null>, _deps: unk
 
     // 2. Code blocks: header bar with language label + copy button
     root.querySelectorAll<HTMLElement>('pre > code:not([data-zen-processed])').forEach((code) => {
+      if (streaming) return
       code.setAttribute('data-zen-processed', '1')
       const pre = code.parentElement
       if (!pre) return
@@ -118,7 +122,26 @@ export function useZenPostProcess(ref: RefObject<HTMLElement | null>, _deps: unk
       header.appendChild(btn)
       pre.prepend(header)
     })
-    // 3. Mermaid zoom-on-click: click a rendered diagram → fullscreen overlay
+
+    // 3. Images: a src that can't load (dead URL, broken path) degrades to
+    //    a styled placeholder instead of a bare broken-image icon.
+    root.querySelectorAll<HTMLImageElement>('img').forEach((img) => {
+      if (img.dataset.fb) return
+      img.dataset.fb = '1'
+      const fallback = () => {
+        const span = document.createElement('span')
+        span.className = 'md-img-fallback'
+        span.textContent = img.alt || 'image'
+        img.replaceWith(span)
+      }
+      // already-failed images (loaded before the listener attached)
+      if (img.complete && img.naturalWidth === 0) {
+        fallback()
+        return
+      }
+      img.addEventListener('error', fallback, { once: true })
+    })
+    // 4. Mermaid zoom-on-click: click a rendered diagram → fullscreen overlay
     }, 250)
     const onClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement

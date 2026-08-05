@@ -1736,6 +1736,53 @@
   .md img {
     max-width: 100%;
     height: auto;
+    border-radius: 8px;
+  }
+
+  /* broken/placeholder image srcs degrade to a styled note, not alt text */
+  .md-img-fallback {
+    display: inline-block;
+    max-width: 100%;
+    padding: 10px 14px;
+    border: 1px dashed var(--glass-border-strong);
+    border-radius: 8px;
+    color: var(--text-3);
+    font-size: 12.5px;
+    font-style: italic;
+  }
+
+  /* LaTeX blocks + footnotes (shared markdown parser) */
+  .katex-block {
+    overflow-x: auto;
+    padding: 4px 0;
+  }
+
+  .footnotes {
+    margin-top: 14px;
+    padding-top: 4px;
+    font-size: 12.5px;
+    color: var(--text-2);
+  }
+
+  .footnotes ol {
+    margin: 6px 0;
+    padding-left: 1.4em;
+  }
+
+  .footnotes li {
+    margin: 3px 0;
+  }
+
+  .fn-ref {
+    font-size: 11px;
+    color: var(--violet);
+    text-decoration: none;
+    margin: 0 1px;
+  }
+
+  .fn-back {
+    text-decoration: none;
+    color: var(--text-3);
   }
 
   .md iframe {
