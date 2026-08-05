@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
-  Bot, ChevronDown, ChevronRight, FileText, FileCode2, FileType,
+  Bot, ChevronRight, FileText, FileCode2, FileType,
   Folder, FolderLock, Lock, Pencil, Plus, RefreshCw, Save, Trash2,
 } from 'lucide-react'
 import { api } from '@/api/client'
@@ -40,7 +40,7 @@ function TreeNode({
         title={isDir ? (node.writable ? 'editable' : 'read-only') : `${node.path}${node.writable ? '' : ' · read-only'}`}
       >
         {isDir ? (
-          open ? <ChevronDown size={12} /> : <ChevronRight size={12} />
+          <ChevronRight size={12} className={`ws-chevron${open ? ' open' : ''}`} />
         ) : (
           <span style={{ width: 12, display: 'inline-flex', justifyContent: 'center' }}>{kindIcon(node.kind)}</span>
         )}
