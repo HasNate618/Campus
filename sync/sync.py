@@ -624,7 +624,8 @@ class SyncEngine:
                 # best-effort: a bifrost blip must never fail the sync)
                 try:
                     from sync.search import rebuild as rebuild_index
-                    self.stats["index_chunks"] = rebuild_index(self.cfg, self.db)["chunks"]
+                    idx = rebuild_index(self.cfg, self.db)
+                    print(f"  index: {idx['chunks']} chunks ({idx['embedded_items']} embedded)")
                 except Exception as e:
                     print(f"  index rebuild skipped: {e}")
                 # extraction is a BACKGROUND job — never blocks the sync.
