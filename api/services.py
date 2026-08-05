@@ -6,6 +6,7 @@ logic (agent/) and mutations (mutate_* tools, audit_log).
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import sqlite3
 import threading
@@ -174,6 +175,124 @@ def list_assignments(course_id: int, upcoming_only: bool = False) -> list[dict]:
         q += " AND due_at IS NOT NULL AND due_at >= datetime('now')"
     q += " ORDER BY due_at"
     return [_parse_assignment(r) for r in _rows(q, args)]
+
+
+# ── workspace (course file tree + audited text editor) ─────────────────
+WRITABLE_WORKSPACE_DIRS = ("notes", "work")
+WORKSPACE_TEXT_SUFFIXES = {".md", ".txt", ".html", ".htm", ".json", ".yaml", ".yml",
+                           ".csv", ".py", ".ts", ".tsx", ".js", ".css", ".nix", ".sh"}
+WORKSPACE_READ_CAP = 200_000
+WORKSPACE_WRITE_CAP = 512_000
+
+
+def course_dir(course: dict) -> Path:
+    return SCHOOL_ROOT / course["term"] / course["code"].replace(" ", "")
+
+
+def _writable_rel(rel: str) -> bool:
+    return rel.split("/", 1)[0] in WRITABLE_WORKSPACE_DIRS
+
+
+def _resolve_workspace(course: dict, rel: str) -> Path:
+    root = course_dir(course).resolve()
+    full = (root / rel).resolve()
+    if not full.is_relative_to(root):
+        raise ValueError("path escapes the course dir")
+    return full
+
+
+def workspace_tree(course_id: int) -> dict | None:
+    course = get_course(course_id)
+    if not course:
+        return None
+    root = course_dir(course)
+    if not root.exists():
+        return {"root": root.name, "nodes": []}
+
+    def walk(d: Path, rel: str, depth: int) -> list[dict]:
+        if depth > 5:
+            return []
+        out = []
+        for p in sorted(d.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
+            if p.name.startswith(".") or p.name.endswith(".prev") or p.name == "_assets":
+                continue
+            r = f"{rel}/{p.name}" if rel else p.name
+            if p.is_dir():
+                children = walk(p, r, depth + 1)
+                out.append({"name": p.name, "path": r, "type": "dir",
+                            "writable": p.name in WRITABLE_WORKSPACE_DIRS,
+                            "children": children})
+            else:
+                try:
+                    st = p.stat()
+                    out.append({"name": p.name, "path": r, "type": "file",
+                                "size": st.st_size,
+                                "mtime": datetime.datetime.fromtimestamp(st.st_mtime).isoformat(timespec="seconds"),
+                                "kind": p.suffix.lower().lstrip(".") or "file",
+                                "writable": _writable_rel(r)})
+                except OSError:
+                    continue
+        return out
+
+    return {"root": root.name, "nodes": walk(root, "", 0)}
+
+
+def workspace_read(course_id: int, rel: str) -> dict:
+    course = get_course(course_id) or {"term": "", "code": ""}
+    if not course.get("term"):
+        raise ValueError("course not found")
+    full = _resolve_workspace(course, rel)
+    if not full.exists() or not full.is_file():
+        raise FileNotFoundError(rel)
+    if full.suffix.lower() in WORKSPACE_TEXT_SUFFIXES:
+        if full.stat().st_size > WORKSPACE_READ_CAP:
+            raise ValueError("file too large to edit — open in viewer")
+        return {"text": full.read_text(encoding="utf-8", errors="replace"),
+                "viewable": True, "asset": None}
+    return {"text": None, "viewable": False,
+            "asset": f"/api/assets/{course['term']}/{course['code'].replace(' ', '')}/{rel}"}
+
+
+def workspace_write(course_id: int, rel: str, content: str) -> dict:
+    course = get_course(course_id) or {}
+    if not course.get("term"):
+        raise ValueError("course not found")
+    if not _writable_rel(rel):
+        raise PermissionError("read-only — only notes/ and work/ are editable")
+    if len(content) > WORKSPACE_WRITE_CAP:
+        raise ValueError("file too large to save")
+    full = _resolve_workspace(course, rel)
+    before = hashlib.sha256(full.read_bytes()).hexdigest() if full.exists() else None
+    full.parent.mkdir(parents=True, exist_ok=True)
+    full.write_text(content, encoding="utf-8")
+    after = hashlib.sha256(full.read_bytes()).hexdigest()
+    return {"path": rel, "size": full.stat().st_size, "before": before, "after": after}
+
+
+def workspace_delete(course_id: int, rel: str) -> dict:
+    course = get_course(course_id) or {}
+    if not course.get("term"):
+        raise ValueError("course not found")
+    if not _writable_rel(rel):
+        raise PermissionError("read-only — only notes/ and work/ are editable")
+    full = _resolve_workspace(course, rel)
+    if not full.exists() or not full.is_file():
+        raise FileNotFoundError(rel)
+    size = full.stat().st_size
+    full.unlink()
+    return {"path": rel, "size": size}
+
+
+def workspace_audit(action: str, course_id: int, rel: str, detail: dict) -> None:
+    from api.db import get_conn
+    try:
+        with get_conn() as c:
+            c.execute(
+                "INSERT INTO audit_log (actor, entity, entity_id, action, detail) VALUES (?,?,?,?,?)",
+                ("user", "files", course_id, action, json.dumps(detail)))
+            c.commit()
+    except Exception:
+        pass
 
 
 def get_assignment(course_id: int, assignment_id: int) -> dict | None:

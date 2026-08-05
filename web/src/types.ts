@@ -23,6 +23,22 @@ export interface Announcement {
   posted_at?: string | null
 }
 
+export interface WorkspaceNode {
+  name: string
+  path: string
+  type: 'dir' | 'file'
+  writable: boolean
+  children?: WorkspaceNode[]
+  size?: number
+  mtime?: string
+  kind?: string
+}
+
+export interface WorkspaceTree {
+  root: string
+  nodes: WorkspaceNode[]
+}
+
 export interface Assignment {
   id: number
   course_id: number

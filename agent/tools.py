@@ -363,6 +363,39 @@ def mutate_add_event(db: DB, cfg: Config, args: dict) -> dict:
     return {"created": True, "event_id": cur.lastrowid}
 
 
+def file_edit(db: DB, cfg: Config, args: dict) -> dict:
+    """Scoped edit: replace ONE unique snippet in a file. old_text must match
+    exactly once — zero or multiple matches error out (retry with more
+    surrounding context). Everything outside the matched region is untouched,
+    so long documents can't drift. Audited with old/new excerpts."""
+    rel = Path(args.get("path", ""))
+    old = args.get("old_text", "")
+    new = args.get("new_text", "")
+    if not old:
+        return {"error": "old_text is required — the exact text to replace"}
+    root = Path(cfg.data_root).resolve()
+    full = (root / rel).resolve()
+    if root not in full.parents and full != root:
+        return {"error": "path must be under data_root"}
+    if any(part == "content" for part in rel.parts):
+        return {"error": "content/ is read-only (sync owns it)"}
+    if not full.exists():
+        return {"error": f"file missing: {rel}"}
+    text = full.read_text(encoding="utf-8", errors="replace")
+    n = text.count(old)
+    if n == 0:
+        return {"error": "old_text not found — include more surrounding context (quote the exact lines)"}
+    if n > 1:
+        return {"error": f"old_text matches {n} times — include more surrounding context to make it unique"}
+    before = hashlib.sha256(full.read_bytes()).hexdigest()
+    full.write_text(text.replace(old, new, 1), encoding="utf-8")
+    after = hashlib.sha256(full.read_bytes()).hexdigest()
+    db.audit("ai", "files", None, "edit", {
+        "path": str(rel), "before_sha": before, "after_sha": after,
+        "old_excerpt": old[:200], "new_excerpt": new[:200]})
+    return {"edited": True, "path": str(rel), "matches": 1}
+
+
 def file_write(db: DB, cfg: Config, args: dict) -> dict:
     """Audited file write. path is relative to data_root; content/ is read-only.
     Notes convention: {TERM}/{CODE}/notes/YYYY-MM-DD-title.md; work files go in work/."""
@@ -638,6 +671,15 @@ TOOLS = {
         fact={"type": "string"},
         category={"type": "string"},
         confidence={"type": "number"},
+    ),
+    "file_edit": _tool(
+        "file_edit",
+        "SCOPED edit of a file: replace ONE unique snippet (old_text must appear exactly once — include surrounding context to make it unique). Everything outside the snippet is untouched, so long docs can't drift. Prefer this over file_write for edits; use file_write to create or fully rewrite a file. Audited.",
+        file_edit,
+        required=["path", "old_text", "new_text"],
+        path={"type": "string", "description": "path relative to data_root, e.g. '2025W/SE2250B/notes/2026-08-04-study.md'"},
+        old_text={"type": "string", "description": "the exact existing text to replace (quote it verbatim, include neighbors if needed)"},
+        new_text={"type": "string", "description": "the replacement text"},
     ),
     "file_write": _tool(
         "file_write",

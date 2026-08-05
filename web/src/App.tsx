@@ -10,6 +10,7 @@ import { CourseHubPage, CourseLayout } from './pages/CourseHubPage'
 import { ContentPage } from './pages/ContentPage'
 import { AssignmentsPage } from '@/pages/AssignmentsPage'
 import { AssignmentDetailPage } from '@/pages/AssignmentDetailPage'
+import { WorkspacePage } from '@/pages/WorkspacePage'
 
 export default function App() {
   return (
@@ -30,6 +31,7 @@ export default function App() {
             <Route path="content/:nodeId" element={<ContentPage />} />
             <Route path="assignments" element={<AssignmentsPage />} />
             <Route path="assignments/:assignmentId" element={<AssignmentDetailPage />} />
+            <Route path="workspace" element={<WorkspacePage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
