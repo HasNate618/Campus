@@ -16,11 +16,13 @@ import { streamChat, api, type ChatServerSession } from '@/api/client'
  *  (new sibling); editing a user message rewinds (subtree deleted, re-sent).
  */
 /** One step of an assistant turn, in canonical order: each contiguous
- *  reasoning run is a thought step; each tool call is a tool step. The
- *  final response content lives on the node itself, not in steps. */
+ *  reasoning run is a thought step; visible narration the model speaks
+ *  between tool batches ("I'll check the assignments first") is a narration
+ *  step; each tool call is a tool step. The final response content lives on
+ *  the node itself, not in steps. */
 export interface StepItem {
-  kind: 'thought' | 'tool'
-  /** thought: accumulated reasoning text for this segment */
+  kind: 'thought' | 'narration' | 'tool'
+  /** thought/narration: accumulated text for this segment */
   text?: string
   /** tool: the tool name */
   tool?: string
@@ -522,6 +524,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       // run is a thought step; each tool call is a tool step
       let steps: StepItem[] = []
       let openThought = -1
+      // content tokens since the last tool boundary: until a tool_start
+      // arrives they are the model's VISIBLE NARRATION ("I'll check the
+      // assignments first"), not the final answer — flushed to a narration
+      // step (and removed from content) when the tool begins
+      let narrationBuf = ''
       const closeThought = () => {
         openThought = -1
       }
@@ -577,9 +584,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           } else if (event === 'token') {
             const id = ensureAssistant(turnThinking || undefined)
             closeThought()
+            const chunk = (d.text as string) ?? ''
+            narrationBuf += chunk
             patchNode(sid, id, (n) => ({
               ...n,
-              content: n.content + ((d.text as string) ?? ''),
+              content: n.content + chunk,
               thinking: turnThinking || n.thinking,
               thinkingDone: n.thinking ? true : n.thinkingDone,
               // tool_start hid this node as mid-turn narration — real content
@@ -593,6 +602,18 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             // call invisible until the final answer began
             const id = ensureAssistant()
             closeThought()
+            // content streamed before this tool call is the model's visible
+            // narration — pull it OUT of the (future) final answer and record
+            // it as a step so it shows in the order it was said
+            if (narrationBuf.trim()) {
+              const seg = narrationBuf
+              narrationBuf = ''
+              steps = [...steps, { kind: 'narration', text: seg }]
+              patchNode(sid, id, (n) => ({
+                ...n,
+                content: n.content.slice(0, Math.max(0, n.content.length - seg.length)),
+              }))
+            }
             steps = [...steps, { kind: 'tool', tool: (d.tool as string) ?? 'tool', args: d.args, done: false }]
             const toolId = makeUuid()
             appendNode(sid, {

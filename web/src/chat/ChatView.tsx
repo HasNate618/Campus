@@ -9,6 +9,7 @@ import {
   GraduationCap,
   History,
   Loader2,
+  MessageSquare,
   Paperclip,
   RefreshCw,
   SquarePen,
@@ -233,8 +234,9 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
     setEditingNodeId(null)
   }
 
-  /** One step row of an assistant turn — thought (expandable thinking text)
-   *  or tool ("Using X to …", expandable args/result). */
+  /** One step row of an assistant turn — thought (expandable thinking text),
+   *  narration (visible text the model said between tool batches), or tool
+   *  (expandable args/result). */
   const renderStepRow = (node: MsgNode, s: StepItem, i: number, key: string): ReactNode => {
     const detailKey = `${node.id}:${i}`
     const open = !!expandedStepDetail[detailKey]
@@ -274,6 +276,37 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
         </motion.div>
       )
     }
+    if (s.kind === 'narration') {
+      const short = (s.text ?? '').replace(/\s+/g, ' ').trim()
+      const label = short.length > 64 ? `${short.slice(0, 61)}…` : short
+      return (
+        <motion.div
+          key={key}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.18 }}
+          style={{ display: 'flex', flexDirection: 'column' }}
+        >
+          <button className="tool-chip" onClick={() => toggleStepDetail(detailKey)} title="Show narration">
+            <MessageSquare size={13} />
+            <span>{label || '(narration)'}</span>
+            <ChevronDown
+              size={12}
+              style={{
+                transform: open ? 'rotate(180deg)' : 'none',
+                transition: 'transform 120ms ease',
+                opacity: 0.6,
+              }}
+            />
+          </button>
+          {open && (
+            <div className="tool-detail" style={{ maxHeight: 'min(40vh, 320px)', overflowY: 'auto' }}>
+              {s.text}
+            </div>
+          )}
+        </motion.div>
+      )
+    }
     const purpose = toolPurpose(s.tool ?? '', s.args)
     return (
       <motion.div
@@ -286,7 +319,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
         <button className="tool-chip" onClick={() => toggleStepDetail(detailKey)}>
           {s.done ? <Check size={13} /> : <Loader2 size={13} className="animate-spin" />}
           <Wrench size={13} />
-          <span>Using {s.tool}</span>
+          <span>{s.tool}</span>
           {purpose && <span style={{ opacity: 0.6 }}>· {purpose}</span>}
           <span style={{ opacity: 0.6 }}>{s.done ? '· done' : '· running'}</span>
           <ChevronDown
