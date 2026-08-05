@@ -622,11 +622,11 @@
     font-size: 12.5px;
     font-weight: 600;
     color: var(--text-1);
-    /* near-opaque neutral surface (same as the popovers) — the app's base
-       background is dark PURPLE (hsl 250), so any translucent fill reads
-       as a purple tint; opaque kills it. No backdrop-filter: the pill must
-       not sample the backdrop. */
-    background: rgba(16, 16, 22, 0.92);
+    /* FULLY OPAQUE, perfectly neutral gray (R=G=B) — rgba(16,16,22,.92)
+       read as dark-purple transparent: the blue channel is +6 over
+       red/green and the 8% alpha lets the app's purple base (hsl 250)
+       bleed through. rgb(30,30,30) has neither problem. */
+    background: rgb(30, 30, 30);
     border: 1px solid rgba(255, 255, 255, 0.16);
     border-radius: 999px;
     padding: 5px 12px;
