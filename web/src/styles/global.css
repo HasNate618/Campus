@@ -932,8 +932,8 @@
   }
 
   .chat-input .scope-pill {
-    font-size: 11.5px;
-    padding: 4px 10px;
+    font-size: 12.5px;
+    padding: 5px 12px;
   }
 
   .chat-input .icon-btn {
@@ -957,12 +957,27 @@
     transition: border-color 140ms ease;
   }
 
-  /* textarea + bottom tools row; the attach/send circles sit to the right */
+  /* textarea + bottom tools row; the attach/ctx/send column sits to the
+     RIGHT of the composer (outside the textarea column) */
   .chat-input-main {
     flex: 1;
     min-width: 0;
     display: flex;
     flex-direction: column;
+  }
+
+  /* upload button + context meter + send, stacked to the right of the
+     composer box — attach on top, ctx centered, send aligned to the box's
+     bottom edge */
+  .chat-input-side {
+    flex-shrink: 0;
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
+    justify-content: flex-end;
+    padding: 2px 2px 2px 4px;
   }
 
   .input-toolbar {
