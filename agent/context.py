@@ -34,9 +34,10 @@ def _fmt(dt: str | None) -> str:
 
 
 def class_events(cfg: Config, db: DB, course_id: int | None, days: int) -> list[dict]:
-    """Compute upcoming class meetings from course_sessions, using term start
-    dates from config (term_dates: {2026F: '2026-09-01'}). No term dates set
-    = no class events (nothing to anchor weekdays to)."""
+    """Compute upcoming class meetings from course_sessions, anchored to term
+    start dates from config. term_dates: {"2026F": {"start": "2026-09-01",
+    "end": "2026-12-31"}} (a bare "YYYY-MM-DD" string also works). No term
+    dates set = no class events (nothing to anchor weekdays to)."""
     term_dates: dict = getattr(cfg, "term_dates", {}) or {}
     if not term_dates:
         return []
@@ -48,26 +49,36 @@ def class_events(cfg: Config, db: DB, course_id: int | None, days: int) -> list[
     rows = db.conn.execute(q, (course_id, course_id)).fetchall()
     events = []
     for r in rows:
-        start = term_dates.get(r["term"])
+        td = term_dates.get(r["term"])
+        if not td:
+            continue
+        if isinstance(td, dict):
+            start, end = td.get("start"), td.get("end")
+        else:
+            start, end = td, None
         if not start:
             continue
         try:
             term_start = datetime.date.fromisoformat(str(start))
+            term_end = datetime.date.fromisoformat(str(end)) if end else None
         except ValueError:
             continue
         wd = r["day_of_week"]  # 0=Mon..6=Sun; Python weekday(): Mon=0..Sun=6
         day = term_start + datetime.timedelta(days=(wd - term_start.weekday()) % 7)
         while day <= horizon.date():
+            if term_end and day > term_end:
+                break
             if now.date() <= day:
                 dt = datetime.datetime.combine(day, datetime.time.fromisoformat(r["start_time"]))
                 events.append({
                     "when": dt.strftime("%a %b %d, %Y %H:%M"),
+                    "ts": dt.isoformat(),
                     "kind": "class", "code": r["code"],
-                    "title": f"{r['kind']} {r.get('section') or ''}".strip(),
+                    "title": f"{r['kind']} {r['section'] or ''}".strip(),
                     "room": r["room"] or "",
                 })
             day += datetime.timedelta(days=7)
-    return sorted(events, key=lambda e: e["when"])
+    return sorted(events, key=lambda e: e["ts"])
 
 
 def upcoming_events(cfg: Config, db: DB, course_id: int | None, days: int = 7) -> list[dict]:
@@ -94,9 +105,10 @@ def upcoming_events(cfg: Config, db: DB, course_id: int | None, days: int = 7) -
         (now, later, course_id, course_id, now, later, course_id, course_id,
          now, later, course_id, course_id),
     )
-    events = [dict(r) | {"when": _fmt(r["due_at"] or r["starts_at"])} for r in rows]
+    events = [dict(r) | {"when": _fmt(r["due_at"] or r["starts_at"]),
+                         "ts": r["due_at"] or r["starts_at"]} for r in rows]
     events.extend(class_events(cfg, db, course_id, days))
-    events.sort(key=lambda e: e["when"])
+    events.sort(key=lambda e: e["ts"])
     return events
 
 

@@ -28,8 +28,15 @@ auto_extract_pdfs: true
 # how many chars of extracted markdown feed the digest's PDF deltas
 digest_pdf_excerpt_chars: 2000
 
-# term start dates — anchors class events for the calendar/chat context
-# term_dates: {2026F: "2026-09-01", 2027W: "2027-01-04"}
+# term start/end dates — anchor class events for the calendar/chat context
+# each term: start + end (YYYY-MM-DD). A bare start string also works.
+# term_dates:
+#   2026F:
+#     start: "2026-09-01"
+#     end: "2026-12-31"
+#   2027W:
+#     start: "2027-01-01"
+#     end: "2027-04-30"
 
 # sync scope — H1: pilot only; flip to false when 2026F courses appear
 pilot_only: true
