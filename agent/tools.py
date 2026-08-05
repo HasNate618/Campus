@@ -363,6 +363,25 @@ def mutate_add_event(db: DB, cfg: Config, args: dict) -> dict:
     return {"created": True, "event_id": cur.lastrowid}
 
 
+def search_corpus(db: DB, cfg: Config, args: dict) -> dict:
+    """Semantic search over the course corpus: extracted content, notes, work
+    files, assignment attachments, announcements, syllabus, active facts.
+    Cohere embeddings + rerank via bifrost. Returns cited passages with
+    file refs — read the full file with content_read_file."""
+    from sync.search import search as corpus_search
+    query = args.get("query", "")
+    if not query:
+        return {"error": "query is required"}
+    try:
+        cid = _resolve_course(db, args.get("course"))
+        hits = corpus_search(cfg, db, query, cid, top_k=args.get("top_k") or 5)
+    except Exception as e:
+        return {"error": f"search failed: {e}"}
+    if not hits:
+        return {"hits": [], "note": "no matches — try different wording or a broader query"}
+    return {"hits": hits, "note": "read the matching file with content_read_file for full context"}
+
+
 def file_edit(db: DB, cfg: Config, args: dict) -> dict:
     """Scoped edit: replace ONE unique snippet in a file. old_text must match
     exactly once — zero or multiple matches error out (retry with more
@@ -671,6 +690,15 @@ TOOLS = {
         fact={"type": "string"},
         category={"type": "string"},
         confidence={"type": "number"},
+    ),
+    "search_corpus": _tool(
+        "search_corpus",
+        "Semantic search over the course corpus (extracted lecture content, notes, work files, assignment attachments, announcements, syllabus, active facts). Embeddings + rerank via Cohere through bifrost — understands paraphrase, not just keywords. Returns top cited passages with file refs; follow up with content_read_file on the best ref for full context. Use when a question references specific material ('which lecture covered X', 'where does it say Y') that you can't locate by browsing.",
+        search_corpus,
+        required=["query"],
+        query={"type": "string", "description": "the question or topic to find in the course material"},
+        course={"type": "string", "description": "optional course code, e.g. 'SE 2250B'"},
+        top_k={"type": "number", "description": "how many passages to return (default 5)"},
     ),
     "file_edit": _tool(
         "file_edit",
