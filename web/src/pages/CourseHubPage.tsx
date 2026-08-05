@@ -17,7 +17,7 @@ function AnnouncementRow({ a }: { a: Announcement }) {
   return (
     <div className="row" style={{ alignItems: 'flex-start' }}>
       <div className="row-main">
-        <div className="row-title">{a.title}</div>
+        <div className="row-title announce-title">{a.title}</div>
         {a.body_html ? (
           <div className="md html" dangerouslySetInnerHTML={{ __html: sanitizeHtml(a.body_html) }} />
         ) : a.body ? (
