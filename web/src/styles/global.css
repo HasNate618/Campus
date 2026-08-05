@@ -790,6 +790,11 @@
     gap: 8px;
     font-size: 12.5px;
     font-family: var(--font-mono);
+    max-width: 100%;
+    /* a long tool purpose (e.g. a full terminal command) must stay on ONE
+       line — truncate with ellipsis instead of wrapping the pill taller */
+    white-space: nowrap;
+    overflow: hidden;
     color: var(--text-2);
     background: var(--glass-bg);
     border: 1px solid var(--glass-border);
@@ -797,6 +802,16 @@
     padding: 7px 11px;
     cursor: pointer;
     transition: border-color 120ms ease;
+  }
+
+  .tool-chip span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tool-chip span:last-child {
+    flex-shrink: 0;
   }
 
   .tool-chip:hover {
@@ -827,10 +842,18 @@
   .msg-steps {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    margin-bottom: 6px;
+    gap: 8px;
+    margin-bottom: 8px;
     align-self: flex-start;
     max-width: 100%;
+  }
+
+  /* narration steps between tool batches read as regular assistant text */
+  .step-narration {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-2);
   }
 
   .msg-actions {

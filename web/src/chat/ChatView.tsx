@@ -9,7 +9,6 @@ import {
   GraduationCap,
   History,
   Loader2,
-  MessageSquare,
   Paperclip,
   RefreshCw,
   SquarePen,
@@ -275,33 +274,16 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
       )
     }
     if (s.kind === 'narration') {
-      const short = (s.text ?? '').replace(/\s+/g, ' ').trim()
-      const label = short.length > 64 ? `${short.slice(0, 61)}…` : short
+      // visible narration the model said between tool batches — regular
+      // text, not a pill (it reads as the assistant speaking)
       return (
         <motion.div
           key={key}
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.18 }}
-          style={{ display: 'flex', flexDirection: 'column' }}
         >
-          <button className="tool-chip" onClick={() => toggleStepDetail(detailKey)} title="Show narration">
-            <MessageSquare size={13} />
-            <span>{label || '(narration)'}</span>
-            <ChevronDown
-              size={12}
-              style={{
-                transform: open ? 'rotate(180deg)' : 'none',
-                transition: 'transform 120ms ease',
-                opacity: 0.6,
-              }}
-            />
-          </button>
-          {open && (
-            <div className="tool-detail" style={{ maxHeight: 'min(40vh, 320px)', overflowY: 'auto' }}>
-              {s.text}
-            </div>
-          )}
+          <p className="step-narration">{s.text}</p>
         </motion.div>
       )
     }
