@@ -18,17 +18,18 @@ function kindIcon(kind?: string) {
 }
 
 function TreeNode({
-  node, depth, cid, openPath, onToggle, onOpen,
+  node, depth, cid, openDirs, openPath, onToggle, onOpen,
 }: {
   node: WorkspaceNode
   depth: number
   cid: number
+  openDirs: Set<string>
   openPath: string | null
   onToggle: (p: string) => void
   onOpen: (n: WorkspaceNode) => void
 }) {
   const isDir = node.type === 'dir'
-  const open = openPath === node.path
+  const open = openDirs.has(node.path)
   const active = openPath === node.path && !isDir
   return (
     <Fragment>
@@ -51,7 +52,7 @@ function TreeNode({
         )}
       </button>
       {isDir && open && node.children?.map((c) => (
-        <TreeNode key={c.path} node={c} depth={depth + 1} cid={cid} openPath={openPath} onToggle={onToggle} onOpen={onOpen} />
+        <TreeNode key={c.path} node={c} depth={depth + 1} cid={cid} openDirs={openDirs} openPath={openPath} onToggle={onToggle} onOpen={onOpen} />
       ))}
     </Fragment>
   )
@@ -61,6 +62,11 @@ export function WorkspacePage() {
   const { courseId } = useParams()
   const cid = Number(courseId)
   const [tree, setTree] = useState<WorkspaceTree | null>(null)
+  // expanded DIRECTORY paths — a Set so subfolders can stay open under an
+  // open parent (a single open-path string made any subfolder click
+  // collapse its parent instead)
+  const [openDirs, setOpenDirs] = useState<Set<string>>(new Set())
+  // the currently OPEN FILE (shown in the editor)
   const [openPath, setOpenPath] = useState<string | null>(null)
   const [current, setCurrent] = useState<WorkspaceNode | null>(null)
   const [text, setText] = useState('')
@@ -83,6 +89,7 @@ export function WorkspacePage() {
 
   const openNode = async (n: WorkspaceNode) => {
     setCurrent(n)
+    setOpenPath(n.path)
     setPreview(false)
     setAssetUrl(null)
     setNotice(null)
@@ -172,7 +179,7 @@ export function WorkspacePage() {
         <div className="ws-tree-scroll">
           {loading && <div className="empty compact">Loading…</div>}
           {!loading && tree && tree.nodes.map((n) => (
-            <TreeNode key={n.path} node={n} depth={0} cid={cid} openPath={openPath} onToggle={(p) => setOpenPath(openPath === p ? null : p)} onOpen={openNode} />
+            <TreeNode key={n.path} node={n} depth={0} cid={cid} openDirs={openDirs} openPath={openPath} onToggle={(p) => setOpenDirs((prev) => { const next = new Set(prev); if (next.has(p)) next.delete(p); else next.add(p); return next })} onOpen={openNode} />
           ))}
           {!loading && tree && tree.nodes.length === 0 && <div className="empty compact">No files yet.</div>}
         </div>

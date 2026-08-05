@@ -277,7 +277,7 @@
   }
 
   .page-col {
-    max-width: 780px;
+    max-width: 980px;
     margin: 0 auto;
     display: flex;
     flex-direction: column;
@@ -410,6 +410,11 @@
   .row-title {
     font-weight: 600;
     font-size: 14px;
+  }
+
+  /* announcement titles stand out from the meta rows */
+  .announce-title {
+    font-size: 16px;
   }
 
   .row-sub {
