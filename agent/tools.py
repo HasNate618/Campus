@@ -281,9 +281,9 @@ def content_read_file(db: DB, cfg: Config, args: dict) -> dict:
 
 def content_grep(db: DB, cfg: Config, args: dict) -> dict:
     """Case-insensitive regex grep over DOWNLOADED FILES on disk (content/,
-    Assignments/, notes/) for a course. Module landing-page text lives in
-    the DB (content_nodes.description), not on disk — use search_corpus for
-    that. Returns path + snippet matches."""
+    Assignments/, notes/) AND module descriptions (content_nodes.description,
+    returned as overview/<node_id> refs) for a course. Returns path +
+    snippet matches."""
     query = args.get("query", "")
     if not query:
         return {"error": "query required"}
@@ -315,8 +315,29 @@ def content_grep(db: DB, cfg: Config, args: dict) -> dict:
             matches.append({"path": rel, "snippet": rest.strip()[:200]})
         except ValueError:
             continue
+    # module descriptions live in the DB, not on disk — the model's go-to
+    # tool for exact phrases must find them there too ("Email Response Time"
+    # was lost because content_grep only scanned files)
+    if course_id:
+        import re as _re
+        q = "SELECT id, title, description FROM content_nodes WHERE course_id=? AND description IS NOT NULL"
+        for r in db.conn.execute(q, (course_id,)):
+            d = r["description"] or ""
+            stripped = _re.sub(r"<[^>]+>", " ", d)
+            stripped = _re.sub(r"\s+", " ", stripped)
+            i = stripped.lower().find(query.lower())
+            if i < 0:
+                continue
+            start = max(0, i - 100)
+            end = min(len(stripped), i + len(query) + 100)
+            snip = stripped[start:end].strip()
+            matches.append({
+                "path": f"overview/{r['id']}",
+                "snippet": f"{r['title']}: …{snip}…",
+            })
     return {"matches": matches[:20],
-            "note": "paths relative to data_root; snippets from matched lines. "
+            "note": "paths relative to data_root; overview/<id> refs are module "
+                    "descriptions (read them with content_read_file). "
                     "If a .pdf path is shown, prefer reading its .md sibling (extracted version)."}
 
 
