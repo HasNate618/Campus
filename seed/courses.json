@@ -12,6 +12,12 @@
       "sessions": []
     },
     {
+      "code": "SE 2203B", "name": "Software Design", "term": "2025W",
+      "instructor": null, "units": 0.50, "class_nbr": null, "color": "#0f766e",
+      "is_pilot": false,
+      "sessions": []
+    },
+    {
       "code": "DATASCI 3000B", "name": "Intro to Machine Learning", "term": "2027W",
       "instructor": "Viswanathan", "units": 0.50, "class_nbr": "14341", "color": "#8b5cf6",
       "sessions": [
