@@ -375,6 +375,70 @@ export function ContentPage() {
       return next
     })
 
+  // Recursive tree: courses nest modules arbitrarily deep (SE 2203B:
+  // Week 1 → Readings → file topics), so render every level. Depth-based
+  // indent keeps the flat pilot tree (depth ≤ 1) pixel-identical.
+  const treeIndent = (depth: number) => (depth === 0 ? 8 : 26 + (depth - 1) * 18)
+  const renderNode = (node: ContentNode, depth: number) => {
+    const fs = filesForNode(node.id)
+    if (node.node_type === 'module') {
+      return (
+        <div key={node.id}>
+          <Link
+            to={`/courses/${cid}/content/${node.id}`}
+            className={`tree-module${nid === node.id ? ' selected' : ''}${collapsed.has(node.id) ? ' collapsed' : ''}`}
+            style={{ paddingLeft: treeIndent(depth) }}
+          >
+            <ChevronRight
+              size={13}
+              className="tree-module-chevron"
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                toggleModule(node.id)
+              }}
+            />
+            <span style={{ flex: 1, minWidth: 0 }}>{node.title}</span>
+          </Link>
+          {!collapsed.has(node.id) && children(node.id).map((ch) => renderNode(ch, depth + 1))}
+        </div>
+      )
+    }
+    const f = fs[0] ?? null
+    const chip = f ? kindChip(f) : null
+    return (
+      <Fragment key={node.id}>
+        <Link
+          to={`/courses/${cid}/content/${node.id}`}
+          className={`tree-topic${nid === node.id ? ' selected' : ''}`}
+          style={{ paddingLeft: treeIndent(depth) }}
+        >
+          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {node.title}
+          </span>
+          {chip && <span className={chip.cls} style={{ padding: '1px 6px' }}>{chip.label}</span>}
+        </Link>
+        {fs.length > 1 && fs.slice(1).map((ff) => {
+          const fchip = kindChip(ff)
+          return (
+            <Link
+              key={ff.id}
+              to={`/courses/${cid}/content/${node.id}?file=${ff.id}`}
+              className={`tree-file${selectedFile?.id === ff.id ? ' selected' : ''}`}
+              title={ff.path}
+              style={{ paddingLeft: treeIndent(depth) + 18 }}
+            >
+              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {fileName(ff)}
+              </span>
+              <span className={fchip.cls} style={{ padding: '1px 6px' }}>{fchip.label}</span>
+            </Link>
+          )
+        })}
+      </Fragment>
+    )
+  }
+
   return (
     <div className={`split split-mode-${viewMode === 'sideBySide' ? 'split' : 'full'}${nid != null ? ' has-selection' : ''}`}>
       <div
@@ -387,60 +451,7 @@ export function ContentPage() {
         }}
       >
         {modules.length === 0 && <div className="empty compact">No content synced.</div>}
-        {modules.map((mod) => (
-          <div key={mod.id}>
-            <Link
-              to={`/courses/${cid}/content/${mod.id}`}
-              className={`tree-module${nid === mod.id ? ' selected' : ''}${collapsed.has(mod.id) ? ' collapsed' : ''}`}
-            >
-              <ChevronRight
-                size={13}
-                className="tree-module-chevron"
-                onClick={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  toggleModule(mod.id)
-                }}
-              />
-              <span style={{ flex: 1, minWidth: 0 }}>{mod.title}</span>
-            </Link>
-            {!collapsed.has(mod.id) &&
-              children(mod.id).map((topic) => {
-                const fs = filesForNode(topic.id)
-                const f = fs[0] ?? null
-                const chip = f ? kindChip(f) : null
-                return (
-                  <Fragment key={topic.id}>
-                    <Link
-                      to={`/courses/${cid}/content/${topic.id}`}
-                      className={`tree-topic${nid === topic.id ? ' selected' : ''}`}
-                    >
-                      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {topic.title}
-                      </span>
-                      {chip && <span className={chip.cls} style={{ padding: '1px 6px' }}>{chip.label}</span>}
-                    </Link>
-                    {fs.length > 1 && fs.slice(1).map((ff) => {
-                      const fchip = kindChip(ff)
-                      return (
-                        <Link
-                          key={ff.id}
-                          to={`/courses/${cid}/content/${topic.id}?file=${ff.id}`}
-                          className={`tree-file${selectedFile?.id === ff.id ? ' selected' : ''}`}
-                          title={ff.path}
-                        >
-                          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {fileName(ff)}
-                          </span>
-                          <span className={fchip.cls} style={{ padding: '1px 6px' }}>{fchip.label}</span>
-                        </Link>
-                      )
-                    })}
-                  </Fragment>
-                )
-              })}
-          </div>
-        ))}
+        {modules.map((mod) => renderNode(mod, 0))}
       </div>
 
       <div className={`card split-viewer${contentInfo?.format === 'pdf' ? ' pdf-mode' : ''}`} style={{ minHeight: 300 }}>
