@@ -392,6 +392,14 @@ def add_fact(db: DB, cfg: Config, args: dict) -> dict:
     db.conn.commit()
     fid = cur.lastrowid
     db.audit("ai", "facts", fid, "add", {"fact": fact[:120], "category": category})
+    # the memory card regenerates at sync time — trigger it now so the fact
+    # shows up in the very next turn (deterministic, no model call)
+    if cid:
+        try:
+            from agent.memory import regenerate_cards
+            regenerate_cards(cfg, db, courses=[cid])
+        except Exception:
+            pass
     return {"added": True, "fact_id": fid}
 
 
