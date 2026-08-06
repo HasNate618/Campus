@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
 import re
 import subprocess
@@ -344,7 +345,9 @@ class SyncEngine:
                 m = re.match(
                     r"^(?:https?://[^/]+)?(/content/enforced/\d+-[A-Za-z0-9_]+/[^\"?#]+)", raw)
                 if m:
-                    path_part = urllib.parse.unquote(m.group(1))
+                    # unquote %20 etc AND HTML entities (&amp;) — enforced hrefs
+                    # often carry the latter inside module HTML
+                    path_part = html.unescape(urllib.parse.unquote(m.group(1)))
                 else:
                     q = re.search(
                         r"quickLink\.d2l\?[^\"']*type=coursefile[^\"']*fileId=([^&\"]+)", raw)
