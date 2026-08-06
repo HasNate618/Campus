@@ -42,6 +42,52 @@ def _media_bs_id(name: str) -> int:
     return int(hashlib.sha1(name.encode()).hexdigest()[:8], 16)
 
 
+def rewrite_dropbox_quicklinks(db, course_id: int) -> int:
+    """Module descriptions link their 'submit here' dropbox folders as D2L
+    quickLink dialogs (/d2l/common/dialogs/quickLink/quickLink.d2l?...type=
+    dropbox). The SPA router can't route /d2l/... — clicking those anchors
+    fell through to the catch-all route (home screen). Rewrite each anchor
+    href to the LOCAL assignment page (/courses/<id>/assignments/<aid>),
+    matching anchor text against assignment titles (they're identical in
+    the source HTML). Idempotent: once rewritten, the pattern no longer
+    matches. Returns the number of rewritten anchors."""
+    assignments = {}
+    for aid, t in db.conn.execute(
+            "SELECT id, title FROM assignments WHERE course_id=?", (course_id,)):
+        assignments[re.sub(r"\s+", " ", t.strip().casefold())] = aid
+    if not assignments:
+        return 0
+    pat = re.compile(
+        r'(<a[^>]*?)\s+href="([^"]*quickLink\.d2l\?[^"]*type=dropbox[^"]*)"([^>]*)>'
+        r'(.*?)</a>', re.S | re.I)
+    n = 0
+    for row in db.conn.execute(
+            "SELECT id, description FROM content_nodes "
+            "WHERE course_id=? AND description IS NOT NULL", (course_id,)):
+        desc = row["description"]
+
+        def _fix(m):
+            nonlocal n
+            text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", m.group(4))).strip().casefold()
+            aid = assignments.get(text)
+            if aid is None:
+                for t, a in assignments.items():  # anchor may be a truncated prefix
+                    if len(text) >= 8 and t.startswith(text):
+                        aid = a
+                        break
+            target = (f"/courses/{course_id}/assignments/{aid}" if aid
+                      else f"/courses/{course_id}/assignments")
+            n += 1
+            return f'{m.group(1)} href="{target}"{m.group(3)}>{m.group(4)}</a>'
+
+        new = pat.sub(_fix, desc)
+        if new != desc:
+            db.conn.execute(
+                "UPDATE content_nodes SET description=? WHERE id=?", (new, row["id"]))
+    db.conn.commit()
+    return n
+
+
 def _norm_code(code: str) -> str:
     return re.sub(r"\s+", "", code).upper()
 
@@ -465,6 +511,9 @@ class SyncEngine:
         self.db.conn.commit()
         print(f"  module media: {len(targets)} file(s) materialized, "
               f"{len(rewrites)} module description(s) rewritten")
+        n = rewrite_dropbox_quicklinks(self.db, course_id)
+        if n:
+            print(f"  dropbox quickLinks → local assignment pages: {n}")
 
     # ── dropbox (assignments) ───────────────────────────────────────────
     def _download_assignment_attachments(self, course_id: int, org_unit: int, folder_id: int,
