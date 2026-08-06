@@ -40,7 +40,8 @@ export const api = {
   courses: (activeOnly = true) => get<Course[]>(`/courses?active_only=${activeOnly}`),
   course: (id: number) => get<Course>(`/courses/${id}`),
   courseHub: (id: number) => get<CourseHub>(`/courses/${id}/hub`),
-  contentTree: (id: number) => get<{ nodes: ContentNode[]; files: FileRecord[] }>(`/courses/${id}/content-tree`),
+  contentTree: (id: number) =>
+    get<{ nodes: ContentNode[]; files: FileRecord[]; file_topics: { file_id: number; topic_id: number }[] }>(`/courses/${id}/content-tree`),
   assignments: (id: number, upcoming = false) =>
     get<Assignment[]>(`/courses/${id}/assignments?upcoming=${upcoming}`),
   assignment: (courseId: number, id: number) => get<Assignment>(`/courses/${courseId}/assignments/${id}`),

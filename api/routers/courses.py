@@ -34,7 +34,7 @@ def content_tree(course_id: int):
         raise HTTPException(404, "Course not found")
     nodes = services.list_content_nodes(course_id)
     files = services.list_files(course_id)
-    return {"nodes": nodes, "files": files}
+    return {"nodes": nodes, "files": files, "file_topics": services.list_file_topics(course_id)}
 
 
 @router.get("/{course_id}/workspace/tree")

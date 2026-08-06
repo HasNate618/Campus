@@ -272,6 +272,7 @@ export function ContentPage() {
   const nid = nodeId ? Number(nodeId) : null
   const [nodes, setNodes] = useState<ContentNode[]>([])
   const [files, setFiles] = useState<FileRecord[]>([])
+  const [fileTopics, setFileTopics] = useState<{ file_id: number; topic_id: number }[]>([])
   const [contentInfo, setContentInfo] = useState<FileContent | null>(null)
   const [loadingContent, setLoadingContent] = useState(false)
   // The tree hides (display:none) while a topic is viewed in full-width
@@ -295,20 +296,40 @@ export function ContentPage() {
   useEffect(() => {
     setNodes([])
     setFiles([])
+    setFileTopics([])
     api
       .contentTree(cid)
-      .then(({ nodes: n, files: f }) => {
+      .then(({ nodes: n, files: f, file_topics: ft }) => {
         setNodes(n)
         setFiles(f)
+        setFileTopics(ft)
       })
       .catch(console.error)
   }, [cid])
 
   const selectedNode = nid != null ? nodes.find((n) => n.id === nid) ?? null : null
+  // Module-media files can display under MANY topics (file_topics): a topic's
+  // files are its primary link (content_node_id) plus any linked rows.
+  const filesByTopic = useMemo(() => {
+    const m = new Map<number, number[]>()
+    for (const ft of fileTopics) {
+      const arr = m.get(ft.topic_id) ?? []
+      arr.push(ft.file_id)
+      m.set(ft.topic_id, arr)
+    }
+    return m
+  }, [fileTopics])
+  const filesForNode = (id: number) =>
+    files.filter(
+      (f) => f.content_node_id === id || (filesByTopic.get(id)?.includes(f.id) ?? false),
+    )
   const selectedFile = nid != null
     ? (fileParam != null
         ? files.find((f) => f.id === fileParam) ?? null
-        : files.find((f) => f.content_node_id === nid) ?? null)
+        : files.find(
+            (f) =>
+              f.content_node_id === nid || (filesByTopic.get(nid)?.includes(f.id) ?? false),
+          ) ?? null)
     : null
   // Unit landing pages: Brightspace keeps the banner inside the Unit
   // Introduction topic — surface it on the module page too.
@@ -346,7 +367,6 @@ export function ContentPage() {
 
   const modules = nodes.filter((n) => n.parent_id === null)
   const children = (parentId: number) => nodes.filter((n) => n.parent_id === parentId)
-  const filesForNode = (id: number) => files.filter((f) => f.content_node_id === id)
   const fileName = (f: FileRecord) => f.path.split('/').pop() ?? f.path
   // View mode (toggled from the viewer header): 'fullWidth' (default) = one
   // panel at a time; 'sideBySide' = tree beside the viewer.
