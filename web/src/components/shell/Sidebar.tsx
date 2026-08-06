@@ -5,6 +5,7 @@ import {
   Home,
   PanelLeftClose,
   PanelLeftOpen,
+  Pencil,
   Trash2,
 } from 'lucide-react'
 import { api } from '@/api/client'
@@ -20,8 +21,10 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem('hc.sidebar.collapsed') === '1',
   )
-  const { sessions, activeFor, openSession, deleteSession } = useChat()
+  const { sessions, activeFor, openSession, renameSession, deleteSession } = useChat()
   const navigate = useNavigate()
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameText, setRenameText] = useState('')
 
   useEffect(() => {
     api.courses().then(setCourses).catch(console.error)
@@ -89,10 +92,45 @@ export function Sidebar() {
                         className="dot"
                         style={{ background: c ? courseColor(c) : 'var(--violet)', flexShrink: 0 }}
                       />
-                      <span className="session-title">{s.title}</span>
+                      {renamingId === s.id ? (
+                        <input
+                          className="session-rename"
+                          value={renameText}
+                          autoFocus
+                          onChange={(e) => setRenameText(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => {
+                            e.stopPropagation()
+                            if (e.key === 'Enter') {
+                              renameSession(s.id, renameText)
+                              setRenamingId(null)
+                            } else if (e.key === 'Escape') {
+                              setRenamingId(null)
+                            }
+                          }}
+                          onBlur={() => {
+                            if (renamingId === s.id) {
+                              renameSession(s.id, renameText)
+                              setRenamingId(null)
+                            }
+                          }}
+                        />
+                      ) : (
+                        <span className="session-title">{s.title}</span>
+                      )}
                       <span className="session-time">
                         {fmtRelative(new Date(s.updatedAt).toISOString())}
                       </span>
+                    </button>
+                    <button
+                      className="icon-btn session-rename-btn"
+                      title="Rename chat"
+                      onClick={() => {
+                        setRenamingId(s.id)
+                        setRenameText(s.title)
+                      }}
+                    >
+                      <Pencil size={12} />
                     </button>
                     <button
                       className="icon-btn session-delete"

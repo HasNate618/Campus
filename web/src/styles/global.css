@@ -2095,9 +2095,30 @@
     margin-right: 4px;
   }
 
+  .session-rename-btn {
+    opacity: 0;
+    flex-shrink: 0;
+    margin-right: 2px;
+  }
+
   .session-item:hover .session-delete,
-  .session-delete:focus-visible {
+  .session-delete:focus-visible,
+  .session-item:hover .session-rename-btn,
+  .session-rename-btn:focus-visible {
     opacity: 1;
+  }
+
+  .session-rename {
+    flex: 1;
+    min-width: 0;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--text-1);
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid var(--violet-border);
+    border-radius: 6px;
+    padding: 2px 6px;
+    outline: none;
   }
 
   .sidebar.collapsed .session-btn,

@@ -90,7 +90,7 @@ export const api = {
   chatSessionCreate: (courseId: number | null, title: string) =>
     post<ChatServerSession>('/chat/sessions', { course_id: courseId, title }),
   chatSessionGet: (id: number) => get<ChatServerSession>(`/chat/sessions/${id}`),
-  chatSessionSave: (id: number, body: { title?: string; nodes: unknown[]; activeNodeId: string | null }) =>
+  chatSessionSave: (id: number, body: { title?: string; nodes: unknown[]; activeNodeId: string | null; updatedAt?: number }) =>
     put(`/chat/sessions/${id}`, body),
   chatSessionDelete: (id: number) => del(`/chat/sessions/${id}`),
 }

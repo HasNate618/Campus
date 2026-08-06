@@ -95,6 +95,10 @@ class SessionUpdate(BaseModel):
     title: str | None = None
     nodes: list | None = None
     activeNodeId: str | None = None
+    # Client's ms epoch for this session — the client's own record of when
+    # it last touched the session is the truth (the server used to stamp
+    # updated_at on every bulk re-save, clobbering individual times).
+    updatedAt: float | None = None
 
 
 @router.post("/sessions")
@@ -154,12 +158,19 @@ def put_session(sid: int, body: SessionUpdate):
         row = db.conn.execute("SELECT id FROM chat_sessions WHERE id=?", (sid,)).fetchone()
         if not row:
             raise HTTPException(404, "session not found")
-        tree = json.dumps({"nodes": body.nodes or [], "activeNodeId": body.activeNodeId},
-                          default=str)
-        db.conn.execute(
-            "UPDATE chat_sessions SET title=COALESCE(?, title), nodes_json=?, "
-            "updated_at=datetime('now') WHERE id=?",
-            (body.title, tree, sid))
+        new_tree = json.dumps({"nodes": body.nodes or [], "activeNodeId": body.activeNodeId},
+                              default=str)
+        ts = body.updatedAt / 1000 if body.updatedAt else None
+        if ts is not None:
+            db.conn.execute(
+                "UPDATE chat_sessions SET title=COALESCE(?, title), nodes_json=?, "
+                "updated_at=datetime(?, 'unixepoch') WHERE id=?",
+                (body.title, new_tree, ts, sid))
+        else:
+            db.conn.execute(
+                "UPDATE chat_sessions SET title=COALESCE(?, title), nodes_json=?, "
+                "updated_at=datetime('now') WHERE id=?",
+                (body.title, new_tree, sid))
         db.conn.commit()
         return {"ok": True, "id": sid}
     finally:
