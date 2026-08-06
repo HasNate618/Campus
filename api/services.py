@@ -90,6 +90,14 @@ def list_files(course_id: int) -> list[dict]:
     return _rows("SELECT * FROM files WHERE course_id=? ORDER BY id", (course_id,))
 
 
+def list_file_topics(course_id: int) -> list[dict]:
+    """file_topics rows for a course (one file displayed under many topics)."""
+    return _rows(
+        "SELECT ft.file_id, ft.topic_id FROM file_topics ft "
+        "JOIN files f ON f.id = ft.file_id WHERE f.course_id=?",
+        (course_id,))
+
+
 def get_file(file_id: int) -> dict | None:
     return _row("SELECT * FROM files WHERE id=?", (file_id,))
 

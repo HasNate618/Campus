@@ -163,6 +163,15 @@ CREATE TABLE IF NOT EXISTS files (
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- One file shown under MANY content topics (module-media files: the same Unit
+-- PDF is linked from several Readings modules; the file row stays unique —
+-- extraction/search run once — these rows just say which topics display it).
+CREATE TABLE IF NOT EXISTS file_topics (
+    file_id     INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+    topic_id    INTEGER NOT NULL REFERENCES content_nodes(id) ON DELETE CASCADE,
+    PRIMARY KEY (file_id, topic_id)
+);
+
 -- External work homes (Git remotes, OneDrive folders) — not file SoT
 CREATE TABLE IF NOT EXISTS work_links (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,

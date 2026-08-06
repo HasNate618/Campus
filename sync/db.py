@@ -27,6 +27,20 @@ class DB:
         if "body_html" not in cols:
             self.conn.execute("ALTER TABLE announcements ADD COLUMN body_html TEXT")
             self.conn.commit()
+        # one file displayed under many topics (module-media pass)
+        self.conn.execute(
+            """CREATE TABLE IF NOT EXISTS file_topics (
+                file_id  INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+                topic_id INTEGER NOT NULL REFERENCES content_nodes(id) ON DELETE CASCADE,
+                PRIMARY KEY (file_id, topic_id)
+            )""")
+        self.conn.commit()
+
+    def link_file_topic(self, file_id: int, topic_id: int) -> None:
+        self.conn.execute(
+            "INSERT OR IGNORE INTO file_topics (file_id, topic_id) VALUES (?, ?)",
+            (file_id, topic_id))
+        self.conn.commit()
 
     # ── courses ─────────────────────────────────────────────────────────
     def get_course_by_code(self, code: str) -> sqlite3.Row | None:

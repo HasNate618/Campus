@@ -374,7 +374,10 @@ class SyncEngine:
         if not targets:
             return
 
-        # pass 2: download + register (topic under the FIRST referencing module)
+        # pass 2: download + register. Every referencing module gets its OWN
+        # topic row (the same file shows under each Readings module); the FILE
+        # row stays unique — primary link via content_node_id (first topic),
+        # the rest via file_topics — so extraction/search run exactly once.
         media_dir = course_dir / "content" / "Units"
         media_dir.mkdir(parents=True, exist_ok=True)
         asset_base = f"/api/assets/{course['term']}/{code_dir}/content/Units"
@@ -399,27 +402,43 @@ class SyncEngine:
                         rewrites.setdefault(row_id, []).append((raw, asset))
                 continue
             sha = hashlib.sha256(body).hexdigest()
-            bs_id = _media_bs_id(tgt["name"])
-            node = self.db.conn.execute(
-                "SELECT id FROM content_nodes WHERE course_id=? AND brightspace_id=?",
-                (course_id, bs_id)).fetchone()
-            if node is None:
-                self.db.upsert_content_node(course_id, {
-                    "brightspace_id": bs_id,
-                    "parent_brightspace_id": tgt["module_bs_id"],
-                    "node_type": "topic", "topic_type": "file",
-                    "title": fname, "description": None,
-                    "url": tgt["fetch_url"], "due_at": None,
-                    "is_hidden": False, "is_locked": False,
-                    "sort_order": 1000 + len(targets),
-                })
-                node = self.db.conn.execute(
-                    "SELECT id FROM content_nodes WHERE course_id=? AND brightspace_id=?",
-                    (course_id, bs_id)).fetchone()
             rel = f"{course['term']}/{code_dir}/content/Units/{fname}"
             kind = "slide" if fname.lower().endswith((".pdf", ".ppt", ".pptx")) else "other"
+            refs: dict[int, list[str]] = {}
+            for row_id, raw, t in module_refs:
+                if t is tgt:
+                    refs.setdefault(row_id, []).append(raw)
+            topics: list[int] = []
+            for idx, row_id in enumerate(refs):
+                mod = self.db.conn.execute(
+                    "SELECT brightspace_id FROM content_nodes WHERE id=?",
+                    (row_id,)).fetchone()
+                if not mod:
+                    continue
+                tbs = _media_bs_id(f"{mod['brightspace_id']}:{tgt['name']}")
+                node = self.db.conn.execute(
+                    "SELECT id FROM content_nodes WHERE course_id=? AND brightspace_id=?",
+                    (course_id, tbs)).fetchone()
+                if node is None:
+                    self.db.upsert_content_node(course_id, {
+                        "brightspace_id": tbs,
+                        "parent_brightspace_id": mod["brightspace_id"],
+                        "node_type": "topic", "topic_type": "file",
+                        "title": fname, "description": None,
+                        "url": tgt["fetch_url"], "due_at": None,
+                        "is_hidden": False, "is_locked": False,
+                        "sort_order": 1000 + len(targets) + idx,
+                    })
+                    node = self.db.conn.execute(
+                        "SELECT id FROM content_nodes WHERE course_id=? AND brightspace_id=?",
+                        (course_id, tbs)).fetchone()
+                topics.append(node["id"])
+            if not topics:
+                continue
             file_id, is_new = self.db.upsert_file(
-                course_id, rel, kind, "brightspace", sha, len(body), node["id"])
+                course_id, rel, kind, "brightspace", sha, len(body), topics[0])
+            for tid in topics:
+                self.db.link_file_topic(file_id, tid)
             if is_new:
                 self.stats["files_new"] += 1
                 self.deltas.append({"kind": "file_new", "path": rel})
@@ -430,8 +449,8 @@ class SyncEngine:
                     self.stats["files_changed"] += 1
                     self.deltas.append({"kind": "file_changed", "path": rel})
             asset = f"{asset_base}/{fname}"
-            for row_id, raw, t in module_refs:
-                if t is tgt:
+            for row_id, raws in refs.items():
+                for raw in raws:
                     rewrites.setdefault(row_id, []).append((raw, asset))
 
         # pass 3: rewrite stored descriptions to the local asset URLs
