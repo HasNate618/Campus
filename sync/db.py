@@ -105,14 +105,19 @@ class DB:
             "SELECT id, sha256 FROM files WHERE path = ?", (path,)
         ).fetchone()
         if existing:
+            # Only re-queue extraction when the content actually changed:
+            # unconditional processed=0 made every sync re-run the VLM
+            # extractor over every PDF (unchanged files keep processed).
+            changed = existing["sha256"] != sha256
             self.conn.execute(
                 """UPDATE files SET sha256=?, size=?, synced_at=datetime('now'),
-                   processed=0, content_node_id=COALESCE(?, content_node_id)
+                   processed=CASE WHEN ?=1 THEN 0 ELSE processed END,
+                   content_node_id=COALESCE(?, content_node_id)
                    WHERE id=?""",
-                (sha256, size, content_node_id, existing["id"]),
+                (sha256, size, int(changed), content_node_id, existing["id"]),
             )
             self.conn.commit()
-            return existing["id"], existing["sha256"] != sha256
+            return existing["id"], changed
         cur = self.conn.execute(
             """INSERT INTO files (course_id, path, kind, source, sha256, size, content_node_id, synced_at)
                VALUES (?,?,?,?,?,?,?,datetime('now'))""",
