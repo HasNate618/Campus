@@ -389,6 +389,15 @@ class SyncEngine:
                     print(f"  media fetch failed: {tgt['fetch_url']}")
                     continue
                 dest.write_bytes(body)
+            # videos stay EMBEDDED in the module HTML (the <video> element) —
+            # cache + rewrite the src to the local asset, but never
+            # materialize a tree row: the module page plays it inline.
+            if tgt["is_video"]:
+                asset = f"{asset_base}/{fname}"
+                for row_id, raw, t in module_refs:
+                    if t is tgt:
+                        rewrites.setdefault(row_id, []).append((raw, asset))
+                continue
             sha = hashlib.sha256(body).hexdigest()
             bs_id = _media_bs_id(tgt["name"])
             node = self.db.conn.execute(

@@ -382,6 +382,25 @@ export function ContentPage() {
   const renderNode = (node: ContentNode, depth: number) => {
     const fs = filesForNode(node.id)
     if (node.node_type === 'module') {
+      if (depth > 0) {
+        // Nested module = subtopic row (plain, no chevron, always expanded)
+        // — only top-level modules read as bold sections with a collapse
+        // toggle. Children render beneath regardless.
+        return (
+          <Fragment key={node.id}>
+            <Link
+              to={`/courses/${cid}/content/${node.id}`}
+              className={`tree-topic tree-submodule${nid === node.id ? ' selected' : ''}`}
+              style={{ paddingLeft: treeIndent(depth) }}
+            >
+              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {node.title}
+              </span>
+            </Link>
+            {children(node.id).map((ch) => renderNode(ch, depth + 1))}
+          </Fragment>
+        )
+      }
       return (
         <div key={node.id}>
           <Link
