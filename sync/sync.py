@@ -34,6 +34,13 @@ def _safe_name(s: str, max_len: int = 80) -> str:
     return s[:max_len] or "untitled"
 
 
+def _media_bs_id(name: str) -> int:
+    """Synthetic stable Brightspace id for module-media topic nodes (files
+    materialized from description links). Hash-derived so re-syncs upsert
+    instead of duplicating; can't collide with real content-tool ids."""
+    return int(hashlib.sha1(name.encode()).hexdigest()[:8], 16)
+
+
 def _norm_code(code: str) -> str:
     return re.sub(r"\s+", "", code).upper()
 
@@ -267,6 +274,166 @@ class SyncEngine:
                         url, f"{asset_base}/{urllib.parse.quote(path_part)}", 1)
             if rewritten != raw:
                 html.write_text(rewritten, encoding="utf-8")
+
+    # ── module-description media (files/videos linked inside module HTML) ─
+    # Some courses (SE 2203B) never attach files to content topics — the real
+    # material is linked from module descriptions as /content/enforced/...
+    # URLs and quickLink coursefile dialogs. The content walk + sync_embedded
+    # (which scans on-disk *.html only) never see those, so the files were
+    # neither downloaded nor registered. This pass materializes them:
+    # download → save under content/Units/ → create a topic under the module →
+    # register the file (extractable, indexable, chips in the tree) → rewrite
+    # the stored description link to the local /api/assets URL. Idempotent:
+    # one file per canonical filename (dedup across modules AND URL forms),
+    # synthetic topic ids are hash-stable.
+    MODULE_MEDIA_EXTS = (".pdf", ".ppt", ".pptx", ".doc", ".docx",
+                         ".xlsx", ".xls", ".zip", ".mp4", ".webm", ".mov")
+
+    def _fetch_media(self, url: str, headers: dict) -> bytes | None:
+        """Session-cookie fetch of a Brightspace enforced URL; None on any
+        failure or if the response is an HTML interstitial (login page)."""
+        try:
+            r = httpx.get(url, headers=headers, follow_redirects=False, timeout=120)
+            if r.status_code != 200 or not r.content:
+                return None
+            if b"<!DOCTYPE" in r.content[:200]:
+                return None
+            if len(r.content) > self.cfg.max_file_size:
+                return None
+            ctype = (r.headers.get("content-type") or "").lower()
+            if "html" in ctype:
+                return None
+            return r.content
+        except Exception:
+            return None
+
+    def sync_module_media(self, course_id: int, org_unit: int, course_dir: Path) -> None:
+        course = self.db.conn.execute(
+            "SELECT term, code FROM courses WHERE id=?", (course_id,)).fetchone()
+        if not course:
+            return
+        try:
+            from tools.cache_images import _session_headers
+            headers = _session_headers(self.cfg)
+        except Exception:
+            return
+        code_dir = course["code"].replace(" ", "")
+        enroll_suffix: str | None = None
+
+        def canon_key(name: str) -> str:
+            return re.sub(r"[^a-z0-9.]", "", name.lower())
+
+        # pass 1: collect targets (one per canonical filename) + per-module refs
+        targets: list[dict] = []
+        by_key: dict[str, dict] = {}
+        module_refs: list[tuple[int, str, dict]] = []  # (node row id, raw url, target)
+        for row in self.db.conn.execute(
+                "SELECT id, brightspace_id, description FROM content_nodes "
+                "WHERE course_id=? AND node_type='module' AND description IS NOT NULL",
+                (course_id,)).fetchall():
+            desc = row["description"]
+            if enroll_suffix is None:
+                m = re.search(r"/content/enforced/(\d+-[A-Za-z0-9_]+)/", desc)
+                if m:
+                    enroll_suffix = m.group(1)
+            for raw in re.findall(r'(?:href|src)="([^"]+)"', desc):
+                if (raw.startswith("/api/assets") or raw.startswith("#")
+                        or "youtube.com" in raw or "vimeo" in raw):
+                    continue
+                path_part = None
+                m = re.match(
+                    r"^(?:https?://[^/]+)?(/content/enforced/\d+-[A-Za-z0-9_]+/[^\"?#]+)", raw)
+                if m:
+                    path_part = urllib.parse.unquote(m.group(1))
+                else:
+                    q = re.search(
+                        r"quickLink\.d2l\?[^\"']*type=coursefile[^\"']*fileId=([^&\"]+)", raw)
+                    if q and enroll_suffix:
+                        fid = urllib.parse.unquote(q.group(1)).replace("+", " ")
+                        path_part = f"/content/enforced/{enroll_suffix}/{fid}"
+                if not path_part:
+                    continue
+                name = path_part.split("/")[-1]
+                if not name.lower().endswith(self.MODULE_MEDIA_EXTS):
+                    continue
+                key = canon_key(name)
+                tgt = by_key.get(key)
+                if tgt is None:
+                    tgt = {
+                        "name": name,
+                        "fetch_url": self.cfg.base_url + path_part,
+                        "is_video": name.lower().endswith((".mp4", ".webm", ".mov")),
+                        "module_bs_id": row["brightspace_id"],
+                    }
+                    by_key[key] = tgt
+                    targets.append(tgt)
+                module_refs.append((row["id"], raw, tgt))
+        if not targets:
+            return
+
+        # pass 2: download + register (topic under the FIRST referencing module)
+        media_dir = course_dir / "content" / "Units"
+        media_dir.mkdir(parents=True, exist_ok=True)
+        asset_base = f"/api/assets/{course['term']}/{code_dir}/content/Units"
+        rewrites: dict[int, list[tuple[str, str]]] = {}  # node row id -> [(raw, asset)]
+        for tgt in targets:
+            fname = _safe_name(tgt["name"])
+            dest = media_dir / fname
+            body = dest.read_bytes() if (dest.exists() and dest.stat().st_size > 0) else None
+            if body is None:
+                body = self._fetch_media(tgt["fetch_url"], headers)
+                if body is None:
+                    print(f"  media fetch failed: {tgt['fetch_url']}")
+                    continue
+                dest.write_bytes(body)
+            sha = hashlib.sha256(body).hexdigest()
+            bs_id = _media_bs_id(tgt["name"])
+            node = self.db.conn.execute(
+                "SELECT id FROM content_nodes WHERE course_id=? AND brightspace_id=?",
+                (course_id, bs_id)).fetchone()
+            if node is None:
+                self.db.upsert_content_node(course_id, {
+                    "brightspace_id": bs_id,
+                    "parent_brightspace_id": tgt["module_bs_id"],
+                    "node_type": "topic", "topic_type": "file",
+                    "title": fname, "description": None,
+                    "url": tgt["fetch_url"], "due_at": None,
+                    "is_hidden": False, "is_locked": False,
+                    "sort_order": 1000 + len(targets),
+                })
+                node = self.db.conn.execute(
+                    "SELECT id FROM content_nodes WHERE course_id=? AND brightspace_id=?",
+                    (course_id, bs_id)).fetchone()
+            rel = f"{course['term']}/{code_dir}/content/Units/{fname}"
+            kind = "slide" if fname.lower().endswith((".pdf", ".ppt", ".pptx")) else "other"
+            file_id, is_new = self.db.upsert_file(
+                course_id, rel, kind, "brightspace", sha, len(body), node["id"])
+            if is_new:
+                self.stats["files_new"] += 1
+                self.deltas.append({"kind": "file_new", "path": rel})
+            else:
+                existing = self.db.conn.execute(
+                    "SELECT sha256 FROM files WHERE id=?", (file_id,)).fetchone()
+                if existing and existing["sha256"] != sha:
+                    self.stats["files_changed"] += 1
+                    self.deltas.append({"kind": "file_changed", "path": rel})
+            asset = f"{asset_base}/{fname}"
+            for row_id, raw, t in module_refs:
+                if t is tgt:
+                    rewrites.setdefault(row_id, []).append((raw, asset))
+
+        # pass 3: rewrite stored descriptions to the local asset URLs
+        for row_id, pairs in rewrites.items():
+            row = self.db.conn.execute(
+                "SELECT description FROM content_nodes WHERE id=?", (row_id,)).fetchone()
+            desc = row["description"]
+            for raw, asset in pairs:
+                desc = desc.replace(f'"{raw}"', f'"{asset}"')
+            self.db.conn.execute(
+                "UPDATE content_nodes SET description=? WHERE id=?", (desc, row_id))
+        self.db.conn.commit()
+        print(f"  module media: {len(targets)} file(s) materialized, "
+              f"{len(rewrites)} module description(s) rewritten")
 
     # ── dropbox (assignments) ───────────────────────────────────────────
     def _download_assignment_attachments(self, course_id: int, org_unit: int, folder_id: int,
@@ -612,6 +779,7 @@ class SyncEngine:
                     continue
                 self.sync_content(course["id"], org_unit, course_dir)
                 self.sync_embedded(course["id"], org_unit, course_dir)
+                self.sync_module_media(course["id"], org_unit, course_dir)
                 self.sync_dropbox(course["id"], org_unit)
                 self.sync_news(course["id"], org_unit)
                 self.sync_syllabus(course["id"], org_unit, course_dir)
