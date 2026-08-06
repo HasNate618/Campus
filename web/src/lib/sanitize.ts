@@ -11,13 +11,13 @@
 const ALLOWED_TAGS = new Set([
   'A', 'ABBR', 'B', 'BLOCKQUOTE', 'BR', 'CODE', 'DIV', 'EM', 'FIGCAPTION',
   'FIGURE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HR', 'I', 'IMG', 'LI',
-  'OL', 'P', 'PRE', 'SMALL', 'SPAN', 'STRONG', 'SUB', 'SUP', 'TABLE',
-  'TBODY', 'TD', 'TFOOT', 'TH', 'THEAD', 'TR', 'U', 'UL',
+  'OL', 'P', 'PRE', 'SMALL', 'SOURCE', 'SPAN', 'STRONG', 'SUB', 'SUP',
+  'TABLE', 'TBODY', 'TD', 'TFOOT', 'TH', 'THEAD', 'TR', 'U', 'UL', 'VIDEO',
 ])
 
 const ALLOWED_ATTRS = new Set([
-  'align', 'alt', 'colspan', 'height', 'href', 'rel', 'rowspan', 'src',
-  'target', 'title', 'width',
+  'align', 'alt', 'colspan', 'controls', 'height', 'href', 'poster', 'rel',
+  'rowspan', 'src', 'target', 'title', 'type', 'width',
 ])
 
 /** Only http(s), mailto, anchors, and relative URLs survive. */
