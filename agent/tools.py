@@ -256,6 +256,10 @@ def content_read_file(db: DB, cfg: Config, args: dict) -> dict:
 
 
 def content_grep(db: DB, cfg: Config, args: dict) -> dict:
+    """Case-insensitive regex grep over DOWNLOADED FILES on disk (content/,
+    Assignments/, notes/) for a course. Module landing-page text lives in
+    the DB (content_nodes.description), not on disk — use search_corpus for
+    that. Returns path + snippet matches."""
     query = args.get("query", "")
     if not query:
         return {"error": "query required"}
@@ -494,9 +498,13 @@ def quiz_grade(db: DB, cfg: Config, args: dict) -> dict:
 
 def search_corpus(db: DB, cfg: Config, args: dict) -> dict:
     """Semantic search over the course corpus: extracted content, notes, work
-    files, assignment attachments, announcements, syllabus, active facts.
-    Cohere embeddings + rerank via bifrost. Returns cited passages with
-    file refs — read the full file with content_read_file."""
+    files, assignment attachments, announcements, syllabus, active facts AND
+    MODULE DESCRIPTIONS (landing-page HTML — incl. office-hours tables and
+    policies that never became files). Cohere embeddings + rerank via
+    bifrost, with a lexical exact-phrase boost. Returns cited passages with
+    file refs — read the full file with content_read_file. Prefer this over
+    content_grep for module-landing text: content_grep only scans files on
+    disk."""
     from sync.search import search as corpus_search
     query = args.get("query", "")
     if not query:
