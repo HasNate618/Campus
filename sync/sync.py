@@ -656,6 +656,31 @@ class SyncEngine:
             print(f"Sync FAILED: {e}", file=sys.stderr)
             return 1
 
+    def _undigested_chats(self, limit: int = 40) -> list[dict]:
+        """Recent chat turns never fed to the digest (the chat-memory safety
+        net — catches durable facts the model didn't record mid-conversation).
+        Marked digested_at after the digest scans them."""
+        try:
+            rows = self.db.conn.execute(
+                """SELECT m.id, m.role, m.content, s.course_id, c.code
+                   FROM chat_messages m
+                   JOIN chat_sessions s ON s.id = m.session_id
+                   LEFT JOIN courses c ON c.id = s.course_id
+                   WHERE m.digested_at IS NULL AND m.role IN ('user','assistant')
+                     AND m.content != ''
+                   ORDER BY m.id DESC LIMIT ?""",
+                (limit,)).fetchall()
+        except Exception:
+            return []  # pre-migration DB (no digested_at column) — skip the net
+        chats = []
+        for r in reversed(rows):
+            content = (r["content"] or "").strip()
+            if len(content) > 600:
+                content = content[:600] + "…"
+            chats.append({"id": r["id"], "role": r["role"],
+                          "course": r["code"], "content": content})
+        return chats
+
     def _undigested_announcements(self, courses) -> list[dict]:
         """Historical announcements never fed to the digest (backlog backfill).
         New ones are marked digested_at at sync time (they ride the deltas)."""
@@ -683,7 +708,8 @@ class SyncEngine:
         → memory_facts + markdown sync log. (Notification is sent once by
         run(), covering the whole sync.)"""
         backlog = self._undigested_announcements(courses)
-        if not self.deltas and not backlog:
+        chats = self._undigested_chats()
+        if not self.deltas and not backlog and not chats:
             (self.cfg.data_root / "sync_logs").mkdir(parents=True, exist_ok=True)
             log_path = self.cfg.data_root / "sync_logs" / f"{time.strftime('%Y-%m-%d')}.md"
             log_path.write_text(f"# Sync {time.strftime('%Y-%m-%d %H:%M')}\n\nNothing new in any course.\n")
@@ -718,6 +744,16 @@ class SyncEngine:
                 "relevance window has passed or that is superseded by newer "
                 f"announcements or assignments:\n{json.dumps(backlog, indent=1)}"
             )
+        if chats:
+            prompt += (
+                "\n\nRECENT CHAT ACTIVITY (conversations with the student since the last "
+                "digest — the safety net: the student may have stated facts or decisions "
+                "the model didn't record mid-conversation). Extract ONLY durable facts: "
+                "student-stated decisions, corrections, personal schedule details, things "
+                "explicitly said to remember. SKIP casual chat, questions, and anything "
+                "ephemeral or already covered above. Category per the whitelist.\n"
+                f"{json.dumps(chats, indent=1)}"
+            )
         try:
             r = httpx.post(f"{self.cfg.bifrost_url}/chat/completions",
                            json={"model": self.model,
@@ -751,6 +787,11 @@ class SyncEngine:
             self.db.conn.executemany(
                 "UPDATE announcements SET digested_at=datetime('now') WHERE id=?",
                 [(b["id"],) for b in backlog])
+        # scanned chat turns are now in memory — never re-digested
+        if chats:
+            self.db.conn.executemany(
+                "UPDATE chat_messages SET digested_at=datetime('now') WHERE id=?",
+                [(c["id"],) for c in chats])
         self.db.conn.commit()
 
         (self.cfg.data_root / "sync_logs").mkdir(parents=True, exist_ok=True)

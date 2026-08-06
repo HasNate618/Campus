@@ -212,7 +212,8 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     role        TEXT NOT NULL CHECK (role IN ('user','assistant','tool')),
     content     TEXT NOT NULL DEFAULT '',
     tool_name   TEXT,                       -- set when role='tool'
-    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    digested_at TEXT  -- set when the sync digest scans this message (chat-memory net)
 );
 CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id);
 
