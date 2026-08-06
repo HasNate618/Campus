@@ -196,8 +196,56 @@ def rebuild(cfg, db) -> dict:
             "embedded_items": len(todo), "items": len(items)}
 
 
+def _lexical_hits(db, course_id: int | None, query: str, limit: int = 8
+                  ) -> tuple[set[int], set[int]]:
+    """Exact-substring pre-filter. Returns (phrase_ids, term_ids):
+    - phrase_ids: chunks containing the WHOLE query verbatim — verbatim
+      answers that semantic ranking can bury ("Email Response Time" scored
+      cosine 0.34 vs a 0.48 cutoff, then rerank 0.0 vs noise).
+    - term_ids: chunks containing any >=3-char term (candidate enrichment).
+    SQLite instr() — LIKE has no default escape."""
+    query = query.strip().strip('"\'“”`').strip()
+    phrase = query.lower()
+    terms = [t for t in re.split(r"\s+", query) if len(t) >= 3][:6]
+    if not terms:
+        return set(), set()
+    conds = " OR ".join(["instr(lower(text), lower(?)) > 0"] * len(terms))
+    args = [t.lower() for t in terms]
+    sql = f"SELECT id FROM chunks WHERE {conds}"
+    if course_id is not None:
+        sql = f"SELECT id FROM chunks WHERE course_id=? AND ({conds})"
+        args = [course_id] + args
+    term_ids = {r[0] for r in db.conn.execute(sql + " LIMIT ?", args + [limit])}
+    phrase_ids: set[int] = set()
+    if len(phrase) >= 3:
+        sql2 = "SELECT id FROM chunks WHERE instr(lower(text), lower(?)) > 0"
+        args2 = [course_id] if course_id is not None else []
+        if course_id is not None:
+            sql2 = ("SELECT id FROM chunks WHERE course_id=? "
+                    "AND instr(lower(text), lower(?)) > 0")
+        for r in db.conn.execute(sql2 + " LIMIT ?", args2 + [phrase, limit]):
+            phrase_ids.add(r[0])
+    return phrase_ids, term_ids
+
+
+def _snippet(text: str, query: str, width: int = 240) -> str:
+    """Window the returned passage around the first query occurrence — the
+    flat first-400-chars cut once truncated the matched phrase itself out of
+    the snippet (the "Email Response Time" line sits at char 490 of its
+    chunk, so the model saw the welcome text and NOT the answer)."""
+    i = text.lower().find(query.strip().lower())
+    if i < 0:
+        return text[:400]
+    start = max(0, i - width // 2)
+    end = min(len(text), i + len(query.strip()) + width // 2)
+    return f"{'…' if start > 0 else ''}{text[start:end]}{'…' if end < len(text) else ''}"
+
+
 def search(cfg, db, query: str, course_id: int | None = None,
            top_k: int = TOP_K) -> list[dict]:
+    # models often pass the user's quoted phrase verbatim — strip the
+    # quote chars so lexical phrase matching still works
+    query = query.strip().strip('"\'“”`').strip()
     q = db.conn.execute(
         "SELECT id, course_id, ref, text, embedding FROM chunks"
         + (" WHERE course_id=?" if course_id else ""),
@@ -210,15 +258,35 @@ def search(cfg, db, query: str, course_id: int | None = None,
         ((_cosine(qv, _unpack(r["embedding"])), r) for r in q),
         key=lambda t: t[0], reverse=True,
     )[:RERANK_CANDIDATES]
+    # lexical boost: exact-substring matches cosine missed must still reach
+    # the reranker (short phrases vs long chunks embed badly).
+    phrase_ids, lex_ids = _lexical_hits(db, course_id, query)
+    if lex_ids:
+        seen = {r["id"] for _, r in scored}
+        extra = [(_cosine(qv, _unpack(r["embedding"])), r)
+                 for r in q if r["id"] in lex_ids and r["id"] not in seen]
+        if extra:
+            scored = sorted(scored + extra, key=lambda t: t[0], reverse=True)[:RERANK_CANDIDATES]
     docs = [r["text"] for _, r in scored]
     scores = _rerank_scores(cfg, query, docs)
     ranked = sorted(
         ((scores[i], r) for i, (_, r) in enumerate(scored)),
         key=lambda t: t[0], reverse=True,
     )[:top_k]
+    # verbatim phrase matches are the answer to "where is this said" — the
+    # reranker can still bury a long/noisy chunk below unrelated noise, so
+    # force them to the FRONT of the result set (append-then-slice would
+    # drop them: they'd sit beyond the top_k cut).
+    if phrase_ids:
+        have = {r["id"] for _, r in ranked}
+        phrase_hits = [(1.0, r) for r in q
+                       if r["id"] in phrase_ids and r["id"] not in have]
+        if phrase_hits:
+            ranked = phrase_hits + ranked
+            ranked = ranked[:top_k]
     return [
         {"ref": r["ref"], "course_id": r["course_id"],
-         "text": r["text"][:400], "score": round(score, 4)}
+         "text": _snippet(r["text"], query), "score": round(score, 4)}
         for score, r in ranked
     ]
 
