@@ -284,6 +284,27 @@ def search(cfg, db, query: str, course_id: int | None = None,
         if phrase_hits:
             ranked = phrase_hits + ranked
             ranked = ranked[:top_k]
+    # near-zero semantic results = the reranker failed the query; the
+    # exact-substring term matches are then the best answer (the model often
+    # REFRAMES a user's phrase — "email response time policy" — which breaks
+    # the verbatim phrase match while the chunk still contains the words).
+    # Rank by term overlap count (more query terms in the chunk = better),
+    # not by chunk insertion order.
+    elif (len([t for t in re.split(r"\s+", query) if len(t) >= 3]) >= 2
+          and ranked and max(score for score, _ in ranked) < 0.1):
+        terms = [t for t in re.split(r"\s+", query) if len(t) >= 3][:6]
+        scored_terms: list[tuple[float, object]] = []
+        for r in q:
+            t = r["text"].lower()
+            c = sum(1 for w in terms if w in t)
+            if c > 0:
+                scored_terms.append((0.3 + 0.15 * c, r))
+        scored_terms.sort(key=lambda x: (-x[0], -_cosine(qv, _unpack(x[1]["embedding"]))))
+        have = {r["id"] for _, r in ranked}
+        term_hits = [(s, r) for s, r in scored_terms if r["id"] not in have]
+        if term_hits:
+            ranked = term_hits[:top_k] + ranked
+            ranked = ranked[:top_k]
     return [
         {"ref": r["ref"], "course_id": r["course_id"],
          "text": _snippet(r["text"], query), "score": round(score, 4)}
