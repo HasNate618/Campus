@@ -295,9 +295,19 @@ class SyncEngine:
                 # register with the corpus so extraction + the AI's file tools
                 # treat it like content (kind='assignment', source='brightspace')
                 try:
-                    self.db.upsert_file(course_id, at["local"], "assignment", "brightspace",
-                                        hashlib.sha256(dest.read_bytes()).hexdigest(),
-                                        dest.stat().st_size)
+                    sha = hashlib.sha256(dest.read_bytes()).hexdigest()
+                    file_id, is_new = self.db.upsert_file(
+                        course_id, at["local"], "assignment", "brightspace",
+                        sha, dest.stat().st_size)
+                    if is_new:
+                        self.stats["files_new"] += 1
+                        self.deltas.append({"kind": "file_new", "path": at["local"]})
+                    else:
+                        existing = self.db.conn.execute(
+                            "SELECT sha256 FROM files WHERE id=?", (file_id,)).fetchone()
+                        if existing and existing["sha256"] != sha:
+                            self.stats["files_changed"] += 1
+                            self.deltas.append({"kind": "file_changed", "path": at["local"]})
                 except Exception:
                     pass
 
