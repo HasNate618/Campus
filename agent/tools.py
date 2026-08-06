@@ -364,6 +364,37 @@ def mutate_add_event(db: DB, cfg: Config, args: dict) -> dict:
     return {"created": True, "event_id": cur.lastrowid}
 
 
+def add_fact(db: DB, cfg: Config, args: dict) -> dict:
+    """Write a durable fact to memory RIGHT NOW (mid-conversation). The fact
+    joins the memory card + the quiz pool immediately. Source 'chat:…'."""
+    fact = (args.get("fact") or "").strip()
+    if not fact:
+        return {"error": "fact is required — one atomic claim"}
+    if len(fact) > 500:
+        return {"error": "fact too long — keep it under 500 chars (one atomic claim, absolute dates)"}
+    allowed = {"general", "scheduling", "grading", "course-policy",
+               "prof-note", "exam", "assignment", "logistics"}
+    category = args.get("category") or "general"
+    if category not in allowed:
+        return {"error": f"category must be one of: {', '.join(sorted(allowed))}"}
+    cid = _resolve_course(db, args.get("course"))
+    try:
+        confidence = max(0.0, min(1.0, float(args.get("confidence") or 0.5)))
+    except (TypeError, ValueError):
+        confidence = 0.5
+    dup = db.conn.execute(
+        "SELECT id FROM memory_facts WHERE fact=? AND is_active=1", (fact,)).fetchone()
+    if dup:
+        return {"added": False, "reason": "already known", "fact_id": dup["id"]}
+    cur = db.conn.execute(
+        "INSERT INTO memory_facts (course_id, fact, category, confidence, source) VALUES (?,?,?,?,?)",
+        (cid, fact, category, confidence, f"chat:{datetime.date.today().isoformat()}"))
+    db.conn.commit()
+    fid = cur.lastrowid
+    db.audit("ai", "facts", fid, "add", {"fact": fact[:120], "category": category})
+    return {"added": True, "fact_id": fid}
+
+
 def quiz_start(db: DB, cfg: Config, args: dict) -> dict:
     """Start a free-recall quiz over active memory facts. Blind-graded:
     every answer is graded against ONLY the fact — never the chat history
@@ -780,6 +811,16 @@ TOOLS = {
         fact={"type": "string"},
         category={"type": "string"},
         confidence={"type": "number"},
+    ),
+    "add_fact": _tool(
+        "add_fact",
+        "Write a durable fact to memory RIGHT NOW — use this mid-conversation when the user states a fact, corrects you, makes a decision, or relays something worth remembering (e.g. 'the final is cumulative', 'our team meets Thursdays', a prof's policy). The fact immediately joins the memory card + the quiz pool. One atomic claim per call, absolute dates (YYYY-MM-DD). Also useful when the user says 'remember this'.",
+        add_fact,
+        required=["fact", "category"],
+        fact={"type": "string", "description": "the durable fact — one atomic claim, absolute dates"},
+        category={"type": "string", "description": "one of: general, scheduling, grading, course-policy, prof-note, exam, assignment, logistics"},
+        course={"type": "string", "description": "optional course code, e.g. 'SE 2250B'"},
+        confidence={"type": "number", "description": "0-1 how sure you are (default 0.5)"},
     ),
     "quiz_start": _tool(
         "quiz_start",
