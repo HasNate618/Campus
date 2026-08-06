@@ -116,6 +116,7 @@ interface ChatContextValue {
   activeFor: (courseId: number) => ChatSession | null
   openSession: (courseId: number, sessionId: string) => void
   newChat: (courseId: number) => void
+  renameSession: (sessionId: string, title: string) => void
   deleteSession: (sessionId: string) => void
   send: (courseId: number, text: string) => boolean
   regenerate: (sessionId: string, nodeId: string) => void
@@ -346,7 +347,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             // target it); reconcile numeric-id leftovers from the old
             // uuid→server-id promotion to a fresh uuid + serverId.
             const id = /^[0-9]+$/.test(local.id) ? makeUuid() : local.id
-            return { ...refreshed, id }
+            return {
+              ...refreshed,
+              id,
+              // The client's own record of when it last touched the session
+              // is the truth — the server bulk-stamped updated_at on every
+              // re-save, so its time is only a fallback for sessions this
+              // device has never seen. Keeping the local time is what keeps
+              // per-session times individual in the sidebar.
+              updatedAt: local.updatedAt ?? refreshed.updatedAt,
+            }
           })
           for (const srv of byId.values()) merged.push(toLocalSession(srv))
           return merged
@@ -389,6 +399,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           title: s.title,
           nodes: stripUiFlags(s).nodes,
           activeNodeId: s.activeNodeId,
+          // the true per-session activity time — the server adopts it as
+          // updated_at instead of stamping its own (bulk re-saves used to
+          // clobber every session's time with the same value)
+          updatedAt: s.updatedAt,
         }
         if (s.serverId != null) {
           await api.chatSessionSave(s.serverId, payload)
@@ -496,6 +510,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       for (const [k, v] of Object.entries(m)) if (v !== sessionId) next[Number(k)] = v
       return next
     })
+  }, [])
+
+  const renameSession = useCallback((sessionId: string, title: string) => {
+    const clean = title.trim().slice(0, 80) || 'New chat'
+    setSessions((ss) =>
+      ss.map((s) => (s.id === sessionId ? { ...s, title: clean, updatedAt: Date.now() } : s)),
+    )
   }, [])
 
   const patchNode = useCallback((sid: string, nid: string, fn: (n: MsgNode) => MsgNode) => {
@@ -950,6 +971,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       activeFor,
       openSession,
       newChat,
+      renameSession,
       deleteSession,
       send,
       regenerate,
@@ -959,7 +981,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }),
     [
       sessions, busy, streamStatus, lastCourseId, model, setModel, setLastCourse, sessionsFor,
-      activeFor, openSession, newChat, deleteSession, send, regenerate,
+      activeFor, openSession, newChat, renameSession, deleteSession, send, regenerate,
       editMessage, deleteMessage, setActiveBranch,
     ],
   )
