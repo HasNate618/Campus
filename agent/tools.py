@@ -228,6 +228,30 @@ def content_list_files(db: DB, cfg: Config, args: dict) -> dict:
 def content_read_file(db: DB, cfg: Config, args: dict) -> dict:
     path = Path(args.get("path", ""))
     root = Path(cfg.data_root).resolve()
+    # search_corpus returns refs like "overview/<node_id>" for module
+    # landing pages — those live in the DB (content_nodes.description), not
+    # on disk. Resolve them here so the model can read the full page after
+    # a search hit ("I can't open overview/1892" was the original dead end).
+    if str(path).startswith("overview/"):
+        nid = int(str(path).split("/")[1])
+        row = db.conn.execute(
+            "SELECT course_id, title, description FROM content_nodes WHERE id=?",
+            (nid,)).fetchone()
+        if not row:
+            return {"error": f"no content node {nid}"}
+        import re as _re
+        desc = _re.sub(r"<[^>]+>", " ", row["description"] or "")
+        desc = _re.sub(r"\s+", " ", desc).strip()
+        text = f"# {row['title']}\n\n{desc}"
+        lines = text.splitlines()
+        total = len(lines)
+        offset = max(int(args.get("offset", 0)), 0)
+        limit = min(int(args.get("limit", 200)), 1000)
+        chunk = "\n".join(lines[offset:offset + limit])
+        note = (f"lines {offset}-{min(offset + limit, total)} of {total} "
+                f"(module description, HTML-stripped); use offset/limit to page")
+        return {"path": f"overview/{nid}", "content": chunk,
+                "offset": offset, "total_lines": total, "note": note}
     full = (root / path).resolve()
     if root not in full.parents and full != root:
         return {"error": "path must be under data_root"}
