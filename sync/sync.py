@@ -734,6 +734,28 @@ class SyncEngine:
             # ~25 min. The old fixed 120s timed out and the pdf-extractor
             # dropped the in-flight job, so big files never extracted.
             size_mb = path.stat().st_size / (1024 * 1024)
+            # fast path: DIGITAL PDFs carry an embedded text layer — PyMuPDF
+            # extracts it in milliseconds, no OCR/VLM round-trip (MATH 2151A's
+            # solutions PDFs sat behind scanned book excerpts for hours before
+            # this existed). Scans return ~no text and fall through to the
+            # engine. pymupdf ships in the image (requirements.txt).
+            try:
+                import pymupdf
+                doc = pymupdf.open(path)
+                text = "".join(pg.get_text() for pg in doc)
+                doc.close()
+                if len(text.strip()) > 200:
+                    md = path.with_suffix(".md")
+                    md.write_text(text, encoding="utf-8")
+                    self.db.mark_processed(file_row["id"])
+                    excerpt = text[: self.cfg.digest_pdf_excerpt_chars]
+                    self.deltas.append({"kind": "pdf_extracted", "path": str(md),
+                                        "excerpt": excerpt})
+                    return True
+            except ImportError:
+                pass
+            except Exception:
+                pass
             timeout = 3600 if size_mb > 2 else 120
             r = httpx.put(f"{self.cfg.pdf_extractor_url}/process",
                           content=path.read_bytes(), timeout=timeout)
