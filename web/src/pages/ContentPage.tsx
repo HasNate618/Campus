@@ -405,10 +405,12 @@ export function ContentPage() {
       if (depth > 0) {
         // Nested module = subtopic row (plain, no chevron, always expanded)
         // — only top-level modules read as bold sections with a collapse
-        // toggle. Children render beneath regardless. Linked files (e.g.
-        // assignment attachments) render as chips like topic rows.
-        const f0 = fs[0] ?? null
-        const chip0 = f0 ? kindChip(f0) : null
+        // toggle. Children render beneath regardless. These rows are
+        // HTML landing pages — tag them like the pilot's html topics so
+        // every topic-style row carries a kind chip (html/pdf/zip/code).
+        const descChip = node.description ? (
+          <span className="chip" style={{ padding: '1px 6px' }}>html</span>
+        ) : null
         return (
           <Fragment key={node.id}>
             <Link
@@ -419,25 +421,8 @@ export function ContentPage() {
               <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {node.title}
               </span>
-              {chip0 && <span className={chip0.cls} style={{ padding: '1px 6px' }}>{chip0.label}</span>}
+              {descChip}
             </Link>
-            {fs.length > 1 && fs.slice(1).map((ff) => {
-              const fchip = kindChip(ff)
-              return (
-                <Link
-                  key={ff.id}
-                  to={`/courses/${cid}/content/${node.id}?file=${ff.id}`}
-                  className={`tree-file${selectedFile?.id === ff.id ? ' selected' : ''}`}
-                  title={ff.path}
-                  style={{ paddingLeft: treeIndent(depth) + 18 }}
-                >
-                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {fileName(ff)}
-                  </span>
-                  <span className={fchip.cls} style={{ padding: '1px 6px' }}>{fchip.label}</span>
-                </Link>
-              )
-            })}
             {children(node.id).map((ch) => renderNode(ch, depth + 1))}
           </Fragment>
         )
