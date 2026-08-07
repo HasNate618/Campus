@@ -88,6 +88,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
     activeFor,
     openSession,
     newChat,
+    renameSession,
     deleteSession,
     send,
     regenerate,
@@ -104,6 +105,8 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
   const [modelQuery, setModelQuery] = useState('')
   const [models, setModels] = useState<string[]>([])
   const [contexts, setContexts] = useState<Record<string, number>>({})
+  const [renamingTitle, setRenamingTitle] = useState(false)
+  const [renameTitleText, setRenameTitleText] = useState('')
   const filteredModels = useMemo(
     () =>
       modelQuery.trim()
@@ -615,8 +618,41 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
               </div>
             )}
           </div>
+        ) : renamingTitle ? (
+          <input
+            className="chat-head-rename"
+            value={renameTitleText}
+            autoFocus
+            onChange={(e) => setRenameTitleText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && session) {
+                renameSession(session.id, renameTitleText)
+                setRenamingTitle(false)
+              } else if (e.key === 'Escape') {
+                setRenamingTitle(false)
+              }
+            }}
+            onBlur={() => {
+              if (session) {
+                renameSession(session.id, renameTitleText)
+                setRenamingTitle(false)
+              }
+            }}
+          />
         ) : (
-          <span className="chat-head-title">{session?.title ?? 'New chat'}</span>
+          <span
+            className="chat-head-title"
+            title="Rename chat"
+            style={{ cursor: 'text' }}
+            onClick={() => {
+              if (session) {
+                setRenamingTitle(true)
+                setRenameTitleText(session.title)
+              }
+            }}
+          >
+            {session?.title ?? 'New chat'}
+          </span>
         )}
 
         {session && path.length > 0 && (
