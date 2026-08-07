@@ -366,9 +366,33 @@ class SyncEngine:
             return
         code_dir = course["code"].replace(" ", "")
         enroll_suffix: str | None = None
+        self._cf_suffix_cache: dict[int, str | None] = {}
 
         def canon_key(name: str) -> str:
             return re.sub(r"[^a-z0-9.]", "", name.lower())
+
+        def _cf_suffix(org_unit: int, fid: str) -> str | None:
+            """MATH 2151A-style courses use coursefile quickLinks whose
+            fileId is a FILENAME and have no /content/enforced/ URLs in any
+            description to derive the enforced suffix from. The quickLink
+            dialog redirects to /content/enforced/<suffix>/<fileId> — one
+            redirect reveals the suffix, which serves every file in the
+            course. Cached per org unit."""
+            if org_unit in self._cf_suffix_cache:
+                return self._cf_suffix_cache[org_unit]
+            suffix: str | None = None
+            try:
+                url = (f"{self.cfg.base_url}/d2l/common/dialogs/quickLink/"
+                       f"quickLink.d2l?ou={org_unit}&type=coursefile&fileId="
+                       f"{urllib.parse.quote(fid)}")
+                resp = urllib.request.urlopen(urllib.request.Request(url, headers=headers),
+                                              timeout=30)
+                m = re.search(r"/content/enforced/(\d+-[A-Za-z0-9_]+)/", resp.geturl())
+                suffix = m.group(1) if m else None
+            except Exception:
+                suffix = None
+            self._cf_suffix_cache[org_unit] = suffix
+            return suffix
 
         # pass 1: collect targets (one per canonical filename) + per-module refs
         targets: list[dict] = []
@@ -397,9 +421,11 @@ class SyncEngine:
                 else:
                     q = re.search(
                         r"quickLink\.d2l\?[^\"']*type=coursefile[^\"']*fileId=([^&\"]+)", raw)
-                    if q and enroll_suffix:
+                    if q:
                         fid = urllib.parse.unquote(q.group(1)).replace("+", " ")
-                        path_part = f"/content/enforced/{enroll_suffix}/{fid}"
+                        suffix = enroll_suffix or _cf_suffix(org_unit, fid)
+                        if suffix:
+                            path_part = f"/content/enforced/{suffix}/{fid}"
                 if not path_part:
                     continue
                 name = path_part.split("/")[-1]

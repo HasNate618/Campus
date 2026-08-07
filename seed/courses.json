@@ -1,6 +1,7 @@
 {
   "term_info": {
     "2025W": { "label": "Winter 2025 (pilot)", "starts": "", "ends": "" },
+    "2025F": { "label": "Fall 2025", "starts": "", "ends": "" },
     "2026F": { "label": "Fall 2026", "starts": "", "ends": "" },
     "2027W": { "label": "Winter 2027", "starts": "", "ends": "" }
   },
@@ -14,6 +15,12 @@
     {
       "code": "SE 2203B", "name": "Software Design", "term": "2025W",
       "instructor": null, "units": 0.50, "class_nbr": null, "color": "#0f766e",
+      "is_pilot": false,
+      "sessions": []
+    },
+    {
+      "code": "MATH 2151A", "name": "Discrete Structures for Engineering", "term": "2025F",
+      "instructor": null, "units": 0.50, "class_nbr": null, "color": "#0ea5e9",
       "is_pilot": false,
       "sessions": []
     },
