@@ -89,7 +89,26 @@ def rewrite_dropbox_quicklinks(db, course_id: int) -> int:
 
 
 def _norm_code(code: str) -> str:
-    return re.sub(r"\s+", "", code).upper()
+    return re.sub(r"\s+", "", code or "").upper()
+
+
+def _looks_like_data_table(t) -> bool:
+    """Truth-table-style grids (rows of short cells) — NOT the slide-deck
+    layout boxes PyMuPDF's table finder also reports (those have huge
+    cells: header/footer text columns). Short-cell filter keeps only real
+    data tables."""
+    try:
+        if t.row_count < 2 or t.col_count < 2:
+            return False
+        ext = t.extract()
+        if not ext:
+            return False
+        cells = [str(c).strip() for row in ext for c in row if c is not None]
+        if not cells:
+            return False
+        return max(len(c) for c in cells) <= 30
+    except Exception:
+        return False
 
 
 def _extract_code(name: str) -> str:
@@ -742,8 +761,25 @@ class SyncEngine:
             try:
                 import pymupdf
                 doc = pymupdf.open(path)
-                text = "".join(pg.get_text() for pg in doc)
+                parts: list[str] = []
+                for page in doc:
+                    text = page.get_text()
+                    if not text.strip():
+                        continue
+                    parts.append(text.rstrip())
+                    # real data tables (truth tables, grids) render as markdown
+                    # tables for the viewer; slide-deck layout boxes are filtered
+                    # out by the short-cell test. Flat text stays too — harmless.
+                    try:
+                        tables = [t for t in page.find_tables().tables
+                                  if _looks_like_data_table(t)]
+                    except Exception:
+                        tables = []
+                    for t in tables:
+                        parts.append("")
+                        parts.append(t.to_markdown())
                 doc.close()
+                text = "\n".join(parts)
                 if len(text.strip()) > 200:
                     md = path.with_suffix(".md")
                     md.write_text(text, encoding="utf-8")
