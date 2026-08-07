@@ -798,6 +798,20 @@ class SyncEngine:
             pass
         return False
 
+    def _scan_pages(self, path: Path) -> int | None:
+        """Page count of a PDF IF it's a scan (no embedded text layer);
+        None for digital PDFs — those extract instantly via the PyMuPDF
+        fast path and must never be skipped."""
+        try:
+            import pymupdf
+            doc = pymupdf.open(path)
+            pages = doc.page_count
+            text = "".join(pg.get_text() for pg in doc)
+            doc.close()
+            return pages if len(text.strip()) <= 200 else None
+        except Exception:
+            return None
+
     def run_extraction_queue(self, course_id: int | None = None) -> int:
         """Serialize extraction of unprocessed files (one at a time — the
         pdf-extractor worker is single and local engine is slow). Never
@@ -807,6 +821,17 @@ class SyncEngine:
             self.db.conn.execute("SELECT * FROM files WHERE processed=0").fetchall()
         for row in rows:
             path = Path(self.cfg.data_root) / row["path"]
+            # LONG SCAN POLICY: scanned PDFs (no embedded text layer) past
+            # the page threshold are skipped — local OCR runs ~2 min/page
+            # and the extracted math text is the least reliable anyway.
+            # Digital PDFs are never caught (text layer extracts instantly).
+            # `extract --file` bypasses the queue and ignores the skip.
+            if path.suffix.lower() == ".pdf":
+                pages = self._scan_pages(path)
+                if pages is not None and pages >= self.cfg.long_scan_skip_pages:
+                    self.db.mark_processed(row["id"])
+                    print(f"  skipped long scan ({pages}p): {row['path']}", flush=True)
+                    continue
             if path.suffix.lower() in (".doc", ".docx"):
                 if self._extract_doc(path):
                     done += 1
