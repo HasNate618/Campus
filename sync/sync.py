@@ -88,6 +88,41 @@ def rewrite_dropbox_quicklinks(db, course_id: int) -> int:
     return n
 
 
+def link_assignment_files_to_modules(db, course_id: int) -> int:
+    """The Lab Activity / Take-Home module rows point at local assignment
+    pages (/courses/<id>/assignments/<aid>) after rewrite_dropbox_quicklinks.
+    Link each assignment's attachment files to that module node via
+    file_topics so the content tree shows the same file chips as the
+    assignment detail page. Idempotent (INSERT OR IGNORE); assignment
+    folders are named by assignment title, which is the join key."""
+    course = db.conn.execute(
+        "SELECT term, code FROM courses WHERE id=?", (course_id,)).fetchone()
+    if not course:
+        return 0
+    files_by_folder: dict[str, list[int]] = {}
+    for r in db.conn.execute(
+            "SELECT id, path FROM files WHERE course_id=?", (course_id,)):
+        p = r["path"]
+        if "/Assignments/" not in p:
+            continue
+        folder = p.split("/Assignments/", 1)[1].split("/", 1)[0]
+        files_by_folder.setdefault(folder, []).append(r["id"])
+    aids: dict[int, str] = {aid: title for aid, title in db.conn.execute(
+        "SELECT id, title FROM assignments WHERE course_id=?", (course_id,))}
+    n = 0
+    for row in db.conn.execute(
+            "SELECT id, description FROM content_nodes "
+            "WHERE course_id=? AND description IS NOT NULL", (course_id,)):
+        for m in re.finditer(rf"/courses/{course_id}/assignments/(\d+)", row["description"]):
+            title = aids.get(int(m.group(1)))
+            if not title:
+                continue
+            for fid in files_by_folder.get(title, []):
+                db.link_file_topic(fid, row["id"])
+                n += 1
+    return n
+
+
 def _norm_code(code: str) -> str:
     return re.sub(r"\s+", "", code).upper()
 
@@ -514,6 +549,9 @@ class SyncEngine:
         n = rewrite_dropbox_quicklinks(self.db, course_id)
         if n:
             print(f"  dropbox quickLinks → local assignment pages: {n}")
+        m = link_assignment_files_to_modules(self.db, course_id)
+        if m:
+            print(f"  assignment files → module chips: {m}")
 
     # ── dropbox (assignments) ───────────────────────────────────────────
     def _download_assignment_attachments(self, course_id: int, org_unit: int, folder_id: int,
