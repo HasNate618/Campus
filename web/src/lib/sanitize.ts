@@ -10,8 +10,8 @@
 
 const ALLOWED_TAGS = new Set([
   'A', 'ABBR', 'B', 'BLOCKQUOTE', 'BR', 'CODE', 'DIV', 'EM', 'FIGCAPTION',
-  'FIGURE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HR', 'I', 'IMG', 'LI',
-  'OL', 'P', 'PRE', 'SMALL', 'SOURCE', 'SPAN', 'STRONG', 'SUB', 'SUP',
+  'FIGURE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HR', 'I', 'IFRAME', 'IMG',
+  'LI', 'OL', 'P', 'PRE', 'SMALL', 'SOURCE', 'SPAN', 'STRONG', 'SUB', 'SUP',
   'TABLE', 'TBODY', 'TD', 'TFOOT', 'TH', 'THEAD', 'TR', 'U', 'UL', 'VIDEO',
 ])
 
@@ -38,6 +38,29 @@ function safeUrl(value: string): string | null {
  *  Brightspace session — direct img srcs 401). */
 const PROXY_HOSTS = new Set(['westernu.brightspace.com', 's.brightspace.com'])
 
+/**
+ * IFRAMES: allow ONLY YouTube embeds. The classic sanitizer risk is
+ * arbitrary iframes (srcdoc injection, chrome-extension:, data:). We keep
+ * it to a fixed host set + a fixed attribute list; everything else is
+ * dropped with the iframe.
+ */
+const YOUTUBE_EMBED_RE = /^https:\/\/(www\.)?(youtube\.com|youtube-nocookie\.com)\/embed\/[A-Za-z0-9_-]+/
+const IFRAME_ATTRS = new Set([
+  'allow', 'allowfullscreen', 'frameborder', 'height', 'loading',
+  'referrerpolicy', 'title', 'width',
+])
+
+function sanitizeIframe(el: HTMLElement, clone: HTMLElement): boolean {
+  const src = el.getAttribute('src') ?? ''
+  if (!YOUTUBE_EMBED_RE.test(src.trim())) return false
+  for (const attr of IFRAME_ATTRS) {
+    if (el.hasAttribute(attr)) clone.setAttribute(attr, el.getAttribute(attr) ?? '')
+  }
+  clone.setAttribute('src', src.trim())
+  clone.setAttribute('allowfullscreen', '')
+  return true
+}
+
 function proxifyUrl(value: string): string {
   try {
     const u = new URL(value)
@@ -59,9 +82,15 @@ function sanitizeNode(node: Node, out: HTMLElement): void {
     if (child.nodeType !== Node.ELEMENT_NODE) continue
     const el = child as HTMLElement
     const tag = el.tagName
-    if (!ALLOWED_TAGS.has(tag)) continue // drop script/iframe/style/etc.
+    if (!ALLOWED_TAGS.has(tag)) continue // drop script/style/etc.
 
     const clone = document.createElement(tag)
+    if (tag === 'IFRAME') {
+      // strict YouTube-embed allowlist; drop anything else (no srcdoc,
+      // no arbitrary hosts)
+      if (sanitizeIframe(el, clone)) out.appendChild(clone)
+      continue
+    }
     for (const attr of Array.from(el.attributes)) {
       const name = attr.name.toLowerCase()
       if (!ALLOWED_ATTRS.has(name)) continue
