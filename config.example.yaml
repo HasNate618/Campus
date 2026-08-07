@@ -28,6 +28,10 @@ auto_extract_pdfs: true
 # how many chars of extracted markdown feed the digest's PDF deltas
 digest_pdf_excerpt_chars: 2000
 
+# scanned PDFs (no text layer) at/above this many pages are skipped instead
+# of OCR'd (~2 min/page locally). Re-run any file with `sync extract --file`.
+# long_scan_skip_pages: 30
+
 # term start/end dates — anchor class events for the calendar/chat context
 # each term: start + end (YYYY-MM-DD). A bare start string also works.
 # term_dates:
