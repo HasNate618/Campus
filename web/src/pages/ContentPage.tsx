@@ -167,12 +167,18 @@ function ViewerBody({
     )
   }
 
-  // External link topic.
+  // External link topic. Brightspace stores tool links (dropbox, quiz,
+  // gradescope) as RELATIVE /d2l/... quickLink dialogs — target=_blank
+  // against the SPA origin would hit the catch-all route (home screen),
+  // so rebase them onto Brightspace for the new tab.
   if (node.topic_type === 'link' && node.url) {
+    const href = node.url.startsWith('/d2l/')
+      ? 'https://westernu.brightspace.com' + node.url
+      : node.url
     return (
       <div className="empty compact" style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
         <p style={{ margin: 0 }}>This topic links to an external page.</p>
-        <a className="btn btn-primary" href={node.url} target="_blank" rel="noreferrer noopener">
+        <a className="btn btn-primary" href={href} target="_blank" rel="noreferrer noopener">
           <ExternalLink size={14} /> Open link in new tab
         </a>
       </div>
