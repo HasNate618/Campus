@@ -107,7 +107,11 @@ function sanitizeNode(node: Node, out: HTMLElement): void {
     }
     if (tag === 'A') {
       clone.setAttribute('rel', 'noreferrer noopener')
-      if (!clone.hasAttribute('target')) clone.setAttribute('target', '_blank')
+      // Only external links open in a new tab; campus-internal links
+      // (relative or same-origin) must navigate in the current tab.
+      const href = clone.getAttribute('href') ?? ''
+      const external = /^https?:\/\//i.test(href) && !href.startsWith(window.location.origin)
+      if (external && !clone.hasAttribute('target')) clone.setAttribute('target', '_blank')
     }
     if (tag === 'IMG' && !clone.hasAttribute('alt')) clone.setAttribute('alt', '')
     sanitizeNode(el, clone)

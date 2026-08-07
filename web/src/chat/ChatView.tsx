@@ -640,19 +640,20 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
             }}
           />
         ) : (
-          <span
-            className="chat-head-title"
-            title="Rename chat"
-            style={{ cursor: 'text' }}
-            onClick={() => {
-              if (session) {
-                setRenamingTitle(true)
-                setRenameTitleText(session.title)
-              }
-            }}
-          >
-            {session?.title ?? 'New chat'}
-          </span>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'center' }}>
+            <span
+              className="chat-head-title"
+              title="Rename chat"
+              onClick={() => {
+                if (session) {
+                  setRenamingTitle(true)
+                  setRenameTitleText(session.title)
+                }
+              }}
+            >
+              {session?.title ?? 'New chat'}
+            </span>
+          </div>
         )}
 
         {session && path.length > 0 && (
