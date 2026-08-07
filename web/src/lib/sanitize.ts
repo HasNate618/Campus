@@ -108,10 +108,16 @@ function sanitizeNode(node: Node, out: HTMLElement): void {
     if (tag === 'A') {
       clone.setAttribute('rel', 'noreferrer noopener')
       // Only external links open in a new tab; campus-internal links
-      // (relative or same-origin) must navigate in the current tab.
+      // (relative or same-origin) must navigate in the current tab — this
+      // also STRIPS a baked-in target="_blank" that came from Brightspace
+      // (the sync rewrite localizes hrefs but keeps the original attribute).
       const href = clone.getAttribute('href') ?? ''
       const external = /^https?:\/\//i.test(href) && !href.startsWith(window.location.origin)
-      if (external && !clone.hasAttribute('target')) clone.setAttribute('target', '_blank')
+      if (external) {
+        if (!clone.hasAttribute('target')) clone.setAttribute('target', '_blank')
+      } else {
+        clone.removeAttribute('target')
+      }
     }
     if (tag === 'IMG' && !clone.hasAttribute('alt')) clone.setAttribute('alt', '')
     sanitizeNode(el, clone)
