@@ -2449,11 +2449,6 @@ pre code.hljs {
 }
 
 /* ── keyboard navigation (vim-style zones) ── */
-/* Active zone pane gets a quiet violet inset ring. */
-.kbd-active {
-  box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.4);
-}
-
 /* The j/k cursor row: a violet ring that layers over whatever the row
    already has (hover bg, .selected violet-soft, chips). */
 .kbd-cursor {

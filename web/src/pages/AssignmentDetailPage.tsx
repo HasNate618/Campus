@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, ExternalLink, Paperclip } from 'lucide-react'
 import { api } from '@/api/client'
+import { useZoneKeys } from '@/lib/keynav'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { fmtDue, isPast } from '@/lib/format'
 import type { Assignment, Rubric, RubricCell } from '@/types'
@@ -60,8 +61,18 @@ export function AssignmentDetailPage() {
   const { courseId, assignmentId } = useParams()
   const cid = Number(courseId)
   const aid = Number(assignmentId)
+  const navigate = useNavigate()
   const [a, setA] = useState<Assignment | null>(null)
   const [loading, setLoading] = useState(true)
+
+  // h exits an opened assignment back to the list.
+  useZoneKeys('course', (key) => {
+    if (key === 'h') {
+      navigate(`/courses/${cid}/assignments`)
+      return true
+    }
+    return false
+  })
 
   useEffect(() => {
     setLoading(true)

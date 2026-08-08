@@ -1768,8 +1768,19 @@ input[type="range"] { accent-color: #4ade7f; }
         return;
       }
 
-      // Toggle keybind viewer on Escape or ?
-      if (e.key === 'Escape' || e.key === '?') {
+      // Escape hands keyboard control back to the parent app (campus):
+      // the viewer posts a message so the host can blur the frame and
+      // return to normal navigation. ? still toggles the keybinds viewer.
+      if (e.key === 'Escape') {
+        if (keybindsOverlay && !keybindsOverlay.hidden) {
+          closeKeybinds();
+        } else {
+          window.parent.postMessage({ type: 'zenpdf-escape' }, '*');
+        }
+        e.preventDefault();
+        return;
+      }
+      if (e.key === '?') {
         toggleKeybinds();
         e.preventDefault();
         return;

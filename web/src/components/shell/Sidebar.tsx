@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import { api } from '@/api/client'
 import { useChat } from '@/chat/ChatContext'
-import { listKeys, useKeyNav, useListCursor, useZoneKeys } from '@/lib/keynav'
+import { listKeys, useListCursor, useZoneKeys } from '@/lib/keynav'
 import { courseColor } from '@/lib/courses'
 import { fmtRelative } from '@/lib/format'
 import type { Course } from '@/types'
@@ -26,7 +26,6 @@ export function Sidebar() {
   const navigate = useNavigate()
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameText, setRenameText] = useState('')
-  const { zone } = useKeyNav()
 
   useEffect(() => {
     api.courses().then(setCourses).catch(console.error)
@@ -76,7 +75,7 @@ export function Sidebar() {
   })
 
   return (
-    <aside className={`sidebar${collapsed ? ' collapsed' : ''}${zone === 'sidebar' ? ' kbd-active' : ''}`}>
+    <aside className={`sidebar${collapsed ? ' collapsed' : ''}`} data-kbd-zone="sidebar">
       <div className="brand">
         <div className="logo-mark">
           <GraduationCap size={17} />

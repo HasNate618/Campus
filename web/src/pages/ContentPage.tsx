@@ -1,9 +1,9 @@
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type Ref } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowLeft, ChevronRight, Columns2, Download, ExternalLink, Maximize2 } from 'lucide-react'
 import { api } from '@/api/client'
-import { listKeys, useListCursor, useZoneKeys } from '@/lib/keynav'
+import { listKeys, useKeyNav, useListCursor, useZoneKeys } from '@/lib/keynav'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
 import type { ContentNode, FileContent, FileFormat, FileRecord } from '@/types'
@@ -81,7 +81,17 @@ function EmptyFile({ rawUrl, filename }: { rawUrl: string | null; filename: stri
  * Android too — an iframe pointing at the RAW pdf would trigger a download
  * there; this points at an HTML page instead.
  */
-function ZenPdfFrame({ rawUrl, fileId, filename }: { rawUrl: string; fileId: number; filename: string }) {
+function ZenPdfFrame({
+  rawUrl,
+  fileId,
+  filename,
+  frameRef,
+}: {
+  rawUrl: string
+  fileId: number
+  filename: string
+  frameRef?: Ref<HTMLIFrameElement>
+}) {
   const src = useMemo(() => {
     const abs = `${window.location.origin}${rawUrl}`
     const q = new URLSearchParams({ file: abs, zen: '1', pageless: '1', t: String(fileId) })
@@ -89,7 +99,7 @@ function ZenPdfFrame({ rawUrl, fileId, filename }: { rawUrl: string; fileId: num
   }, [rawUrl, fileId])
   // key remounts the frame per file so switching PDFs never reuses stale
   // viewer state (scroll position, loaded pages).
-  return <iframe key={fileId} className="zen-pdf-frame" src={src} title={filename} allow="fullscreen" />
+  return <iframe key={fileId} ref={frameRef} className="zen-pdf-frame" src={src} title={filename} allow="fullscreen" />
 }
 
 /** Render just the banner images from a module's Unit Introduction topic
@@ -134,6 +144,7 @@ function ViewerBody({
   contentInfo,
   loading,
   showMd,
+  frameRef,
 }: {
   node: ContentNode
   file: FileRecord | null
@@ -141,6 +152,7 @@ function ViewerBody({
   contentInfo: FileContent | null
   loading: boolean
   showMd: boolean
+  frameRef?: Ref<HTMLIFrameElement>
 }) {
   // Module landing page (Brightspace HTML).
   if (node.node_type === 'module') {
@@ -160,7 +172,7 @@ function ViewerBody({
         {!descHasImages && introFile ? (
           <ModuleIntro file={introFile} />
         ) : !descHasImages && file ? (
-          <FileBody file={file} contentInfo={contentInfo} loading={loading} showMd={showMd} />
+          <FileBody file={file} contentInfo={contentInfo} loading={loading} showMd={showMd} frameRef={frameRef} />
         ) : !hasDesc ? (
           <div className="empty compact">This module has no landing page content.</div>
         ) : null}
@@ -192,7 +204,7 @@ function ViewerBody({
   }
 
   if (!file) return <div className="empty compact">No file attached to this topic.</div>
-  return <FileBody file={file} contentInfo={contentInfo} loading={loading} showMd={showMd} />
+  return <FileBody file={file} contentInfo={contentInfo} loading={loading} showMd={showMd} frameRef={frameRef} />
 }
 
 function FileBody({
@@ -200,11 +212,13 @@ function FileBody({
   contentInfo,
   loading,
   showMd,
+  frameRef,
 }: {
   file: FileRecord
   contentInfo: FileContent | null
   loading: boolean
   showMd: boolean
+  frameRef?: Ref<HTMLIFrameElement>
 }) {
   if (loading) return <div className="empty compact">Loading…</div>
   if (!contentInfo) return <div className="empty compact">Couldn&apos;t load this file.</div>
@@ -239,7 +253,7 @@ function FileBody({
               <ZenMarkdown content={content} />
             </div>
           ) : rawUrl ? (
-            <ZenPdfFrame rawUrl={rawUrl} fileId={file.id} filename={filename} />
+            <ZenPdfFrame rawUrl={rawUrl} fileId={file.id} filename={filename} frameRef={frameRef} />
           ) : content ? (
             <div className="pdf-text-view">
               <ZenMarkdown content={content} />
@@ -291,6 +305,11 @@ export function ContentPage() {
   const treeRef = useRef<HTMLDivElement>(null)
   const treeScrollRef = useRef(0)
   const prevNidRef = useRef(nid)
+  // PDF keyboard flow: opening a PDF hands input to the viewer (its own
+  // j/k, g/G, zoom keys); Escape inside posts a message back so we return
+  // to normal app control (sidebar zone).
+  const pdfFrameRef = useRef<HTMLIFrameElement>(null)
+  const { setZone } = useKeyNav()
 
   useEffect(() => {
     if (nid === null && prevNidRef.current !== null && treeRef.current) {
@@ -300,6 +319,18 @@ export function ContentPage() {
     }
     prevNidRef.current = nid
   }, [nid])
+
+  // Escape inside the zen-pdf viewer → back to sidebar control.
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      if (e.data?.type === 'zenpdf-escape') {
+        setZone('sidebar')
+        pdfFrameRef.current?.blur()
+      }
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [setZone])
 
   useEffect(() => {
     setNodes([])
@@ -351,6 +382,14 @@ export function ContentPage() {
   // PDFs: original file by default; extracted text (zen-rendered) as an option.
   const [showMd, setShowMd] = useState(false)
   useEffect(() => setShowMd(false), [nid])
+
+  // When a PDF is shown (not the extracted-text view), keyboard control
+  // belongs to the viewer: focus its iframe so j/k/g/G/zoom work there.
+  useEffect(() => {
+    if (contentInfo?.format === 'pdf' && !showMd && pdfFrameRef.current) {
+      pdfFrameRef.current.focus()
+    }
+  }, [contentInfo?.format, selectedFile?.id, showMd])
 
   useEffect(() => {
     if (!selectedFile) {
@@ -448,7 +487,7 @@ export function ContentPage() {
         if (nid != null) navigate(`/courses/${cid}/content`)
         else if (row?.node.node_type === 'module') toggleModule(row.node.id)
         return true
-      case 'v':
+      case 'f':
         setViewMode((m) => (m === 'fullWidth' ? 'sideBySide' : 'fullWidth'))
         return true
       case 'm':
@@ -612,6 +651,7 @@ export function ContentPage() {
                 contentInfo={contentInfo}
                 loading={loadingContent}
                 showMd={showMd}
+                frameRef={pdfFrameRef}
               />
             </motion.div>
           </>

@@ -18,7 +18,7 @@ import {
 import { courseColor } from '@/lib/courses'
 import { fmtRelative } from '@/lib/format'
 import { api } from '@/api/client'
-import { listKeys, useKeyNav, useListCursor, useZoneKeys } from '@/lib/keynav'
+import { listKeys, useListCursor, useZoneKeys } from '@/lib/keynav'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
 import { useChat, pathFor, type MsgNode, type StepItem } from './ChatContext'
 import type { Course } from '@/types'
@@ -124,7 +124,6 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
   const historyRef = useRef<HTMLDivElement>(null)
   const pickerRef = useRef<HTMLDivElement>(null)
   const modelRef = useRef<HTMLDivElement>(null)
-  const { zone } = useKeyNav()
 
   useEffect(() => {
     api
@@ -153,9 +152,13 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
   // keyboard cursor inside the history popover (0 = New chat, 1.. = sessions)
   const histCount = courseSessions.length + 1
   const histList = useListCursor(histCount)
+  // keyboard cursor inside the model picker (0 = Default, 1.. = models)
+  const modelCount = filteredModels.length + 1
+  const modelList = useListCursor(modelCount)
 
   // Chat zone keys: j/k scroll, g/G jump, Enter/i focus the input, n new
-  // chat, r regenerate, h history (j/k + Enter navigate it, Esc closes).
+  // chat, r regenerate, h history, m model picker (j/k + Enter navigate
+  // each popover, Esc closes).
   useZoneKeys('chat', (key) => {
     if (historyOpen) {
       const pick = (i: number) => {
@@ -175,6 +178,24 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
         return true
       }
       return listKeys(key, histList, () => pick(histList.cursor))
+    }
+    if (modelOpen) {
+      const pick = (i: number) => {
+        if (i === 0) {
+          setModel(null)
+        } else {
+          const m = filteredModels[i - 1]
+          if (m) setModel(m)
+        }
+        setModelOpen(false)
+      }
+      if (key === 'Escape') {
+        setModelOpen(false)
+        return true
+      }
+      // while the search input is focused keys type into it; once Esc
+      // blurs it, j/k move the picker cursor
+      return listKeys(key, modelList, () => pick(modelList.cursor))
     }
     switch (key) {
       case 'j':
@@ -207,6 +228,10 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
       }
       case 'h':
         setHistoryOpen((o) => !o)
+        return true
+      case 'm':
+        setModelOpen(true)
+        setModelQuery('')
         return true
       case 'Escape':
         setHistoryOpen(false)
@@ -612,7 +637,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
     !!lastAssistant && lastAssistant.streaming && !lastAssistant.intermediate
 
   return (
-    <div className={`chat-wrap${zone === 'chat' ? ' kbd-active' : ''}`}>
+    <div className="chat-wrap" data-kbd-zone="chat">
       <div className="chat-head">
         <div ref={historyRef} style={{ position: 'relative' }}>
           <button className="icon-btn" onClick={() => setHistoryOpen((o) => !o)} title="Chat history">
@@ -833,7 +858,8 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
                     />
                     <div style={{ overflowY: 'auto', flex: 1 }}>
                       <button
-                        className={`popover-item${!model ? ' selected' : ''}`}
+                        ref={modelList.setRef(0)}
+                        className={`popover-item${!model ? ' selected' : ''}${modelList.cursor === 0 ? ' kbd-cursor' : ''}`}
                         onClick={() => {
                           setModel(null)
                           setModelOpen(false)
@@ -844,10 +870,11 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
                       {filteredModels.length === 0 && (
                         <p style={{ margin: '6px 10px', fontSize: 12, color: 'var(--text-3)' }}>No matching models.</p>
                       )}
-                      {filteredModels.map((m) => (
+                      {filteredModels.map((m, i) => (
                         <button
                           key={m}
-                          className={`popover-item${model === m ? ' selected' : ''}`}
+                          ref={modelList.setRef(i + 1)}
+                          className={`popover-item${model === m ? ' selected' : ''}${modelList.cursor === i + 1 ? ' kbd-cursor' : ''}`}
                           onClick={() => {
                             setModel(m)
                             setModelOpen(false)

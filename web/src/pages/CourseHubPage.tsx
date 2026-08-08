@@ -6,7 +6,7 @@ import { api } from '@/api/client'
 import { ChatView } from '@/chat/ChatView'
 import { useChat } from '@/chat/ChatContext'
 import { SplitPane } from '@/components/SplitPane'
-import { useKeyNav, useZoneKeys } from '@/lib/keynav'
+import { useZoneKeys } from '@/lib/keynav'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { courseColor } from '@/lib/courses'
 import { fmtDateTime, fmtRelative } from '@/lib/format'
@@ -42,7 +42,6 @@ export function CourseLayout() {
   const navigate = useNavigate()
   const [course, setCourse] = useState<Course | null>(null)
   const { setLastCourse } = useChat()
-  const { zone } = useKeyNav()
 
   useEffect(() => {
     setCourse(null)
@@ -64,7 +63,7 @@ export function CourseLayout() {
   })
 
   const page = (
-    <div className={`page course-page${zone === 'course' ? ' kbd-active' : ''}`}>
+    <div className="page course-page">
       <header className="course-head">
         <div className="course-head-main">
           <div className="course-head-title">

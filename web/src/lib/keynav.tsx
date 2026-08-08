@@ -145,8 +145,9 @@ const HELP: { title: string; rows: [string, string][] }[] = [
       ['Enter / l', 'Open topic'],
       ['h', 'Back / collapse module'],
       ['[ / ]', 'Previous / next tab'],
-      ['v', 'Split / full-width view'],
+      ['f', 'Split / full-width view'],
       ['m', 'PDF: extracted text ⇄ original'],
+      ['Esc (PDF)', 'Return to sidebar control'],
       ['g / G', 'First / last'],
     ],
   },
@@ -156,6 +157,7 @@ const HELP: { title: string; rows: [string, string][] }[] = [
       ['j / k', 'Scroll'],
       ['g / G', 'Top / bottom'],
       ['Enter / i', 'Focus the input'],
+      ['m', 'Model selector'],
       ['n', 'New chat'],
       ['r', 'Regenerate last answer'],
       ['h', 'Chat history'],
@@ -241,6 +243,20 @@ export function KeyNavProvider({ children }: { children: ReactNode }) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+
+  // Clicking a pane switches the active zone to it (the pane roots carry
+  // data-kbd-zone="sidebar|course|chat"; the closest ancestor wins).
+  useEffect(() => {
+    const onMouseDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null
+      if (!t) return
+      const pane = t.closest('[data-kbd-zone]') as HTMLElement | null
+      const z = pane?.dataset.kbdZone as KeyZone | undefined
+      if (z && (z === 'sidebar' || z === 'course' || z === 'chat')) setZone(z)
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    return () => document.removeEventListener('mousedown', onMouseDown)
+  }, [setZone])
 
   return (
     <KeyNavContext.Provider value={{ zone, setZone, register }}>
