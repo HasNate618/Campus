@@ -254,6 +254,10 @@
     min-width: 0;
     padding-left: 0;
     padding-right: 0;
+    /* keep each hidden span on ONE line — without nowrap the 0-width box
+       wraps its text into many lines and the row grows taller than the
+       expanded state (session rows were 48px vs 34px) */
+    white-space: nowrap;
     overflow: hidden;
   }
 
