@@ -2123,6 +2123,26 @@
     gap: 0;
   }
 
+  /* collapsed alignment: the session row must center its dot like the
+     nav icons — the rename/delete buttons steal row width and shove the
+     dot off-center, and the brand logo sits 3px left of the icon line */
+  .sidebar.collapsed .session-rename-btn,
+  .sidebar.collapsed .session-delete {
+    display: none;
+  }
+
+  .sidebar.collapsed .session-btn {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .sidebar.collapsed .brand {
+    justify-content: center;
+    gap: 0;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
   .sidebar.collapsed .session-delete {
     display: none;
   }
