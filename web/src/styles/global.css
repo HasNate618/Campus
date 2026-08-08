@@ -2447,3 +2447,88 @@
 pre code.hljs {
   background: transparent;
 }
+
+/* ── keyboard navigation (vim-style zones) ── */
+/* Active zone pane gets a quiet violet inset ring. */
+.kbd-active {
+  box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.4);
+}
+
+/* The j/k cursor row: a violet ring that layers over whatever the row
+   already has (hover bg, .selected violet-soft, chips). */
+.kbd-cursor {
+  box-shadow: inset 0 0 0 1.5px rgba(167, 139, 250, 0.6);
+}
+
+/* ? help overlay */
+.kbd-help-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.kbd-help {
+  width: min(560px, 100%);
+  max-height: 82vh;
+  overflow-y: auto;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  padding: 22px 24px;
+}
+
+.kbd-help-title {
+  margin: 0 0 14px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.kbd-help-section {
+  margin-bottom: 14px;
+}
+
+.kbd-help-heading {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--violet);
+}
+
+.kbd-help-row {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding: 3px 0;
+}
+
+.kbd-help-keys {
+  flex-shrink: 0;
+  min-width: 110px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--text-1);
+}
+
+.kbd-help-desc {
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.kbd-help-hint {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--text-3);
+}

@@ -18,6 +18,7 @@ import {
 import { courseColor } from '@/lib/courses'
 import { fmtRelative } from '@/lib/format'
 import { api } from '@/api/client'
+import { listKeys, useKeyNav, useListCursor, useZoneKeys } from '@/lib/keynav'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
 import { useChat, pathFor, type MsgNode, type StepItem } from './ChatContext'
 import type { Course } from '@/types'
@@ -123,6 +124,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
   const historyRef = useRef<HTMLDivElement>(null)
   const pickerRef = useRef<HTMLDivElement>(null)
   const modelRef = useRef<HTMLDivElement>(null)
+  const { zone } = useKeyNav()
 
   useEffect(() => {
     api
@@ -147,6 +149,74 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
     lastAssistant?.tokens?.prompt_tokens != null
       ? `${fmtTokens(lastAssistant.tokens.prompt_tokens)}${ctxMax ? `/${fmtTokens(ctxMax)}` : ''}`
       : ''
+
+  // keyboard cursor inside the history popover (0 = New chat, 1.. = sessions)
+  const histCount = courseSessions.length + 1
+  const histList = useListCursor(histCount)
+
+  // Chat zone keys: j/k scroll, g/G jump, Enter/i focus the input, n new
+  // chat, r regenerate, h history (j/k + Enter navigate it, Esc closes).
+  useZoneKeys('chat', (key) => {
+    if (historyOpen) {
+      const pick = (i: number) => {
+        if (i === 0) {
+          newChat(courseId)
+          setHistoryOpen(false)
+        } else {
+          const s = courseSessions[i - 1]
+          if (s) {
+            openSession(courseId, s.id)
+            setHistoryOpen(false)
+          }
+        }
+      }
+      if (key === 'Escape') {
+        setHistoryOpen(false)
+        return true
+      }
+      return listKeys(key, histList, () => pick(histList.cursor))
+    }
+    switch (key) {
+      case 'j':
+      case 'ArrowDown':
+        scrollRef.current?.scrollBy({ top: 120 })
+        return true
+      case 'k':
+      case 'ArrowUp':
+        scrollRef.current?.scrollBy({ top: -120 })
+        return true
+      case 'g':
+      case 'Home':
+        if (scrollRef.current) scrollRef.current.scrollTop = 0
+        return true
+      case 'G':
+      case 'End':
+        if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+        return true
+      case 'Enter':
+      case 'i':
+        inputRef.current?.focus()
+        return true
+      case 'n':
+        newChat(courseId)
+        return true
+      case 'r': {
+        const la = lastAssistant
+        if (la && session && !busy && la.thinkingDone && !la.streaming) regenerate(session.id, la.id)
+        return true
+      }
+      case 'h':
+        setHistoryOpen((o) => !o)
+        return true
+      case 'Escape':
+        setHistoryOpen(false)
+        setPickerOpen(false)
+        setModelOpen(false)
+        return true
+      default:
+        return false
+    }
+  })
 
   useEffect(() => {
     const el = scrollRef.current
@@ -542,7 +612,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
     !!lastAssistant && lastAssistant.streaming && !lastAssistant.intermediate
 
   return (
-    <div className="chat-wrap">
+    <div className={`chat-wrap${zone === 'chat' ? ' kbd-active' : ''}`}>
       <div className="chat-head">
         <div ref={historyRef} style={{ position: 'relative' }}>
           <button className="icon-btn" onClick={() => setHistoryOpen((o) => !o)} title="Chat history">
@@ -551,7 +621,8 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
           {historyOpen && (
             <div className="popover left">
               <button
-                className="popover-item"
+                ref={histList.setRef(0)}
+                className={`popover-item${histList.cursor === 0 ? ' kbd-cursor' : ''}`}
                 onClick={() => {
                   newChat(courseId)
                   setHistoryOpen(false)
@@ -561,10 +632,11 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
                 New chat
               </button>
               {courseSessions.length > 0 && <div className="popover-divider" />}
-              {courseSessions.map((s) => (
+              {courseSessions.map((s, i) => (
                 <div key={s.id} className="popover-row">
                   <button
-                    className={`popover-item${session?.id === s.id ? ' selected' : ''}`}
+                    ref={histList.setRef(i + 1)}
+                    className={`popover-item${session?.id === s.id ? ' selected' : ''}${histList.cursor === i + 1 ? ' kbd-cursor' : ''}`}
                     onClick={() => {
                       openSession(courseId, s.id)
                       setHistoryOpen(false)

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   GraduationCap,
@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { api } from '@/api/client'
 import { useChat } from '@/chat/ChatContext'
+import { listKeys, useKeyNav, useListCursor, useZoneKeys } from '@/lib/keynav'
 import { courseColor } from '@/lib/courses'
 import { fmtRelative } from '@/lib/format'
 import type { Course } from '@/types'
@@ -25,6 +26,7 @@ export function Sidebar() {
   const navigate = useNavigate()
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameText, setRenameText] = useState('')
+  const { zone } = useKeyNav()
 
   useEffect(() => {
     api.courses().then(setCourses).catch(console.error)
@@ -43,8 +45,38 @@ export function Sidebar() {
 
   const courseById = new Map(courses.map((c) => [c.id, c]))
 
+  // Flat list of keyboard-navigable rows in DOM order: Home, recent chats,
+  // courses. Enter activates each kind.
+  const rows = useMemo(() => {
+    const r: { kind: 'nav' | 'chat' | 'course'; to?: string; sessionId?: string; courseId?: number }[] = []
+    for (const n of NAV) r.push({ kind: 'nav', to: n.to })
+    for (const s of recentChats) r.push({ kind: 'chat', sessionId: s.id, courseId: s.courseId })
+    for (const c of courses) r.push({ kind: 'course', courseId: c.id, to: `/courses/${c.id}` })
+    return r
+  }, [recentChats, courses])
+
+  const cursor = useListCursor(rows.length)
+
+  useZoneKeys('sidebar', (key) => {
+    if (key === 'c') {
+      toggle()
+      return true
+    }
+    return listKeys(key, cursor, () => {
+      const row = rows[cursor.cursor]
+      if (!row) return
+      if (row.kind === 'nav' && row.to) navigate(row.to)
+      else if (row.kind === 'chat' && row.sessionId && row.courseId != null) {
+        openSession(row.courseId, row.sessionId)
+        navigate(`/courses/${row.courseId}`)
+      } else if (row.kind === 'course' && row.courseId != null) {
+        navigate(`/courses/${row.courseId}`)
+      }
+    })
+  })
+
   return (
-    <aside className={`sidebar${collapsed ? ' collapsed' : ''}`}>
+    <aside className={`sidebar${collapsed ? ' collapsed' : ''}${zone === 'sidebar' ? ' kbd-active' : ''}`}>
       <div className="brand">
         <div className="logo-mark">
           <GraduationCap size={17} />
@@ -60,7 +92,10 @@ export function Sidebar() {
               to={to}
               end={end}
               title={label}
-              className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+              ref={cursor.setRef(0)}
+              className={({ isActive }) =>
+                `nav-item${isActive ? ' active' : ''}${cursor.cursor === 0 ? ' kbd-cursor' : ''}`
+              }
             >
               <Icon size={17} />
               <span className="side-label">{label}</span>
@@ -72,13 +107,14 @@ export function Sidebar() {
           <>
             <p className="section-label">Recent Chats</p>
             <div className="sidebar-list">
-              {recentChats.map((s) => {
+              {recentChats.map((s, i) => {
                 const c = courseById.get(s.courseId)
                 const active = activeFor(s.courseId)?.id === s.id
                 return (
                   <div
                     key={s.id}
-                    className={`session-item${active ? ' active' : ''}`}
+                    ref={cursor.setRef(i + 1)}
+                    className={`session-item${active ? ' active' : ''}${cursor.cursor === i + 1 ? ' kbd-cursor' : ''}`}
                   >
                     <button
                       className="session-btn"
@@ -148,12 +184,15 @@ export function Sidebar() {
 
         <p className="section-label">Courses</p>
         <div className="sidebar-list">
-          {courses.map((c) => (
+          {courses.map((c, i) => (
             <NavLink
               key={c.id}
               to={`/courses/${c.id}`}
               title={`${c.code} — ${c.name}`}
-              className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+              ref={cursor.setRef(i + 1 + recentChats.length)}
+              className={({ isActive }) =>
+                `nav-item${isActive ? ' active' : ''}${cursor.cursor === i + 1 + recentChats.length ? ' kbd-cursor' : ''}`
+              }
             >
               <span className="dot" style={{ background: courseColor(c), margin: '0 5px' }} />
               <span className="side-label">{c.code}</span>

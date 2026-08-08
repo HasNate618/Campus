@@ -1,8 +1,9 @@
-import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowLeft, ChevronRight, Columns2, Download, ExternalLink, Maximize2 } from 'lucide-react'
 import { api } from '@/api/client'
+import { listKeys, useListCursor, useZoneKeys } from '@/lib/keynav'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
 import type { ContentNode, FileContent, FileFormat, FileRecord } from '@/types'
@@ -273,6 +274,7 @@ function FileBody({
 export function ContentPage() {
   const { courseId, nodeId } = useParams()
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const fileParam = searchParams.get('file') ? Number(searchParams.get('file')) : null
   const cid = Number(courseId)
   const nid = nodeId ? Number(nodeId) : null
@@ -401,12 +403,69 @@ export function ContentPage() {
       return next
     })
 
+  // Flat keyboard-navigable rows in render order (collapsed modules hide
+  // their children). Each row maps to the same DOM a recursive render
+  // would produce — depth drives the indent, kind drives the classes.
+  type TreeRow = { node: ContentNode; depth: number; file?: FileRecord }
+  const flatRows = useMemo(() => {
+    const out: TreeRow[] = []
+    const walk = (node: ContentNode, depth: number) => {
+      if (node.node_type === 'module') {
+        out.push({ node, depth })
+        if (depth === 0 && collapsed.has(node.id)) return
+        for (const ch of children(node.id)) walk(ch, depth + 1)
+      } else {
+        const fs = filesForNode(node.id)
+        out.push({ node, depth, file: fs[0] ?? undefined })
+        for (const ff of fs.slice(1)) out.push({ node, depth, file: ff })
+      }
+    }
+    for (const m of modules) walk(m, 0)
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, collapsed, fileTopics, files])
+
+  const treeCursor = useListCursor(flatRows.length)
+
+  useZoneKeys('course', (key) => {
+    const row = flatRows[treeCursor.cursor]
+    const openRow = (r: TreeRow) => {
+      if (!r) return
+      const isModule = r.node.node_type === 'module'
+      // module: expand when collapsed, else open its landing page
+      if (isModule && r.depth === 0 && collapsed.has(r.node.id)) {
+        toggleModule(r.node.id)
+        return
+      }
+      const base = `/courses/${cid}/content/${r.node.id}`
+      navigate(base + (r.file && r.file.id !== filesForNode(r.node.id)[0]?.id ? `?file=${r.file.id}` : ''))
+    }
+    if (listKeys(key, treeCursor, () => openRow(row))) return true
+    switch (key) {
+      case 'h':
+        // back to the topic list when viewing something, else collapse the
+        // module under the cursor
+        if (nid != null) navigate(`/courses/${cid}/content`)
+        else if (row?.node.node_type === 'module') toggleModule(row.node.id)
+        return true
+      case 'v':
+        setViewMode((m) => (m === 'fullWidth' ? 'sideBySide' : 'fullWidth'))
+        return true
+      case 'm':
+        if (contentInfo?.format === 'pdf') setShowMd((s) => !s)
+        return true
+      default:
+        return false
+    }
+  })
+
   // Recursive tree: courses nest modules arbitrarily deep (SE 2203B:
   // Week 1 → Readings → file topics), so render every level. Depth-based
   // indent keeps the flat pilot tree (depth ≤ 1) pixel-identical.
   const treeIndent = (depth: number) => (depth === 0 ? 8 : 26 + (depth - 1) * 18)
-  const renderNode = (node: ContentNode, depth: number) => {
-    const fs = filesForNode(node.id)
+  const renderFlatRow = (row: TreeRow, i: number) => {
+    const { node, depth } = row
+    const cls = treeCursor.cursor === i ? ' kbd-cursor' : ''
     if (node.node_type === 'module') {
       if (depth > 0) {
         // Nested module = subtopic row (plain, no chevron, always expanded)
@@ -418,75 +477,74 @@ export function ContentPage() {
           <span className="chip" style={{ padding: '1px 6px' }}>html</span>
         ) : null
         return (
-          <Fragment key={node.id}>
-            <Link
-              to={`/courses/${cid}/content/${node.id}`}
-              className={`tree-topic tree-submodule${nid === node.id ? ' selected' : ''}`}
-              style={{ paddingLeft: treeIndent(depth) }}
-            >
-              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {node.title}
-              </span>
-              {descChip}
-            </Link>
-            {children(node.id).map((ch) => renderNode(ch, depth + 1))}
-          </Fragment>
+          <Link
+            key={`n-${node.id}`}
+            ref={treeCursor.setRef(i)}
+            to={`/courses/${cid}/content/${node.id}`}
+            className={`tree-topic tree-submodule${nid === node.id ? ' selected' : ''}${cls}`}
+            style={{ paddingLeft: treeIndent(depth) }}
+          >
+            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {node.title}
+            </span>
+            {descChip}
+          </Link>
         )
       }
       return (
-        <div key={node.id}>
-          <Link
-            to={`/courses/${cid}/content/${node.id}`}
-            className={`tree-module${nid === node.id ? ' selected' : ''}${collapsed.has(node.id) ? ' collapsed' : ''}`}
-            style={{ paddingLeft: treeIndent(depth) }}
-          >
-            <ChevronRight
-              size={13}
-              className="tree-module-chevron"
-              onClick={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                toggleModule(node.id)
-              }}
-            />
-            <span style={{ flex: 1, minWidth: 0 }}>{node.title}</span>
-          </Link>
-          {!collapsed.has(node.id) && children(node.id).map((ch) => renderNode(ch, depth + 1))}
-        </div>
-      )
-    }
-    const f = fs[0] ?? null
-    const chip = f ? kindChip(f) : null
-    return (
-      <Fragment key={node.id}>
         <Link
+          key={`n-${node.id}`}
+          ref={treeCursor.setRef(i)}
           to={`/courses/${cid}/content/${node.id}`}
-          className={`tree-topic${nid === node.id ? ' selected' : ''}`}
+          className={`tree-module${nid === node.id ? ' selected' : ''}${collapsed.has(node.id) ? ' collapsed' : ''}${cls}`}
           style={{ paddingLeft: treeIndent(depth) }}
         >
-          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {node.title}
-          </span>
-          {chip && <span className={chip.cls} style={{ padding: '1px 6px' }}>{chip.label}</span>}
+          <ChevronRight
+            size={13}
+            className="tree-module-chevron"
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              toggleModule(node.id)
+            }}
+          />
+          <span style={{ flex: 1, minWidth: 0 }}>{node.title}</span>
         </Link>
-        {fs.length > 1 && fs.slice(1).map((ff) => {
-          const fchip = kindChip(ff)
-          return (
-            <Link
-              key={ff.id}
-              to={`/courses/${cid}/content/${node.id}?file=${ff.id}`}
-              className={`tree-file${selectedFile?.id === ff.id ? ' selected' : ''}`}
-              title={ff.path}
-              style={{ paddingLeft: treeIndent(depth) + 18 }}
-            >
-              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {fileName(ff)}
-              </span>
-              <span className={fchip.cls} style={{ padding: '1px 6px' }}>{fchip.label}</span>
-            </Link>
-          )
-        })}
-      </Fragment>
+      )
+    }
+    const f = row.file ?? null
+    const isExtraFile = row.file && filesForNode(node.id)[0]?.id !== row.file.id
+    const chip = f ? kindChip(f) : null
+    if (isExtraFile) {
+      return (
+        <Link
+          key={`f-${f!.id}`}
+          ref={treeCursor.setRef(i)}
+          to={`/courses/${cid}/content/${node.id}?file=${f!.id}`}
+          className={`tree-file${selectedFile?.id === f!.id ? ' selected' : ''}${cls}`}
+          title={f!.path}
+          style={{ paddingLeft: treeIndent(depth) + 18 }}
+        >
+          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {fileName(f!)}
+          </span>
+          <span className={chip!.cls} style={{ padding: '1px 6px' }}>{chip!.label}</span>
+        </Link>
+      )
+    }
+    return (
+      <Link
+        key={`n-${node.id}`}
+        ref={treeCursor.setRef(i)}
+        to={`/courses/${cid}/content/${node.id}`}
+        className={`tree-topic${nid === node.id ? ' selected' : ''}${cls}`}
+        style={{ paddingLeft: treeIndent(depth) }}
+      >
+        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {node.title}
+        </span>
+        {chip && <span className={chip.cls} style={{ padding: '1px 6px' }}>{chip.label}</span>}
+      </Link>
     )
   }
 
@@ -502,7 +560,7 @@ export function ContentPage() {
         }}
       >
         {modules.length === 0 && <div className="empty compact">No content synced.</div>}
-        {modules.map((mod) => renderNode(mod, 0))}
+        {flatRows.map((row, i) => renderFlatRow(row, i))}
       </div>
 
       <div className={`card split-viewer${contentInfo?.format === 'pdf' ? ' pdf-mode' : ''}`} style={{ minHeight: 300 }}>

@@ -1,15 +1,19 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet, useLocation, useParams } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Bell, CalendarDays } from 'lucide-react'
 import { api } from '@/api/client'
 import { ChatView } from '@/chat/ChatView'
 import { useChat } from '@/chat/ChatContext'
 import { SplitPane } from '@/components/SplitPane'
+import { useKeyNav, useZoneKeys } from '@/lib/keynav'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { courseColor } from '@/lib/courses'
 import { fmtDateTime, fmtRelative } from '@/lib/format'
 import type { Announcement, Course, CourseHub } from '@/types'
+
+// Course tab order for [ / ] keyboard switching ('' = Overview).
+const TAB_ORDER = ['', 'content', 'assignments', 'workspace']
 
 function AnnouncementRow({ a }: { a: Announcement }) {
   // Rich HTML body (links + real paragraph spacing) when the sync has it —
@@ -35,8 +39,10 @@ export function CourseLayout() {
   const { courseId } = useParams()
   const cid = Number(courseId)
   const { pathname } = useLocation()
+  const navigate = useNavigate()
   const [course, setCourse] = useState<Course | null>(null)
   const { setLastCourse } = useChat()
+  const { zone } = useKeyNav()
 
   useEffect(() => {
     setCourse(null)
@@ -44,8 +50,21 @@ export function CourseLayout() {
     api.course(cid).then(setCourse).catch(console.error)
   }, [cid, setLastCourse])
 
+  // [ / ] switch course tabs (Overview · Content · Assignments · Workspace),
+  // wrapping at the ends. Registered for the course zone; page-level
+  // handlers (ContentPage j/k etc.) run first and return false for these.
+  useZoneKeys('course', (key) => {
+    if (key !== '[' && key !== ']') return false
+    const seg = pathname.split('/')[3] ?? ''
+    let idx = TAB_ORDER.indexOf(seg)
+    if (idx === -1) idx = 0
+    const next = (idx + (key === ']' ? 1 : -1) + TAB_ORDER.length) % TAB_ORDER.length
+    navigate(`/courses/${cid}${TAB_ORDER[next] ? `/${TAB_ORDER[next]}` : ''}`)
+    return true
+  })
+
   const page = (
-    <div className="page course-page">
+    <div className={`page course-page${zone === 'course' ? ' kbd-active' : ''}`}>
       <header className="course-head">
         <div className="course-head-main">
           <div className="course-head-title">

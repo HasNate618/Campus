@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { api } from '@/api/client'
+import { listKeys, useListCursor, useZoneKeys } from '@/lib/keynav'
 import { courseColor } from '@/lib/courses'
 import { fmtRelative } from '@/lib/format'
 import type { Course } from '@/types'
@@ -8,6 +9,8 @@ import type { Course } from '@/types'
 export function CoursesPage() {
   const [courses, setCourses] = useState<Course[]>([])
   const [loading, setLoading] = useState(true)
+  const navigate = useNavigate()
+  const cursor = useListCursor(courses.length)
 
   useEffect(() => {
     api
@@ -16,6 +19,13 @@ export function CoursesPage() {
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
+
+  useZoneKeys('course', (key) =>
+    listKeys(key, cursor, () => {
+      const c = courses[cursor.cursor]
+      if (c) navigate(`/courses/${c.id}`)
+    }),
+  )
 
   return (
     <div className="page">
@@ -31,11 +41,12 @@ export function CoursesPage() {
           </div>
         )}
 
-        {courses.map((c) => (
+        {courses.map((c, i) => (
           <Link
             key={c.id}
             to={`/courses/${c.id}`}
-            className="card course-card"
+            ref={cursor.setRef(i)}
+            className={`card course-card${cursor.cursor === i ? ' kbd-cursor' : ''}`}
             style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}
           >
             <div className="course-card-top">

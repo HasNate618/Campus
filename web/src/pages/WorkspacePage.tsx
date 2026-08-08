@@ -1,10 +1,11 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   Bot, ChevronRight, FileText, FileCode2, FileType,
   Folder, FolderLock, FolderPlus, Lock, Pencil, Plus, RefreshCw, Save, Trash2,
 } from 'lucide-react'
 import { api } from '@/api/client'
+import { listKeys, useListCursor, useZoneKeys } from '@/lib/keynav'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
 import { sanitizeHtml } from '@/lib/sanitize'
 import type { WorkspaceNode, WorkspaceTree } from '@/types'
@@ -15,47 +16,6 @@ function kindIcon(kind?: string) {
   if (kind === 'md' || kind === 'txt') return <FileText size={13} />
   if (kind === 'pdf' || kind === 'doc' || kind === 'docx') return <FileType size={13} />
   return <FileCode2 size={13} />
-}
-
-function TreeNode({
-  node, depth, cid, openDirs, openPath, onToggle, onOpen,
-}: {
-  node: WorkspaceNode
-  depth: number
-  cid: number
-  openDirs: Set<string>
-  openPath: string | null
-  onToggle: (p: string) => void
-  onOpen: (n: WorkspaceNode) => void
-}) {
-  const isDir = node.type === 'dir'
-  const open = openDirs.has(node.path)
-  const active = openPath === node.path && !isDir
-  return (
-    <Fragment>
-      <button
-        className={`ws-node${active ? ' active' : ''}${node.writable && !isDir ? '' : ' ro'}`}
-        style={{ paddingLeft: 10 + depth * 14 }}
-        onClick={() => (isDir ? onToggle(node.path) : onOpen(node))}
-        title={isDir ? (node.writable ? 'editable' : 'read-only') : `${node.path}${node.writable ? '' : ' · read-only'}`}
-      >
-        {isDir ? (
-          <ChevronRight size={12} className={`ws-chevron${open ? ' open' : ''}`} />
-        ) : (
-          <span style={{ width: 12, display: 'inline-flex', justifyContent: 'center' }}>{kindIcon(node.kind)}</span>
-        )}
-        <span className="ws-name">{node.name}</span>
-        {isDir ? (
-          node.writable ? <Pencil size={10} className="ws-badge" /> : <Lock size={10} className="ws-badge" />
-        ) : (
-          node.writable ? null : <Lock size={10} className="ws-badge" />
-        )}
-      </button>
-      {isDir && open && node.children?.map((c) => (
-        <TreeNode key={c.path} node={c} depth={depth + 1} cid={cid} openDirs={openDirs} openPath={openPath} onToggle={onToggle} onOpen={onOpen} />
-      ))}
-    </Fragment>
-  )
 }
 
 export function WorkspacePage() {
@@ -266,6 +226,49 @@ export function WorkspacePage() {
 
   const isText = current?.kind ? TEXT_KINDS.has(current.kind) : false
 
+  // Flat visible rows for j/k navigation (children of collapsed dirs are
+  // hidden, matching the recursive render).
+  const flatNodes = useMemo(() => {
+    const out: { node: WorkspaceNode; depth: number }[] = []
+    const walk = (n: WorkspaceNode, depth: number) => {
+      out.push({ node: n, depth })
+      if (n.type === 'dir' && openDirs.has(n.path)) {
+        for (const c of n.children ?? []) walk(c, depth + 1)
+      }
+    }
+    for (const n of tree?.nodes ?? []) walk(n, 0)
+    return out
+  }, [tree, openDirs])
+
+  const wsCursor = useListCursor(flatNodes.length)
+
+  useZoneKeys('course', (key) => {
+    const row = flatNodes[wsCursor.cursor]
+    const activate = (r: { node: WorkspaceNode; depth: number }) => {
+      if (!r) return
+      if (r.node.type === 'dir') {
+        setOpenDirs((prev) => {
+          const next = new Set(prev)
+          if (next.has(r.node.path)) next.delete(r.node.path)
+          else next.add(r.node.path)
+          return next
+        })
+      } else {
+        void openNode(r.node)
+      }
+    }
+    if (listKeys(key, wsCursor, () => activate(row))) return true
+    if (key === 'h' && row?.node.type === 'dir' && openDirs.has(row.node.path)) {
+      setOpenDirs((prev) => {
+        const next = new Set(prev)
+        next.delete(row.node.path)
+        return next
+      })
+      return true
+    }
+    return false
+  })
+
   return (
     <div className="ws-wrap">
       <div className="card ws-tree">
@@ -275,9 +278,35 @@ export function WorkspacePage() {
         </p>
         <div className="ws-tree-scroll">
           {loading && <div className="empty compact">Loading…</div>}
-          {!loading && tree && tree.nodes.map((n) => (
-            <TreeNode key={n.path} node={n} depth={0} cid={cid} openDirs={openDirs} openPath={openPath} onToggle={(p) => setOpenDirs((prev) => { const next = new Set(prev); if (next.has(p)) next.delete(p); else next.add(p); return next })} onOpen={openNode} />
-          ))}
+          {!loading && tree && flatNodes.map(({ node, depth }, i) => {
+            const isDir = node.type === 'dir'
+            const open = openDirs.has(node.path)
+            const active = openPath === node.path && !isDir
+            return (
+              <button
+                key={node.path}
+                ref={wsCursor.setRef(i)}
+                className={`ws-node${active ? ' active' : ''}${node.writable && !isDir ? '' : ' ro'}${wsCursor.cursor === i ? ' kbd-cursor' : ''}`}
+                style={{ paddingLeft: 10 + depth * 14 }}
+                onClick={() => (isDir
+                  ? setOpenDirs((prev) => { const next = new Set(prev); if (next.has(node.path)) next.delete(node.path); else next.add(node.path); return next })
+                  : void openNode(node))}
+                title={isDir ? (node.writable ? 'editable' : 'read-only') : `${node.path}${node.writable ? '' : ' · read-only'}`}
+              >
+                {isDir ? (
+                  <ChevronRight size={12} className={`ws-chevron${open ? ' open' : ''}`} />
+                ) : (
+                  <span style={{ width: 12, display: 'inline-flex', justifyContent: 'center' }}>{kindIcon(node.kind)}</span>
+                )}
+                <span className="ws-name">{node.name}</span>
+                {isDir ? (
+                  node.writable ? <Pencil size={10} className="ws-badge" /> : <Lock size={10} className="ws-badge" />
+                ) : (
+                  node.writable ? null : <Lock size={10} className="ws-badge" />
+                )}
+              </button>
+            )
+          })}
           {!loading && tree && tree.nodes.length === 0 && <div className="empty compact">No files yet.</div>}
         </div>
         <div className="ws-new">
