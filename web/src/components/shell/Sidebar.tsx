@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
+  CalendarDays,
   GraduationCap,
   Home,
   PanelLeftClose,
@@ -15,7 +16,10 @@ import { courseColor } from '@/lib/courses'
 import { fmtRelative } from '@/lib/format'
 import type { Course } from '@/types'
 
-const NAV = [{ to: '/', label: 'Home', icon: Home, end: true }]
+const NAV = [
+  { to: '/', label: 'Home', icon: Home, end: true },
+  { to: '/schedule', label: 'Schedule', icon: CalendarDays, end: true },
+]
 
 export function Sidebar() {
   const [courses, setCourses] = useState<Course[]>([])
@@ -26,6 +30,15 @@ export function Sidebar() {
   const navigate = useNavigate()
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameText, setRenameText] = useState('')
+  // Instant label tooltip for the collapsed sidebar (replaces the slow
+  // browser-native title tooltip).
+  const [tip, setTip] = useState<{ label: string; x: number; y: number } | null>(null)
+  const showTip = (e: MouseEvent<HTMLElement>, label: string) => {
+    if (!collapsed) return
+    const r = e.currentTarget.getBoundingClientRect()
+    setTip({ label, x: r.right + 10, y: r.top + r.height / 2 })
+  }
+  const hideTip = () => setTip(null)
 
   useEffect(() => {
     api.courses().then(setCourses).catch(console.error)
@@ -42,6 +55,7 @@ export function Sidebar() {
   }, [collapsed])
 
   const toggle = () => {
+    setTip(null)
     setCollapsed((c) => {
       localStorage.setItem('hc.sidebar.collapsed', c ? '0' : '1')
       return !c
@@ -100,8 +114,9 @@ export function Sidebar() {
               key={to}
               to={to}
               end={end}
-              title={label}
               ref={cursor.setRef(0)}
+              onMouseEnter={(e) => showTip(e, label)}
+              onMouseLeave={hideTip}
               className={({ isActive }) =>
                 `nav-item${isActive ? ' active' : ''}${cursor.cursor === 0 ? ' kbd-cursor' : ''}`
               }
@@ -127,7 +142,8 @@ export function Sidebar() {
                   >
                     <button
                       className="session-btn"
-                      title={`${c?.code ?? 'Course'} — ${s.title}`}
+                      onMouseEnter={(e) => showTip(e, `${c?.code ?? 'Course'} — ${s.title}`)}
+                      onMouseLeave={hideTip}
                       onClick={() => {
                         openSession(s.courseId, s.id)
                         navigate(`/courses/${s.courseId}`)
@@ -197,8 +213,9 @@ export function Sidebar() {
             <NavLink
               key={c.id}
               to={`/courses/${c.id}`}
-              title={`${c.code} — ${c.name}`}
               ref={cursor.setRef(i + 1 + recentChats.length)}
+              onMouseEnter={(e) => showTip(e, `${c.code} — ${c.name}`)}
+              onMouseLeave={hideTip}
               className={({ isActive }) =>
                 `nav-item${isActive ? ' active' : ''}${cursor.cursor === i + 1 + recentChats.length ? ' kbd-cursor' : ''}`
               }
@@ -214,13 +231,20 @@ export function Sidebar() {
         <button
           className="nav-item"
           onClick={toggle}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          onMouseEnter={(e) => showTip(e, collapsed ? 'Expand sidebar' : 'Collapse sidebar')}
+          onMouseLeave={hideTip}
           style={{ width: 'calc(100% - 20px)' }}
         >
           {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
           <span className="side-label">Collapse</span>
         </button>
       </div>
+
+      {tip && (
+        <div className="side-tip" style={{ left: tip.x, top: tip.y }}>
+          {tip.label}
+        </div>
+      )}
     </aside>
   )
 }

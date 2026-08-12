@@ -2165,6 +2165,203 @@
     flex-shrink: 0;
   }
 
+  .side-tip {
+    position: fixed;
+    transform: translateY(-50%);
+    z-index: 120;
+    pointer-events: none;
+    white-space: nowrap;
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-1);
+    background: rgb(30, 30, 30);
+    border: 1px solid var(--glass-border-strong);
+    border-radius: 8px;
+    box-shadow: var(--glass-shadow);
+    padding: 5px 10px;
+  }
+
+  /* ---------- schedule page ---------- */
+
+  .term-toggle {
+    display: inline-flex;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+
+  .term-btn {
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-2);
+    background: rgb(30, 30, 30);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 999px;
+    padding: 5px 14px;
+    cursor: pointer;
+    transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+  }
+
+  .term-btn:hover {
+    color: var(--text-1);
+    border-color: rgba(255, 255, 255, 0.26);
+  }
+
+  .term-btn.active {
+    color: #fff;
+    background: var(--violet-soft);
+    border-color: var(--violet-border);
+  }
+
+  .tt-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    background: var(--glass-bg);
+    box-shadow: var(--glass-shadow);
+  }
+
+  .tt {
+    display: grid;
+    grid-template-columns: 52px repeat(5, minmax(130px, 1fr));
+    min-width: 820px;
+  }
+
+  .tt-day-head {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    text-align: center;
+    padding: 8px 4px 6px;
+    border-left: 1px solid var(--glass-border);
+  }
+
+  .tt-day-head.today {
+    color: var(--violet);
+  }
+
+  .tt-ruler {
+    position: relative;
+    grid-row: 2;
+  }
+
+  .tt-hour {
+    position: absolute;
+    right: 6px;
+    transform: translateY(-50%);
+    font-size: 10.5px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tt-col {
+    position: relative;
+    grid-row: 2;
+    border-left: 1px solid var(--glass-border);
+    overflow: hidden;
+  }
+
+  .tt-col.today {
+    background: rgba(139, 92, 246, 0.06);
+  }
+
+  .tt-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .tt-now {
+    position: absolute;
+    left: 0;
+    right: 0;
+    border-top: 1.5px solid var(--violet);
+    z-index: 6;
+    pointer-events: none;
+  }
+
+  .tt-now-dot {
+    position: absolute;
+    left: -3px;
+    top: -3.5px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--violet);
+  }
+
+  .tt-block {
+    position: absolute;
+    border: 1px solid;
+    border-radius: 6px;
+    padding: 3px 5px;
+    overflow: hidden;
+    font-size: 10.5px;
+    line-height: 1.35;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .tt-block:hover {
+    z-index: 4;
+    filter: brightness(1.35);
+  }
+
+  .tt-code {
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: -0.01em;
+  }
+
+  .tt-type {
+    opacity: 0.85;
+  }
+
+  .tt-time {
+    opacity: 0.75;
+  }
+
+  .sched-legend {
+    margin-top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-width: 760px;
+  }
+
+  .sched-legend-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 12.5px;
+  }
+
+  .sched-legend-code {
+    font-weight: 700;
+    min-width: 110px;
+  }
+
+  .sched-legend-name {
+    color: var(--text-2);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sched-legend-credit {
+    color: var(--text-3);
+    font-size: 11.5px;
+  }
+
   .popover.left {
     left: 0;
     right: auto;

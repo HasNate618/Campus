@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { BookOpen, Home, MessageSquare } from 'lucide-react'
+import { BookOpen, CalendarDays, Home, MessageSquare } from 'lucide-react'
 import { ChatProvider } from '@/chat/ChatContext'
 import { KeyNavProvider } from '@/lib/keynav'
 import { Sidebar } from './Sidebar'
@@ -9,6 +9,7 @@ const MOBILE_TABS = [
   { to: '/', label: 'Home', icon: Home, end: true },
   { to: '/chat', label: 'Chat', icon: MessageSquare, end: true },
   { to: '/courses', label: 'Courses', icon: BookOpen, end: false },
+  { to: '/schedule', label: 'Schedule', icon: CalendarDays, end: true },
 ]
 
 function ShellInner() {
