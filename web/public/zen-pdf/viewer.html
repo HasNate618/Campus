@@ -1799,11 +1799,14 @@ input[type="range"] { accent-color: #4ade7f; }
         return;
       }
       
-      // Tab cycles through user-assigned bookmarks (no-op if none)
+      // Tab cycles through user-assigned bookmarks (no-op if none);
+      // without bookmarks it hands keyboard control back to the parent
+      // app (campus) so Tab switches tree ⇄ content there.
       if (e.key === 'Tab') {
         const assigned = Array.from(state.bookmarks.keys()).sort((a, b) => a - b);
         if (assigned.length === 0) {
-          // No user-saved bookmarks; allow default Tab behavior
+          window.parent.postMessage({ type: 'zenpdf-tab' }, '*');
+          e.preventDefault();
           return;
         }
         e.preventDefault();

@@ -125,6 +125,7 @@ const HELP: { title: string; rows: [string, string][] }[] = [
     title: 'Global',
     rows: [
       ['1 / 2 / 3', 'Focus sidebar / course / chat'],
+      ['Alt+1 / 2 / 3', 'Toggle sidebar / course / chat'],
       ['?', 'Show this help'],
       ['Esc', 'Leave input or close popups'],
     ],
@@ -144,6 +145,7 @@ const HELP: { title: string; rows: [string, string][] }[] = [
       ['j / k', 'Move cursor'],
       ['Enter / l', 'Open topic'],
       ['h', 'Back / collapse module'],
+      ['Tab', 'Switch tree ⇄ content'],
       ['[ / ]', 'Previous / next tab'],
       ['f', 'Split / full-width view'],
       ['m', 'PDF: extracted text ⇄ original'],
@@ -191,6 +193,14 @@ export function KeyNavProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Alt+1/2/3 toggle pane visibility (sidebar collapse, course, chat) —
+      // handled before the browser-shortcut bail so they work anywhere.
+      if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === '1' || e.key === '2' || e.key === '3')) {
+        const pane = e.key === '1' ? 'sidebar' : e.key === '2' ? 'course' : 'chat'
+        window.dispatchEvent(new CustomEvent('campus:toggle-pane', { detail: { pane } }))
+        e.preventDefault()
+        return
+      }
       // browser/OS shortcuts always pass through
       if (e.ctrlKey || e.metaKey || e.altKey) return
       const target = e.target as HTMLElement | null

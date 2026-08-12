@@ -309,6 +309,8 @@ export function ContentPage() {
   // j/k, g/G, zoom keys); Escape inside posts a message back so we return
   // to normal app control (sidebar zone).
   const pdfFrameRef = useRef<HTMLIFrameElement>(null)
+  // Tab toggles keyboard focus between the tree and the content viewer.
+  const [viewerFocus, setViewerFocus] = useState(false)
   const { setZone } = useKeyNav()
 
   useEffect(() => {
@@ -320,11 +322,18 @@ export function ContentPage() {
     prevNidRef.current = nid
   }, [nid])
 
-  // Escape inside the zen-pdf viewer → back to sidebar control.
+  // When the topic changes, viewer focus returns to the tree.
+  useEffect(() => setViewerFocus(false), [nid])
+
+  // Escape/Tab inside the zen-pdf viewer → back to app control (Escape →
+  // sidebar zone, Tab → tree focus).
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       if (e.data?.type === 'zenpdf-escape') {
         setZone('sidebar')
+        pdfFrameRef.current?.blur()
+      } else if (e.data?.type === 'zenpdf-tab') {
+        setViewerFocus(false)
         pdfFrameRef.current?.blur()
       }
     }
@@ -385,9 +394,11 @@ export function ContentPage() {
 
   // When a PDF is shown (not the extracted-text view), keyboard control
   // belongs to the viewer: focus its iframe so j/k/g/G/zoom work there.
+  // (viewerFocus starts true so the next Tab returns to the tree.)
   useEffect(() => {
     if (contentInfo?.format === 'pdf' && !showMd && pdfFrameRef.current) {
       pdfFrameRef.current.focus()
+      setViewerFocus(true)
     }
   }, [contentInfo?.format, selectedFile?.id, showMd])
 
@@ -466,6 +477,13 @@ export function ContentPage() {
 
   const treeCursor = useListCursor(flatRows.length)
 
+  // scroll the content pane (non-PDF viewer mode): the tree and viewer
+  // share the course-scroll container
+  const scrollViewer = (dy: number) => {
+    const el = treeRef.current?.closest('.course-scroll') as HTMLElement | null
+    el?.scrollBy({ top: dy })
+  }
+
   useZoneKeys('course', (key) => {
     const row = flatRows[treeCursor.cursor]
     const openRow = (r: TreeRow) => {
@@ -478,6 +496,48 @@ export function ContentPage() {
       }
       const base = `/courses/${cid}/content/${r.node.id}`
       navigate(base + (r.file && r.file.id !== filesForNode(r.node.id)[0]?.id ? `?file=${r.file.id}` : ''))
+    }
+    // Tab: switch keyboard focus between the tree and the content viewer.
+    if (key === 'Tab') {
+      if (viewerFocus) {
+        // back to the tree — reveal it if full-width was hiding it
+        setViewerFocus(false)
+        pdfFrameRef.current?.blur()
+        if (viewMode === 'fullWidth' && nid != null) setViewMode('sideBySide')
+      } else {
+        setViewerFocus(true)
+        if (contentInfo?.format === 'pdf' && !showMd && pdfFrameRef.current) {
+          pdfFrameRef.current.focus()
+        }
+      }
+      return true
+    }
+    // viewer mode: j/k/g/G scroll the content (a focused PDF iframe owns
+    // its own keys and never reaches this handler)
+    if (viewerFocus && nid != null) {
+      switch (key) {
+        case 'j':
+        case 'ArrowDown':
+          scrollViewer(120)
+          return true
+        case 'k':
+        case 'ArrowUp':
+          scrollViewer(-120)
+          return true
+        case 'g':
+        case 'Home':
+          scrollViewer(-1e9)
+          return true
+        case 'G':
+        case 'End':
+          scrollViewer(1e9)
+          return true
+        case 'h':
+          navigate(`/courses/${cid}/content`)
+          return true
+        default:
+          return false
+      }
     }
     if (listKeys(key, treeCursor, () => openRow(row))) return true
     switch (key) {

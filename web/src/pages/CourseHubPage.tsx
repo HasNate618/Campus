@@ -42,6 +42,28 @@ export function CourseLayout() {
   const navigate = useNavigate()
   const [course, setCourse] = useState<Course | null>(null)
   const { setLastCourse } = useChat()
+  // Alt+2 / Alt+3 hide the course pane / chat pane (persisted).
+  const [hideCourse, setHideCourse] = useState(() => localStorage.getItem('hc.split.hideCourse') === '1')
+  const [hideChat, setHideChat] = useState(() => localStorage.getItem('hc.split.hideChat') === '1')
+
+  useEffect(() => {
+    const h = (e: Event) => {
+      const pane = (e as CustomEvent).detail?.pane
+      if (pane === 'course') {
+        setHideCourse((v) => {
+          localStorage.setItem('hc.split.hideCourse', v ? '0' : '1')
+          return !v
+        })
+      } else if (pane === 'chat') {
+        setHideChat((v) => {
+          localStorage.setItem('hc.split.hideChat', v ? '0' : '1')
+          return !v
+        })
+      }
+    }
+    window.addEventListener('campus:toggle-pane', h)
+    return () => window.removeEventListener('campus:toggle-pane', h)
+  }, [])
 
   useEffect(() => {
     setCourse(null)
@@ -115,11 +137,19 @@ export function CourseLayout() {
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      <SplitPane
-        storageKey="hc.split.course"
-        left={page}
-        right={<ChatView key={cid} courseId={cid} course={course ?? undefined} />}
-      />
+      {hideChat ? (
+        // chat hidden: course page fills the pane
+        page
+      ) : hideCourse ? (
+        // course hidden: chat fills the pane
+        <ChatView key={cid} courseId={cid} course={course ?? undefined} />
+      ) : (
+        <SplitPane
+          storageKey="hc.split.course"
+          left={page}
+          right={<ChatView key={cid} courseId={cid} course={course ?? undefined} />}
+        />
+      )}
     </div>
   )
 }

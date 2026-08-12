@@ -31,6 +31,16 @@ export function Sidebar() {
     api.courses().then(setCourses).catch(console.error)
   }, [])
 
+  // Alt+1 toggles the sidebar collapse (same as the 'c' key / footer button).
+  useEffect(() => {
+    const h = (e: Event) => {
+      if ((e as CustomEvent).detail?.pane === 'sidebar') toggle()
+    }
+    window.addEventListener('campus:toggle-pane', h)
+    return () => window.removeEventListener('campus:toggle-pane', h)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapsed])
+
   const toggle = () => {
     setCollapsed((c) => {
       localStorage.setItem('hc.sidebar.collapsed', c ? '0' : '1')
