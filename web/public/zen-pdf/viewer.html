@@ -18,8 +18,8 @@ html, body {
 /* keyboard-only controls */
 #viewerContainer {
   padding: 8px 8px 12px;
-  user-select: none;
-  -webkit-user-select: none;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .keybinds-panel {
@@ -101,6 +101,8 @@ html, body {
   border-radius: 8px;
   overflow: hidden;
   background: transparent;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .pageless .pageShell {
@@ -129,8 +131,8 @@ html, body {
   line-height: 1;
   text-size-adjust: none;
   forced-color-adjust: none;
-  user-select: text;
-  -webkit-user-select: text;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .textLayer span,
 .textLayer br {
@@ -142,7 +144,7 @@ html, body {
   user-select: text;
   -webkit-user-select: text;
 }
-.textLayer ::selection { background: rgba(74, 222, 127, 0.35); }
+.textLayer ::selection { background: rgba(161, 121, 240, 0.35); }
 .annotationLayer {
   position: absolute;
   inset: 0;
@@ -220,7 +222,7 @@ input[type="range"] { accent-color: #4ade7f; }
 <div id="error"></div>
 <div id="viewerContainer"></div>
 
-<script src="./pdf.min.js"></script>
+<script src="https://unpkg.com/pdfjs-dist@2.16.105/build/pdf.min.js"></script>
 <script>
 (() => {
   const params = new URLSearchParams(location.search);
@@ -263,7 +265,6 @@ input[type="range"] { accent-color: #4ade7f; }
 
   const state = {
     scale: 1,
-    userZoomed: false,
     pdfDoc: null,
     zenMode: params.get("zen") !== "0",
     keepImagesColor: params.get("imgcolor") !== "0",
@@ -1029,7 +1030,6 @@ input[type="range"] { accent-color: #4ade7f; }
       }
       const prevScale = state.scale;
       state.scale = fitScale;
-      state.userZoomed = false;
       return Math.abs(prevScale - state.scale) > 0.01;
     } catch (e) {
       return false;
@@ -1567,164 +1567,57 @@ input[type="range"] { accent-color: #4ade7f; }
 
     // helper functions
 
-
-    // Improved selection handling: when dragging selection off-text, keep the last valid caret
-    // so the selection endpoint doesn't jump back to the start of the document.
-    let isPointerSelecting = false;
-    let selectionAnchorRange = null;
-    let lastValidCaretRange = null;
-    let lastVisibleSelectionRange = null;
-    let activePointerId = null;
-    let activePointerTarget = null;
-
-    function caretRangeFromPoint(x, y) {
-      if (document.caretRangeFromPoint) return document.caretRangeFromPoint(x, y);
-      if (document.caretPositionFromPoint) {
-        const pos = document.caretPositionFromPoint(x, y);
-        if (!pos) return null;
-        const r = document.createRange();
-        r.setStart(pos.offsetNode, pos.offset);
-        r.setEnd(pos.offsetNode, pos.offset);
-        return r;
-      }
-      return null;
-    }
-
-    function nodeIsInTextLayer(node) {
-      if (!node) return false;
-      const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
-      return !!(el && el.closest && el.closest('.textLayer'));
-    }
-
-    function rangeIsInTextLayer(r) {
-      if (!r) return false;
-      return nodeIsInTextLayer(r.startContainer) && nodeIsInTextLayer(r.endContainer);
-    }
-
-    function eventTargetIsInTextLayer(target) {
-      if (!target) return false;
-      const el = target.nodeType === Node.TEXT_NODE ? target.parentElement : target;
-      return !!(el && el.closest && el.closest('.textLayer'));
-    }
-
-    function cloneCollapsedRange(r) {
-      if (!r) return null;
-      const c = r.cloneRange ? r.cloneRange() : r;
-      c.collapse(true);
-      return c;
-    }
-
-    function restoreLastVisibleSelection() {
-      if (!lastVisibleSelectionRange) return false;
-      const sel = window.getSelection();
-      if (!sel) return false;
-      sel.removeAllRanges();
-      sel.addRange(lastVisibleSelectionRange.cloneRange ? lastVisibleSelectionRange.cloneRange() : lastVisibleSelectionRange);
-      return true;
-    }
-
-    function applyPointerSelection(anchorRange, focusRange) {
-      if (!anchorRange || !focusRange) return false;
-      const anchorNode = anchorRange.startContainer;
-      const focusNode = focusRange.startContainer;
-      if (!anchorNode || !focusNode || !anchorNode.isConnected || !focusNode.isConnected) return false;
-      const sel = window.getSelection();
-      if (!sel) return false;
-      sel.removeAllRanges();
-      if (sel.setBaseAndExtent) {
-        sel.setBaseAndExtent(anchorNode, anchorRange.startOffset, focusNode, focusRange.startOffset);
-      } else {
-        const newRange = document.createRange();
-        if (anchorRange.compareBoundaryPoints(Range.START_TO_START, focusRange) <= 0) {
-          newRange.setStart(anchorNode, anchorRange.startOffset);
-          newRange.setEnd(focusNode, focusRange.startOffset);
-        } else {
-          newRange.setStart(focusNode, focusRange.startOffset);
-          newRange.setEnd(anchorNode, anchorRange.startOffset);
-        }
-        sel.addRange(newRange);
-      }
-      if (sel.rangeCount > 0) {
-        const current = sel.getRangeAt(0);
-        lastVisibleSelectionRange = current.cloneRange ? current.cloneRange() : current;
-      }
-      return true;
-    }
-
+    // Prevent selection from starting outside the text layer
     document.addEventListener('selectstart', (ev) => {
-      if (eventTargetIsInTextLayer(ev.target)) return;
-      if (isPointerSelecting) restoreLastVisibleSelection();
-      ev.preventDefault();
+      const el = ev.target?.nodeType === Node.TEXT_NODE ? ev.target.parentElement : ev.target;
+      if (!el?.closest?.('.textLayer')) {
+        ev.preventDefault();
+      }
     }, true);
 
-    // Capture pointer-based selection start inside the textLayer
+    // Cross-page selection bridge.
+    // Native drag-selection freezes at a page boundary because the drag path
+    // crosses user-select:none regions (the .textLayer covers the whole page).
+    // We listen for the caret moving into another page and extend the
+    // selection from the original anchor with setBaseAndExtent.
+    // Same-page drags are left to native selection (no override), which keeps
+    // the "nearest text point" behavior on empty page areas.
+    // caretRangeFromPoint is Chrome/Safari-only; Firefox uses caretPositionFromPoint.
+    const caretAt = (x, y) => {
+      if (document.caretRangeFromPoint) {
+        const r = document.caretRangeFromPoint(x, y);
+        return r ? { container: r.startContainer, offset: r.startOffset } : null;
+      }
+      const p = document.caretPositionFromPoint(x, y);
+      return p ? { container: p.offsetNode, offset: p.offset } : null;
+    };
+    const pageOf = (node) =>
+      (node?.nodeType === Node.TEXT_NODE ? node.parentElement : node)?.closest?.('.pageShell') || null;
+    let selBridge = null; // { anchorNode, anchorOffset, pageEl } while dragging
     document.addEventListener('pointerdown', (ev) => {
       if (ev.button !== 0) return;
-      try {
-        const r = caretRangeFromPoint(ev.clientX, ev.clientY);
-        if (!r || !rangeIsInTextLayer(r)) return;
-        isPointerSelecting = true;
-        selectionAnchorRange = cloneCollapsedRange(r);
-        lastValidCaretRange = cloneCollapsedRange(r);
-        lastVisibleSelectionRange = null;
-        activePointerId = ev.pointerId ?? null;
-        activePointerTarget = ev.target || null;
-        if (activePointerTarget && activePointerTarget.setPointerCapture && activePointerId !== null) {
-          try { activePointerTarget.setPointerCapture(activePointerId); } catch (e) { /* ignore */ }
-        }
-        applyPointerSelection(selectionAnchorRange, lastValidCaretRange);
-        ev.preventDefault();
-      } catch(e) { /* ignore */ }
+      const el = ev.target?.nodeType === Node.TEXT_NODE ? ev.target.parentElement : ev.target;
+      if (!el?.closest?.('.textLayer span')) return;
+      const anchor = caretAt(ev.clientX, ev.clientY);
+      if (!anchor) return;
+      selBridge = { anchorNode: anchor.container, anchorOffset: anchor.offset, pageEl: pageOf(anchor.container) };
     }, true);
-
-    // During pointer moves, keep the latest valid text endpoint and preserve visible selection
-    // while dragging over non-text areas.
     document.addEventListener('pointermove', (ev) => {
-      if (!isPointerSelecting) return;
-      try {
-        let focusRange = caretRangeFromPoint(ev.clientX, ev.clientY);
-        if (focusRange && rangeIsInTextLayer(focusRange)) {
-          lastValidCaretRange = cloneCollapsedRange(focusRange);
-        } else {
-          focusRange = lastValidCaretRange;
-        }
-        if (!selectionAnchorRange || !focusRange) {
-          if (restoreLastVisibleSelection()) ev.preventDefault();
-          return;
-        }
-        if (!applyPointerSelection(selectionAnchorRange, focusRange)) {
-          if (restoreLastVisibleSelection()) ev.preventDefault();
-          return;
-        }
-        ev.preventDefault();
-      } catch (e) { /* ignore */ }
+      if (!selBridge) return;
+      const focus = caretAt(ev.clientX, ev.clientY);
+      if (!focus) return;
+      const focusPage = pageOf(focus.container);
+      if (focusPage === selBridge.pageEl) return; // same page: native handles it
+      const sel = window.getSelection();
+      if (!sel) return;
+      sel.setBaseAndExtent(selBridge.anchorNode, selBridge.anchorOffset, focus.container, focus.offset);
     }, true);
+    const endBridge = () => { selBridge = null; };
+    document.addEventListener('pointerup', endBridge, true);
+    document.addEventListener('pointercancel', endBridge, true);
 
-    document.addEventListener('pointerup', () => {
-      if (isPointerSelecting) {
-        if (activePointerTarget && activePointerTarget.releasePointerCapture && activePointerId !== null) {
-          try { activePointerTarget.releasePointerCapture(activePointerId); } catch (e) { /* ignore */ }
-        }
-        isPointerSelecting = false;
-        selectionAnchorRange = null;
-        lastValidCaretRange = null;
-        lastVisibleSelectionRange = null;
-        activePointerId = null;
-        activePointerTarget = null;
-      }
-    }, true);
 
-    document.addEventListener('pointercancel', () => {
-      if (activePointerTarget && activePointerTarget.releasePointerCapture && activePointerId !== null) {
-        try { activePointerTarget.releasePointerCapture(activePointerId); } catch (e) { /* ignore */ }
-      }
-      isPointerSelecting = false;
-      selectionAnchorRange = null;
-      lastValidCaretRange = null;
-      lastVisibleSelectionRange = null;
-      activePointerId = null;
-      activePointerTarget = null;
-    }, true);
+
 
   function snapToNearestPage() {
       if (state.visiblePages.size > 0) {
@@ -1917,8 +1810,8 @@ input[type="range"] { accent-color: #4ade7f; }
       if (e.key === 'F11') { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{}); else document.exitFullscreen().catch(()=>{}); e.preventDefault(); return; }
 
       // zoom = -
-       if (e.key === '=') { state.userZoomed = true; state.scale = Math.min(state.scale * 1.1, 4); await rerenderRenderedPages(); e.preventDefault(); return; }
-       if (e.key === '-') { state.userZoomed = true; state.scale = Math.max(state.scale / 1.1, 0.1); await rerenderRenderedPages(); e.preventDefault(); return; }
+       if (e.key === '=') { state.scale = Math.min(state.scale * 1.1, 4); await rerenderRenderedPages(); e.preventDefault(); return; }
+       if (e.key === '-') { state.scale = Math.max(state.scale / 1.1, 0.1); await rerenderRenderedPages(); e.preventDefault(); return; }
       if (e.key === '0') {
          await resetToFitWidth({ pageNumber: state.currentPage });
          e.preventDefault();
@@ -1947,7 +1840,8 @@ input[type="range"] { accent-color: #4ade7f; }
     }
 
     try {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = "./pdf.worker.min.js";
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://unpkg.com/pdfjs-dist@2.16.105/build/pdf.worker.min.js";
 
      state.pdfDoc = await pdfjsLib.getDocument({
         url: file,
@@ -1997,7 +1891,7 @@ input[type="range"] { accent-color: #4ade7f; }
         const widthChanged = window.innerWidth !== lastWindowWidth;
         lastWindowWidth = window.innerWidth;
         if (!widthChanged) return;
-        const scaleChanged = await adjustScaleToMode({ pageNumber: state.currentPage, skipWhenZoomedIn: state.userZoomed });
+        const scaleChanged = await adjustScaleToMode({ pageNumber: state.currentPage, skipWhenZoomedIn: true });
         if (scaleChanged || hasDisplayScaleChange()) {
           await rerenderRenderedPages();
           alignFitWidthView();
