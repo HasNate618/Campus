@@ -22,7 +22,19 @@ jobs:
           playwright install chromium --with-deps || true   # auth module import-safe; browsers optional for tests
 
       - name: Run tests
-        run: pytest -q
+        run: |
+          python --version
+          pip show pytest | head -2
+          pytest -q --tb=long 2>&1 | tee /tmp/pytest-output.txt
+          # exit code preserved by tee via pipefail? ensure it: run pytest directly
+          exit ${PIPESTATUS[0]}
+
+      - name: Upload test output (debug)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-output
+          path: /tmp/pytest-output.txt
 
   web-build:
     name: Web build (tsc + vite)
