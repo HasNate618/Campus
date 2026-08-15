@@ -239,9 +239,14 @@
   .sidebar-footer-row {
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: space-between;
     gap: 4px;
     padding: 0 10px;
+  }
+
+  /* collapsed: only the collapse (expand) button shows — centered */
+  .sidebar.collapsed .sidebar-footer-row {
+    justify-content: center;
   }
 
   /* icon-only footer buttons: square, centered, no label offset. Overrides
