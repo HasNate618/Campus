@@ -149,15 +149,13 @@ Open assignments: {open_asgn} · announcements (14d): {ann}
     ) or "  (none in the next 7 days)"
 
     institution = getattr(cfg, "institution", "") or "your university"
+    # ORDER MATTERS for prefix caching (DeepSeek/OpenAI-style): stable content
+    # (identity, rules, scope, memory card) leads; the only tokens that change
+    # per turn (clock, upcoming events) go last. The cache breaks at the first
+    # divergent token, so dynamic content must never precede static content.
     return f"""You are Campus, a personal course assistant for {institution}.
 You work over synced LMS data (SQLite + files on disk). You do NOT
 have live LMS access — everything you know comes from the harness.
-
-CURRENT TIME: {now.strftime('%A %Y-%m-%d %H:%M %Z')} ({_tz(cfg)})
-ACTIVE TERMS: {term_str}
-
-{scope}{card_text}UPCOMING (next 7 days):
-{events_str}
 
 RULES:
 1. Answer only from harness data. Never invent dates, deadlines, or facts.
@@ -183,4 +181,11 @@ RULES:
 11. Be decisive on open-ended questions ("explain a concept", "summarize"):
    course_map + at most 2-3 targeted reads, then answer. Do NOT exhaustively
    survey the corpus — 5+ tool calls per question is too many.
+
+ACTIVE TERMS: {term_str}
+
+{scope}{card_text}
+CURRENT TIME: {now.strftime('%A %Y-%m-%d %H:%M %Z')} ({_tz(cfg)})
+UPCOMING (next 7 days):
+{events_str}
 """
