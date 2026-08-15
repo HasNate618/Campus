@@ -25,16 +25,14 @@ jobs:
         shell: bash
         run: |
           python --version
-          pip show pytest | head -2
-          set +e
-          pytest -q --tb=long > /tmp/pytest-output.txt 2>&1
-          rc=$?
-          set -e
-          if [ $rc -ne 0 ]; then
+          pip show pytest || true
+          pytest -q --tb=long > /tmp/pytest-output.txt 2>&1 || rc=$?
+          rc=${rc:-0}
+          if [ "$rc" -ne 0 ]; then
             echo "::error::pytest exited $rc"
             tail -80 /tmp/pytest-output.txt | sed 's/^/::error::/'
           fi
-          exit $rc
+          exit "$rc"
 
       - name: Upload test output (debug)
         if: failure()
