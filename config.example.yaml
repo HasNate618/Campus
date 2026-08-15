@@ -19,6 +19,9 @@ token_dir: "~/.campus"            # prod example: ~/.hippocampus
 # auth
 token_ttl: 3600
 
+# optional single-password web auth; empty = open (demo) — set CAMPUS_WEB_PASSWORD in prod
+web_password: ""
+
 # services — any OpenAI-compatible /v1 endpoint works for llm_url
 llm_url: "http://127.0.0.1:18081/v1"
 llm_model: ""                 # pick from: python -m sync models

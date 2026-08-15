@@ -128,6 +128,15 @@ Everything environment-specific lives in `config.yaml` (gitignored) or
 | `brightspace_hosts` / `brightspace_base_url` | `CAMPUS_BRIGHTSPACE_*` | Content proxy allowlist + link rebasing (Brightspace-only features) |
 | `term_dates` | — | Anchors computed class events |
 | `timezone` | `CAMPUS_TIMEZONE` | User-facing datetimes + prompt clock |
+| `web_password` | `CAMPUS_WEB_PASSWORD` | Optional single password for the web API; empty = open demo |
+
+### Authentication
+
+The web UI is open by default (zero-config demo). Set `CAMPUS_WEB_PASSWORD`
+(or `web_password` in `config.yaml`) to require a password for every `/api/*`
+route — static assets stay public so the login screen can load. Sessions are
+in-memory with a 30-day sliding expiry; restarting the server logs everyone
+out.
 
 ```bash
 python3 -m sync auth        # MFA push → token stored (1h TTL)

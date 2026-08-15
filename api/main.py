@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
+from api.auth import require_auth
+from api.auth import router as auth_router
 from api.db import db_available, ensure_wal
 from api.routers import chat, courses, data, digest, sync
 
@@ -23,11 +25,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(courses.router)
-app.include_router(data.router)
-app.include_router(sync.router)
-app.include_router(digest.router)
-app.include_router(chat.router)
+# Single-password web auth: the auth router is registered before the data
+# routers so /api/auth/* resolves before the catch-all SPA route below. Each
+# data router is gated through require_auth, which is a no-op when
+# cfg.web_password is empty (open demo mode). /api/auth/*, /api/health,
+# /api/config and all static SPA assets stay public.
+app.include_router(auth_router)
+app.include_router(courses.router, dependencies=[Depends(require_auth)])
+app.include_router(data.router, dependencies=[Depends(require_auth)])
+app.include_router(sync.router, dependencies=[Depends(require_auth)])
+app.include_router(digest.router, dependencies=[Depends(require_auth)])
+app.include_router(chat.router, dependencies=[Depends(require_auth)])
 
 
 @app.get("/api/health")

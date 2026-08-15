@@ -43,6 +43,9 @@ class Config:
     token_ttl: int = 3600  # seconds; Brightspace Bearer tokens last ~1h
     refresh_buffer: int = 300  # seconds before expiry = invalid
 
+    # optional single-password web auth; empty = open (demo)
+    web_password: str = ""
+
     # services (docker network names; host-mapped ports when run on host)
     # LLM endpoint: ANY OpenAI-compatible /v1 base URL (OpenAI, OpenRouter,
     # Together, a local gateway, ...). `llm_api_key` is sent as a Bearer
@@ -96,6 +99,7 @@ class Config:
             ("CAMPUS_NTFY_URL", "ntfy_url"),
             ("CAMPUS_TRAWL_URL", "trawl_url"),
             ("CAMPUS_BRIGHTSPACE_BASE_URL", "brightspace_base_url"),
+            ("CAMPUS_WEB_PASSWORD", "web_password"),
         ]:
             if os.environ.get(env_key):
                 setattr(cfg, attr, os.environ[env_key])

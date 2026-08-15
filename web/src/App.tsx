@@ -1,5 +1,8 @@
+import { useEffect, useState } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { api } from '@/api/client'
 import { AppShell } from './components/shell/AppShell'
+import { LoginScreen } from '@/components/LoginScreen'
 import { ChatTabPage } from './pages/ChatTabPage'
 import { TodayPage } from './pages/TodayPage'
 import { CalendarPage } from './pages/CalendarPage'
@@ -14,6 +17,21 @@ import { AssignmentDetailPage } from '@/pages/AssignmentDetailPage'
 import { WorkspacePage } from '@/pages/WorkspacePage'
 
 export default function App() {
+  // Boot-time auth check: /api/auth/me reports authenticated=True in open
+  // (demo) mode, so the login screen only appears when the server actually
+  // requires a password.
+  const [authed, setAuthed] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    api.auth
+      .me()
+      .then(({ authenticated }) => setAuthed(authenticated))
+      .catch(() => setAuthed(true)) // API unreachable — render and let pages surface errors
+  }, [])
+
+  if (authed === null) return null // one fast fetch — no flash of the login form
+  if (!authed) return <LoginScreen onAuthed={() => setAuthed(true)} />
+
   return (
     <BrowserRouter>
       <Routes>
