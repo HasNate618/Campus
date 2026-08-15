@@ -238,17 +238,27 @@
 
   .sidebar-footer-row {
     display: flex;
-    gap: 6px;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
     padding: 0 10px;
   }
 
-  .sidebar-logout {
-    flex: 0 0 auto;
-    color: var(--text-3);
+  /* icon-only footer buttons: square, centered, no label offset. Overrides
+     the shared .nav-item margin so the group sits centered in the footer. */
+  .sidebar-footer-row .nav-item {
+    margin: 0;
+    padding: 8px;
+    justify-content: center;
+  }
+
+  .sidebar-footer-row .nav-item:hover {
+    color: var(--text-1);
+    background: var(--glass-bg-strong);
   }
 
   .sidebar-logout:hover {
-    color: var(--red);
+    color: var(--red) !important;
   }
 
   .side-label {
@@ -427,6 +437,24 @@
 
   .login-card-error {
     font-size: 13px;
+    color: var(--red);
+  }
+
+  /* page header row: title left, action (mobile logout) right */
+  .page-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .page-logout {
+    margin-top: 2px;
+    color: var(--text-3);
+  }
+
+  .page-logout:hover,
+  .page-logout:active {
     color: var(--red);
   }
 
@@ -2651,16 +2679,6 @@
 
     .tabbar-tab.active {
       color: var(--violet);
-    }
-
-    .tabbar-logout {
-      flex: 0 0 52px;
-      color: var(--text-3);
-    }
-
-    .tabbar-logout:hover,
-    .tabbar-logout:active {
-      color: var(--red);
     }
 
     .card {

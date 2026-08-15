@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { BookOpen, CalendarDays, Home, LogOut, MessageSquare } from 'lucide-react'
+import { BookOpen, CalendarDays, Home, MessageSquare } from 'lucide-react'
 import { ChatProvider } from '@/chat/ChatContext'
 import { KeyNavProvider } from '@/lib/keynav'
 import { Sidebar } from './Sidebar'
@@ -49,10 +49,6 @@ function ShellInner({ onLogout }: { onLogout: () => void }) {
               {label}
             </NavLink>
           ))}
-          <button className="tabbar-tab tabbar-logout" onClick={onLogout}>
-            <LogOut size={19} />
-            Log out
-          </button>
         </nav>
       </div>
     </ChatProvider>

@@ -44,7 +44,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<AppShell onLogout={logout} />}>
-          <Route index element={<TodayPage />} />
+          <Route index element={<TodayPage onLogout={logout} />} />
           <Route path="today" element={<Navigate to="/" replace />} />
           <Route path="chat" element={<ChatTabPage />} />
           <Route path="calendar" element={<CalendarPage />} />

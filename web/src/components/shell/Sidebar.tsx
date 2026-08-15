@@ -231,24 +231,25 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
       <div className="sidebar-footer">
         <div className="sidebar-footer-row">
           <button
-            className="nav-item"
+            className="nav-item icon-btn-flat"
             onClick={toggle}
             onMouseEnter={(e) => showTip(e, collapsed ? 'Expand sidebar' : 'Collapse sidebar')}
             onMouseLeave={hideTip}
-            style={{ flex: 1 }}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
             {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
-            <span className="side-label">Collapse</span>
           </button>
           {!collapsed && (
             <button
-              className="nav-item sidebar-logout"
+              className="nav-item icon-btn-flat sidebar-logout"
               onClick={onLogout}
               onMouseEnter={(e) => showTip(e, 'Log out')}
               onMouseLeave={hideTip}
+              title="Log out"
+              aria-label="Log out"
             >
               <LogOut size={17} />
-              <span className="side-label">Log out</span>
             </button>
           )}
         </div>

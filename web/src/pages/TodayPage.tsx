@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { CalendarDays, Home } from 'lucide-react'
+import { CalendarDays, Home, LogOut } from 'lucide-react'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
 import { api } from '@/api/client'
 import { CalendarCard } from '@/components/CalendarCard'
@@ -15,7 +15,7 @@ function eventChipClass(kind: string): string {
   return 'chip'
 }
 
-export function TodayPage() {
+export function TodayPage({ onLogout }: { onLogout?: () => void }) {
   const [digest, setDigest] = useState<Digest | null>(null)
   const [events, setEvents] = useState<Event[]>([])
 
@@ -42,8 +42,22 @@ export function TodayPage() {
     <div className="page">
       <div className="page-col wide">
         <div>
-          <h1 className="page-title">Home</h1>
-          <p className="page-sub">{today}</p>
+          <div className="page-head">
+            <div>
+              <h1 className="page-title">Home</h1>
+              <p className="page-sub">{today}</p>
+            </div>
+            {onLogout && (
+              <button
+                className="icon-btn mobile-only page-logout"
+                onClick={onLogout}
+                title="Log out"
+                aria-label="Log out"
+              >
+                <LogOut size={18} />
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="dash-grid">
