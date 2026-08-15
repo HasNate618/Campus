@@ -1,0 +1,2 @@
+# Dev/test-only dependencies (not in the runtime image)
+pytest>=8.0
