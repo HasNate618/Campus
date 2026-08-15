@@ -22,12 +22,19 @@ jobs:
           playwright install chromium --with-deps || true   # auth module import-safe; browsers optional for tests
 
       - name: Run tests
+        shell: bash
         run: |
           python --version
           pip show pytest | head -2
-          pytest -q --tb=long 2>&1 | tee /tmp/pytest-output.txt
-          # exit code preserved by tee via pipefail? ensure it: run pytest directly
-          exit ${PIPESTATUS[0]}
+          set +e
+          pytest -q --tb=long > /tmp/pytest-output.txt 2>&1
+          rc=$?
+          set -e
+          if [ $rc -ne 0 ]; then
+            echo "::error::pytest exited $rc"
+            tail -80 /tmp/pytest-output.txt | sed 's/^/::error::/'
+          fi
+          exit $rc
 
       - name: Upload test output (debug)
         if: failure()
