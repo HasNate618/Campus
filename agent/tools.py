@@ -45,7 +45,7 @@ def _require_course(db: DB, code: str | None) -> int | None:
     a silent empty result for a typo'd course wastes a whole turn."""
     cid = _resolve_course(db, code)
     if code and cid is None:
-        raise ValueError(f"Unknown course {code!r} — use a code like 'SE 2250B' or an id from harness_get_courses")
+        raise ValueError(f"Unknown course {code!r} — use a code like 'CS 1100A' or an id from harness_get_courses")
     return cid
 
 
@@ -648,7 +648,8 @@ TERMINAL_BLOCKLIST = [
     r"\bsystemctl\b", r"\bjournalctl\b", r"\bshutdown\b", r"\breboot\b",
     r"\bmkfs\b", r"\bdd\b", r"\bchmod\b", r"\bchown\b", r"\bkill\b",
     r"rm\s+(-[a-z]*[rf][a-z]*\s+)+/",          # rm -rf /
-    r"\.hippocampus",                          # token + browser profile — off limits
+    r"\.campus",                              # token dir (any variant) — off limits
+    r"\.hippocampus",                         # legacy token dir name — off limits
     r"config\.yaml",                           # credentials (repo config)
     r"python\s+-m\s+sync\s+auth",              # no Duo spawns from chat
 ]
@@ -842,7 +843,7 @@ TOOLS = {
         "course_map",
         "Full course structure in ONE call: modules → topics → their files (kind + extraction status). ALWAYS start with this to understand the course before reading or grepping content.",
         course_map,
-        course={"type": "string", "description": "course code, e.g. 'SE 2250B'"},
+        course={"type": "string", "description": "course code, e.g. 'CS 1100A'"},
     ),
     "content_grep": _tool(
         "content_grep",
@@ -880,14 +881,14 @@ TOOLS = {
         required=["fact", "category"],
         fact={"type": "string", "description": "the durable fact — one atomic claim, absolute dates"},
         category={"type": "string", "description": "one of: general, scheduling, grading, course-policy, prof-note, exam, assignment, logistics"},
-        course={"type": "string", "description": "optional course code, e.g. 'SE 2250B'"},
+        course={"type": "string", "description": "optional course code, e.g. 'CS 1100A'"},
         confidence={"type": "number", "description": "0-1 how sure you are (default 0.5)"},
     ),
     "quiz_start": _tool(
         "quiz_start",
         "Start a free-recall quiz over the course's active memory facts (blind-graded). After it returns the first question, ask the user; when they answer, call quiz_grade with their answer — never answer quiz questions for the user or show the answer key. Keep relaying each returned next_question and calling quiz_grade until done, then report the summary naturally.",
         quiz_start,
-        course={"type": "string", "description": "optional course code, e.g. 'SE 2250B'"},
+        course={"type": "string", "description": "optional course code, e.g. 'CS 1100A'"},
         topic={"type": "string", "description": "optional topic/category filter, e.g. 'project' or 'assignment'"},
         count={"type": "number", "description": "how many questions (default 5, max 10)"},
     ),
@@ -904,7 +905,7 @@ TOOLS = {
         search_corpus,
         required=["query"],
         query={"type": "string", "description": "the question or topic to find in the course material"},
-        course={"type": "string", "description": "optional course code, e.g. 'SE 2250B'"},
+        course={"type": "string", "description": "optional course code, e.g. 'CS 1100A'"},
         top_k={"type": "number", "description": "how many passages to return (default 5)"},
     ),
     "file_edit": _tool(

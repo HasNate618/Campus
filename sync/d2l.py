@@ -12,7 +12,7 @@ import time
 
 import httpx
 
-UA = "Campus/0.1 (personal sync; user@example.com)"
+UA = "Campus/0.1 (personal study sync client)"
 
 
 class D2LError(Exception):

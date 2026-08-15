@@ -5,6 +5,7 @@ import { ArrowLeft, ChevronRight, Columns2, Download, ExternalLink, Maximize2 } 
 import { api } from '@/api/client'
 import { listKeys, useKeyNav, useListCursor, useZoneKeys } from '@/lib/keynav'
 import { sanitizeHtml } from '@/lib/sanitize'
+import { getBrightspaceBaseUrl } from '@/lib/appConfig'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
 import type { ContentNode, FileContent, FileFormat, FileRecord } from '@/types'
 
@@ -160,7 +161,7 @@ function ViewerBody({
     const hasDesc = desc.length > 0
     // Brightspace mirrors the unit banner INTO the module description (the
     // description renders it + the landing text). The Unit Introduction
-    // topic holds the SAME banner (plus the Western logo) — re-extracting
+    // topic holds the SAME banner (plus the LMS logo) — re-extracting
     // it here would duplicate both. Only fall back to the intro topic's
     // images when the description has none of its own.
     const descHasImages = /<img\b/i.test(desc)
@@ -185,8 +186,9 @@ function ViewerBody({
   // against the SPA origin would hit the catch-all route (home screen),
   // so rebase them onto Brightspace for the new tab.
   if (node.topic_type === 'link' && node.url) {
-    const href = node.url.startsWith('/d2l/')
-      ? 'https://westernu.brightspace.com' + node.url
+    const base = getBrightspaceBaseUrl()
+    const href = node.url.startsWith('/d2l/') && base
+      ? base + node.url
       : node.url
     return (
       <div className="empty compact" style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>

@@ -144,9 +144,10 @@ Open assignments: {open_asgn} · announcements (14d): {ann}
         for e in events
     ) or "  (none in the next 7 days)"
 
-    return f"""You are Campus, a personal course assistant for your university.
-You work over synced Brightspace data (SQLite + files on disk). You do NOT
-have live Brightspace access — everything you know comes from the harness.
+    institution = getattr(cfg, "institution", "") or "your university"
+    return f"""You are Campus, a personal course assistant for {institution}.
+You work over synced LMS data (SQLite + files on disk). You do NOT
+have live LMS access — everything you know comes from the harness.
 
 CURRENT TIME: {now.strftime('%A %Y-%m-%d %H:%M %Z')} (America/Toronto)
 ACTIVE TERMS: {term_str}

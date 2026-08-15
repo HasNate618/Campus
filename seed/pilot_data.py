@@ -1,5 +1,8 @@
-#!/usr/bin/env python3
-"""Seed pilot course data (SE 2250B) for dashboard development."""
+"""Seed pilot course data for dashboard development.
+
+Reads the pilot course code from the seed (is_pilot=1) so the mock works
+against any enrolled course set — real or sample.
+"""
 
 from __future__ import annotations
 
@@ -22,10 +25,13 @@ def get_conn(db_path: Path) -> sqlite3.Connection:
 
 
 def seed_pilot(conn: sqlite3.Connection) -> None:
-    row = conn.execute("SELECT id FROM courses WHERE code = 'SE 2250B'").fetchone()
+    row = conn.execute(
+        "SELECT id, code FROM courses WHERE is_pilot=1 ORDER BY id LIMIT 1"
+    ).fetchone()
     if not row:
-        print("SE 2250B not found — run seed/seed.py first", file=sys.stderr)
+        print("No pilot course (is_pilot=1) — run seed/seed.py first", file=sys.stderr)
         sys.exit(1)
+    pilot_code = row["code"]  # noqa: F841 — kept for future mock fixtures
     course_id = row["id"]
 
     conn.execute(

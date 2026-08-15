@@ -1,0 +1,28 @@
+# Campus demo — run the web app with sample data, no homelab needed.
+#
+#   docker compose up --build
+#   open http://localhost:8087
+#
+# Chat needs an OpenAI-compatible endpoint; set CAMPUS_BIFROST_URL (+ model)
+# in the environment below. Everything else (timetable, courses, browse,
+# search) works with the seeded sample data out of the box.
+
+services:
+  campus:
+    build: .
+    container_name: campus-demo
+    ports:
+      - "127.0.0.1:8087:8000"
+    volumes:
+      - campus-data:/app/data
+    environment:
+      CAMPUS_DB: /app/data/harness.db
+      CAMPUS_DATA_ROOT: /app/data/school
+      # OpenAI-compatible chat backend (optional for the demo):
+      # CAMPUS_BIFROST_URL: http://host.docker.internal:18081/v1
+      # CAMPUS_MODEL: your-model
+      # CAMPUS_BRIGHTSPACE_HOSTS: ""        # proxy disabled by default
+    restart: unless-stopped
+
+volumes:
+  campus-data:

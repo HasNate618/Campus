@@ -1,21 +1,27 @@
 # Campus config — copy to config.yaml (gitignored) and fill in.
 # Secrets prefer env vars: CAMPUS_USERNAME, CAMPUS_BRIGHTSPACE_PASSWORD.
 
-base_url: "https://westernu.brightspace.com"
-username: "user@example.com"
-# password: ""            # use env CAMPUS_BRIGHTSPACE_PASSWORD instead
+# Your institution's LMS (Brightspace/D2L-compatible) instance.
+base_url: ""                      # e.g. "https://your-university.brightspace.com"
+username: ""                      # or env CAMPUS_USERNAME
+# password: ""                   # use env CAMPUS_BRIGHTSPACE_PASSWORD instead
+
+# Brightspace-only features (content proxy + link rebasing). Leave empty for
+# a non-Brightspace deployment; the proxy/sanitizer simply stays disabled.
+# brightspace_hosts: []           # e.g. ["your-university.brightspace.com", "s.brightspace.com"]
+# brightspace_base_url: ""        # e.g. "https://your-university.brightspace.com"
 
 # paths
-data_root: "{data_root}"     # prod; dev: ./school
+data_root: "./school"             # prod example: an absolute path on your server
 db_path: "data/harness.db"
-token_dir: "~/.hippocampus"
+token_dir: "~/.campus"            # prod example: ~/.hippocampus
 
 # auth
 token_ttl: 3600
 
-# services (docker network names; host ports when run on host)
+# services — any OpenAI-compatible /v1 endpoint works for bifrost_url
 bifrost_url: "http://127.0.0.1:18081/v1"
-bifrost_model: "opencode-go/deepseek-v4-flash"   # pick from: python -m sync models
+bifrost_model: ""                 # pick from: python -m sync models
 pdf_extractor_url: "http://127.0.0.1:8001"
 ntfy_url: "http://127.0.0.1:8085"
 trawl_url: "http://127.0.0.1:11236/mcp"
@@ -42,5 +48,5 @@ digest_pdf_excerpt_chars: 2000
 #     start: "2027-01-01"
 #     end: "2027-04-30"
 
-# sync scope — H1: pilot only; flip to false when 2026F courses appear
+# sync scope — pilot only by default; flip to false for all courses
 pilot_only: true

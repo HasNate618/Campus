@@ -1,125 +1,125 @@
-# Campus / School Harness — Design
+# Campus — Design
 
-Personal AI course brain for Western SE. Priority: **explain content** → **grounded course facts** → **help with work**.
-
-Product/architecture decisions were made with a separate **planning agent**. Implementers should not re-litigate this doc unless blocked — see [HANDOFF.md](HANDOFF.md) for reconverge gates.
+Personal AI course brain: syncs a university LMS, builds a structured local
+knowledge base, and answers course questions from *synced data only* with an
+agent harness. Priority: **explain content** → **grounded course facts** →
+**help with work**.
 
 ## Goals
 
 1. Answer questions from real course materials (slides, digests, notes) with citations.
 2. Know schedule, deadlines, announcements; allow audited AI/user edits (e.g. “extended by 2 days”).
-3. Point at work where it lives (Git for code, OneDrive/Office for docs) — harness is not the only filesystem.
-
-Term starts ~1 month out → build a **real draft** against pilot course **SE 2250B**, then attach 2026F/2027W when Brightspace enrollments appear.
+3. Point at work where it lives (Git for code, cloud docs for documents) — the harness is not the only filesystem.
 
 ## Architecture
 
-**Structured spine (SQLite) + content on disk + RAG over markdown (later).**  
+**Structured spine (SQLite) + content on disk + semantic search over markdown.**
 AI reads freely; writes only through audited APIs (`audit_log`).
 
 ```
-Inputs                         Harness                         Agent
-───────                        ───────                         ─────
-Brightspace sync (custom)  →   SQLite spine                →   harness_* / content_* / mutate_*
-Lecture recordings (later) →   {data_root}/…       →   RAG (H3)
-OneDrive rclone            →   vector index                →   trawl (default web search)
+Inputs                          Harness                         Agent
+───────                         ───────                         ─────
+LMS sync (custom)          →   SQLite spine                →   harness_* / content_* / mutate_*
+Lecture recordings (later) →   {data_root}/{term}/{code}/…  →   semantic search
+Cloud docs mirror          →   vector index                →   web tools (default)
 Git work_links (URLs)      →   audit_log
 ```
 
-Brightspace MCP is **not** a runtime dependency. Sync is a custom worker. Chat answers Brightspace questions from **synced harness data only**.
+The LMS MCP is **not** a runtime dependency. Sync is a custom worker. Chat
+answers LMS questions from **synced harness data only**.
 
 ### Work surfaces
 
 | Kind | Canonical home | Harness role |
 |------|----------------|--------------|
-| Brightspace materials, digests, transcripts, memory | Disk + SQLite | Owns |
-| Coding / SE projects | Git (Forgejo/GitHub) | `work_links` only |
-| Word/Excel/PPT | OneDrive / Office web | Mirror for search; edit in Office |
+| Course materials, digests, transcripts, memory | Disk + SQLite | Owns |
+| Coding / SE projects | Git | `work_links` only |
+| Word/Excel/PPT | Cloud / Office web | Mirror for search; edit elsewhere |
 | Quick / AI notes | Harness markdown | Owns |
 
-### Brightspace sync
+### LMS sync
 
-Manual / morning-nudged (Duo). Not background scraping.
+Manual / nudged (MFA push). Not background scraping.
 
-1. Playwright + Duo → own token file (survive restarts; do not use MCP hostname-keyed crypto).
-2. D2L REST (LP ~1.62 / LE ~1.96): enrollments, content tree, file download, dropbox, news, syllabus.
+1. Playwright + MFA → own token file (survive restarts).
+2. LMS REST API: enrollments, content tree, file download, dropbox, news, syllabus.
 3. sha256 change detection → `{data_root}/{term}/{code}/…`
-4. pdf-extractor → markdown beside PDFs.
-5. AI digest → assignments / announcements / `memory_facts` + `sync_logs/{date}.md` + ntfy.
+4. PDF extractor → markdown beside PDFs (fast path: embedded text layer; fallback: OCR/VLM).
+5. AI digest → assignments / announcements / `memory_facts` + `sync_logs/{date}.md` + push notification.
 
 ### Pipelines
 
 | Job | Trigger | Notes |
 |-----|---------|--------|
-| Brightspace sync + AI sync log | Manual / morning nudge | Duo |
-| Morning digest | Cron | From DB only — no Brightspace |
+| LMS sync + AI sync log | Manual / nudge | MFA |
+| Morning digest | Cron | From DB only — no LMS |
 | Knowledge cleanup | Scheduled | Upsert/supersede `memory_facts` |
-| OneDrive mirror | rclone timer | Not deadline source of truth |
-| Lecture digest | Upload + whisper/cohere | Phase H5 |
+| Cloud mirror | Timer | Not deadline source of truth |
+| Lecture digest | Upload + whisper/embed | Later phase |
 
 ### Datetime
 
-Every AI call injects: local now (`America/Toronto`), active term(s), timezone, next 7 days of `events`.
+Every AI call injects: local now, active term(s), timezone, next 7 days of `events`.
 
 ### Calendar
 
-In-app `events` is source of truth (v1). Materialize from `course_sessions`, assignment/exam dues, personal notes. No requirement for external Google/ICS as primary.
+In-app `events` is source of truth (v1). Materialize from `course_sessions`
+(which may be imported from an ICS feed), assignment/exam dues, personal
+notes. No external calendar required as primary.
 
 ### Agent tools (v1)
 
-- `harness_*`, `content_*`, `mutate_*`, RAG (H3+)
-- **trawl** — default web search (`trawl.local` / host `:11236`)
-- Future MCPs pluggable; **no Brightspace MCP**
+- `harness_*`, `content_*`, `mutate_*`, semantic search
+- web search/read via a pluggable MCP tool
+- Future MCPs pluggable; **no LMS MCP** — everything comes from synced data
 
-### UI direction (ceiling until after H1)
+### UI direction
 
-Hybrid: **course hubs** (browse real content) + **chat rail** (context-aware). Not chat-only.
+Hybrid: **course hubs** (browse real content) + **chat rail** (context-aware).
+Not chat-only.
 
-Light IA: course switcher · Sync status · calendar strip · Today / Course hub / Calendar / Chat. PWA later. Native Android recorder is H5.
+Light IA: course switcher · sync status · timetable · Today / Course hub /
+Calendar / Chat. PWA.
 
 ## Data entities
 
 See [DATA_MODEL.md](DATA_MODEL.md) and `schema.sql`.
 
-Core: `courses`, `course_sessions`, `assignments`, `exams`, `lectures`, `files`, `content_nodes`, `announcements`, `notes`, `memory_facts`, `events`, `work_links`, `sync_runs`, `audit_log`.
+Core: `courses`, `course_sessions`, `assignments`, `exams`, `lectures`,
+`files`, `content_nodes`, `announcements`, `notes`, `memory_facts`, `events`,
+`work_links`, `sync_runs`, `audit_log`.
 
 ## Phases
 
 | Phase | Deliverable |
 |-------|-------------|
-| **H0** | Docs + schema (`work_links`, `content_nodes`) + seed; Forgejo private remote |
-| **H1** | Custom Brightspace auth + sync + AI sync log + ntfy; **SE 2250B pilot** |
-| **H2** | FastAPI + thin web UI (Sync, browse, calendar, chat + datetime + trawl) |
-| **H3** | RAG (Cohere embed/rerank) + knowledge cleanup cron |
-| **H4** | OneDrive rclone + `work_links` usage |
-| **H5** | Lecture upload/transcribe/digest (Android or simple upload) |
+| **H0** | Docs + schema + seed |
+| **H1** | Custom LMS auth + sync + AI sync log + push notification; pilot course end-to-end |
+| **H2** | FastAPI + web UI (Sync, browse, timetable, chat + datetime + web tools) |
+| **H3** | Semantic search (embed/rerank) + knowledge cleanup cron |
+| **H4** | Cloud docs mirror + `work_links` usage |
+| **H5** | Lecture upload/transcribe/digest |
 
-Stack default: FastAPI + React/TS, SQLite WAL, Chroma or sqlite-vec at H3.
-
-## Pilot: SE 2250B
-
-1. Link `brightspace_org_unit_id` after Duo auth.
-2. Mark `is_pilot = 1`; sync content/dropbox/news end-to-end.
-3. Validate CLI/API: module files, assignments, AI sync log, audited date mutation.
-4. Keep as regression fixture when 2026F courses link in.
+Stack: FastAPI + React/TS, SQLite WAL, semantic search over chunks.
 
 ## Non-goals (v1)
 
 - Grade calculator
-- Discord bot
-- Word editing / iframe Office
-- Auto Brightspace scrape (no Duo)
-- Public git with course content or solutions
-- Open WebUI as primary UI
+- Chat-app bot
+- Word editing / iframe office
+- Background LMS scraping
+- Course content or solutions in git
+- Another chat UI as primary surface
 
-## Git / deploy
+## Portability
 
-- **Private Forgejo:** full app, schema, seed, Nix module.
-- **Public GitHub skeleton later:** architecture only — no course blobs/secrets.
-- Deploy: NixOS Docker on `home`, Caddy `campus.local`, data `{data_root}/`.
+Everything environment-specific lives in `config.yaml` (gitignored) or
+`CAMPUS_*` env vars: LMS base URL, credentials, data root, service URLs,
+model, term dates. The repo ships `config.example.yaml` + `seed/courses.example.json`
+with sample data so a fresh clone runs without any personal configuration.
 
 ## Open (implementer may decide)
 
-- Exact Western term start/end dates for event materialization
-- Chroma vs sqlite-vec
-- H5: Android vs upload-only API
+- Term start/end dates for event materialization (config `term_dates`)
+- Embedding store choice
+- Lecture capture: app vs upload-only API

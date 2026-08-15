@@ -1,6 +1,6 @@
 # Zen PDF Viewer (vendored)
 
-This directory is the Campus-embedded copy of Nate's
+This directory is the Campus-embedded copy of the
 [zen-pdf-viewer](https://github.com/HasNate618/zen-pdf-viewer) single-file
 viewer, served statically from `/zen-pdf/*` and embedded by the content page
 in an `<iframe>`:
@@ -18,8 +18,8 @@ selection, zoom, keyboard nav) with no approximation.
 ## Vendored PDF.js (2.16.105)
 
 `pdf.min.js` + `pdf.worker.min.js` are the exact `pdfjs-dist@2.16.105` build
-artifacts, vendored so nothing depends on a CDN (the homelab's web client
-may be offline/air-gapped). `viewer.html` references them as
+artifacts, vendored so nothing depends on a CDN (clients may be
+offline/air-gapped). `viewer.html` references them as
 `./pdf.min.js` / `./pdf.worker.min.js` — the only two deviations from the
 upstream file (the upstream script tag + `workerSrc` point at unpkg).
 

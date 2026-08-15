@@ -12,6 +12,12 @@ def list_courses(active_only: bool = True):
     return services.list_courses(active_only=active_only)
 
 
+@router.get("/schedule")
+def schedule():
+    """Weekly timetable in the ScheduleCourse[] contract (web/src/types.ts)."""
+    return services.get_schedule()
+
+
 @router.get("/{course_id}")
 def get_course(course_id: int):
     course = services.get_course(course_id)

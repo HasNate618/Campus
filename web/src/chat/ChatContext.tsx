@@ -134,7 +134,7 @@ const MAX_SESSIONS = 50
 
 function makeUuid(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
-  // secure-context-only; campus.local is plain HTTP
+  // secure-context-only; plain-HTTP LAN hosts skip SW registration
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0
     return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16)

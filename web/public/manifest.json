@@ -2,7 +2,7 @@
   "id": "/today",
   "name": "Campus",
   "short_name": "Campus",
-  "description": "Personal AI study system for Western SE",
+  "description": "Personal AI study system — sync your LMS, ask your courses",
   "start_url": "/today",
   "scope": "/",
   "display": "standalone",

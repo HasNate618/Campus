@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSchedule } from '@/lib/useSchedule'
 import {
   DAY_FULL,
-  SCHEDULE,
   type Meeting,
   type ScheduleBlock,
   type ScheduleCourse,
-} from '@/lib/schedule'
+} from '@/types'
 
 // Course colors match the app's sidebar dots (DB `courses.color`).
 const COLORS: Record<number, string> = {
@@ -81,9 +81,10 @@ export function SchedulePage() {
   const [term, setTerm] = useState<'A' | 'B'>(() =>
     new Date().getMonth() <= 3 ? 'B' : 'A',
   )
+  const { schedule, loading, error } = useSchedule()
   const termCourses = useMemo(
-    () => SCHEDULE.filter((c) => c.code.slice(-1) === term),
-    [term],
+    () => schedule.filter((c) => c.code.slice(-1) === term),
+    [schedule, term],
   )
   // Current time for the "now" line — refreshed every minute.
   const [now, setNow] = useState(() => new Date())
@@ -151,8 +152,15 @@ export function SchedulePage() {
         </button>
       </div>
 
-      <div className="tt-wrap">
-        <div className="tt">
+      {error && (
+        <div className="empty">
+          Couldn't load your schedule — {error}
+        </div>
+      )}
+      {!error && (
+        <div className="tt-wrap">
+          {loading && <div className="empty">Loading schedule…</div>}
+          <div className="tt">
           <div />
           {DAYS.map((d) => (
             <div key={d} className={`tt-day-head${d === today ? ' today' : ''}`}>
@@ -218,6 +226,7 @@ export function SchedulePage() {
           ))}
         </div>
       </div>
+      )}
 
       <div className="sched-legend">
         {termCourses.map((course) => (

@@ -35,8 +35,13 @@ function safeUrl(value: string): string | null {
 }
 
 /** Brightspace-hosted images need the token-authed proxy (browser has no
- *  Brightspace session — direct img srcs 401). */
-const PROXY_HOSTS = new Set(['westernu.brightspace.com', 's.brightspace.com'])
+ *  Brightspace session — direct img srcs 401). The host allowlist is
+ *  config-driven, fetched from /api/config at boot; empty = no proxying. */
+let PROXY_HOSTS = new Set<string>()
+
+export function setProxyHosts(hosts: string[]): void {
+  PROXY_HOSTS = new Set(hosts)
+}
 
 /**
  * IFRAMES: allow ONLY YouTube embeds. The classic sanitizer risk is

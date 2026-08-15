@@ -70,7 +70,19 @@ def asset(rel_path: str):
 
 # Brightspace-hosted images inside html content need an authenticated fetch —
 # the browser has no Brightspace session, so we proxy through the API token.
-_ALLOWED_PROXY_HOSTS = ("westernu.brightspace.com", "s.brightspace.com")
+# The allowlist is config-driven (cfg.brightspace_hosts); empty = proxy disabled.
+from api.config import cfg as _cfg
+_ALLOWED_PROXY_HOSTS = tuple(_cfg.brightspace_hosts)
+
+
+@router.get("/config")
+def app_config():
+    """Frontend bootstrap config: Brightspace hosts/base URL for the content
+    proxy + link rebasing. Empty lists = features disabled (portable default)."""
+    return {
+        "brightspace_hosts": list(_cfg.brightspace_hosts),
+        "brightspace_base_url": _cfg.brightspace_base_url,
+    }
 
 
 @router.get("/proxy")

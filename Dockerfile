@@ -1,7 +1,8 @@
 # Campus runtime image — multi-stage: build the React PWA, then run the
 # FastAPI backend (api/) + harness (agent/, sync/) with Playwright for auth.
-# Runs as nate (uid 1000): cap-drop ALL strips CAP_DAC_OVERRIDE, so the
-# container must run as the owner of the mounted paths, not root.
+# Runs as uid 1000 (matching the mounted data/token owner): cap-drop ALL
+# strips CAP_DAC_OVERRIDE, so the container must run as the owner of the
+# mounted paths, not root.
 
 # ── Stage 1: build the React/TS PWA ─────────────────────────────────────
 FROM node:22-alpine AS web-build

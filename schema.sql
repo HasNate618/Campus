@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS courses (
     color                   TEXT,                        -- UI accent
     syllabus_path           TEXT,                        -- local markdown path
     notes                   TEXT,
-    is_pilot                INTEGER NOT NULL DEFAULT 0,  -- SE 2250B etc. sync fixtures
+    is_pilot                INTEGER NOT NULL DEFAULT 0,  -- marks first synced fixture
     is_active               INTEGER NOT NULL DEFAULT 1,
     created_at              TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at              TEXT NOT NULL DEFAULT (datetime('now'))

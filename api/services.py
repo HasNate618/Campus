@@ -48,6 +48,68 @@ def get_course(course_id: int) -> dict | None:
     return _row("SELECT * FROM courses WHERE id=?", (course_id,))
 
 
+# ── schedule ────────────────────────────────────────────────────────────
+DAY_LETTERS = ["M", "Tu", "W", "Th", "F", "Sa", "Su"]
+KIND_ORDER = {"LEC": 0, "LAB": 1, "TUT": 2}
+
+
+def _fmt_12h(t: str) -> str:
+    """'11:30' -> '11:30 AM', '18:30' -> '6:30 PM'."""
+    hh, mm = t.split(":")
+    h = int(hh) % 12 or 12
+    return f"{h}:{mm} {'AM' if int(hh) < 12 else 'PM'}"
+
+
+def get_schedule() -> list[dict]:
+    """Weekly timetable in the frontend ScheduleCourse[] contract
+    (web/src/types.ts). One ScheduleBlock per (course, kind, section);
+    meetings are the course_sessions rows."""
+    rows = _rows(
+        """SELECT c.id, c.code, c.name, c.units, c.class_nbr, c.instructor,
+                  s.kind, s.section, s.day_of_week, s.start_time, s.end_time, s.room
+           FROM courses c JOIN course_sessions s ON s.course_id = c.id
+           WHERE c.is_active = 1
+           ORDER BY c.code, s.kind, s.day_of_week"""
+    )
+    courses: dict[int, dict] = {}
+    for r in rows:
+        course = courses.setdefault(r["id"], {
+            "id": r["id"],
+            "code": r["code"],
+            "name": r["name"],
+            "credit": f"{r['units']:.2f}",
+            "mode": "In Person",
+            "blocks": [],
+        })
+        key = (r["kind"], r["section"])
+        block = next((b for b in course["blocks"]
+                      if (b["type"], b["section"]) == key), None)
+        if block is None:
+            block = {
+                "type": r["kind"],
+                "section": r["section"] or "",
+                "crn": int(r["class_nbr"]) if r["class_nbr"] else 0,
+                "meetings": [],
+            }
+            if r["instructor"]:
+                block["instructor"] = r["instructor"]
+            course["blocks"].append(block)
+        meeting = {
+            "day": DAY_LETTERS[r["day_of_week"]],
+            "start": _fmt_12h(r["start_time"]),
+            "end": _fmt_12h(r["end_time"]),
+        }
+        if r["room"]:
+            meeting["room"] = r["room"]
+        block["meetings"].append(meeting)
+    for course in courses.values():
+        course["blocks"].sort(
+            key=lambda b: (KIND_ORDER.get(b["type"], 9), b["section"]))
+        for block in course["blocks"]:
+            block["meetings"].sort(key=lambda m: DAY_LETTERS.index(m["day"]))
+    return list(courses.values())
+
+
 # ── course hub ──────────────────────────────────────────────────────────
 def course_hub(course_id: int) -> dict | None:
     course = get_course(course_id)

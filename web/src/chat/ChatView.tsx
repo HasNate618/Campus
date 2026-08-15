@@ -767,7 +767,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
               <div className="logo-mark">
                 <GraduationCap size={24} />
               </div>
-              <p className="greeting">{greeting()}, Nate</p>
+              <p className="greeting">{greeting()}</p>
               <p className="page-sub" style={{ margin: 0 }}>
                 Ask about {course ? course.code : 'this course'} — deadlines, content, or what to
                 study next.

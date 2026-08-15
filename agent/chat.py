@@ -215,7 +215,7 @@ def main() -> int:
 
     ap = argparse.ArgumentParser(description="Campus agent chat")
     ap.add_argument("--one", help="single question, no REPL")
-    ap.add_argument("--course", help="course code scope, e.g. 'SE 2250B'")
+    ap.add_argument("--course", help="course code scope, e.g. 'CS 1100A'")
     ap.add_argument("--model", help="bifrost model override")
     ap.add_argument("--verbose/--quiet", dest="verbose", action=argparse.BooleanOptionalAction, default=True)
     args = ap.parse_args()

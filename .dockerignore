@@ -9,6 +9,7 @@ __pycache__
 *.db-wal
 *.db-shm
 config.yaml
+seed/courses.local.json
 sync_logs
 node_modules
 docs

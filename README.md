@@ -1,57 +1,73 @@
 # Campus
 
-Personal AI study/org system for Western SE — Brightspace sync, structured
-memory, calendar, files, and a course-scoped AI chat. The model harness is
-the product; the web UI is a surface over it.
+A personal AI study system: sync your university LMS into a local knowledge
+base, then ask your courses anything. The agent harness is the product — the
+web UI is a surface over it.
 
-## Layout
+- **Deterministic LMS sync** — D2L REST + Playwright/MFA auth, content tree,
+  files, dropbox assignments, announcements, syllabus. Change detection via
+  sha256; nothing is scraped in the background.
+- **AI agent harness** — course-scoped chat over a SQLite spine + files on
+  disk. Every AI mutation is audited (`audit_log`); memory facts supersede,
+  never rewrite history.
+- **Semantic search** — embeddings + rerank over extracted course content,
+  with an exact-phrase lexical boost so precise answers don't get lost in
+  the rerank.
+- **Web app (PWA)** — Today / Course hub / Timetable / Calendar / Chat.
+  Zen markdown + a vendored pageless PDF viewer, offline-capable assets.
+- **Portable** — every URL, path, and credential is config-driven
+  (`config.yaml` + `CAMPUS_*` env). Point it at any Brightspace instance,
+  any OpenAI-compatible model endpoint.
+
+## Architecture
 
 ```
-agent/              AI harness: context builder, 14 tools, tool-calling loop
-sync/               Brightspace sync engine (D2L REST + Playwright auth)
-api/                FastAPI backend (Phase 3) — serves web/ + SSE chat
-web/                React/TS PWA frontend (Vite + Tailwind v4 + shadcn)
-schema.sql          SQLite schema (source of truth for structured data)
-seed/               registrar + SE 2250B pilot seed (+ pilot_data.py dev mock)
-docs/               architecture + handoffs (DESIGN, HANDOFF, BUILD_PLAN,
-                    DATA_MODEL, FRONTEND_HANDOFF)
-data/               SQLite DB (gitignored)
-{data_root} synced course content (gitignored, on the homelab)
+LMS (Brightspace/D2L) ──sync──▶ SQLite spine + files on disk ──▶ agent harness ──▶ web UI
+                                    │                                │
+                                    └── semantic search ◀── embed/rerank (configurable)
 ```
 
-## Dev (frontend, on the workstation)
+- `sync/` — LMS sync engine: config, token store, D2L client, extractors
+- `agent/` — the harness: context builder, tools (read/mutate/web), chat loop
+- `api/` — FastAPI backend: courses/data/sync/digest/chat (SSE) + SPA serving
+- `web/` — React/TS PWA (Vite + Tailwind)
+- `seed/` — registrar seed (`courses.example.json` sample, or a local
+  `courses.local.json` override) + `sample.ics` timetable import
+- `tools/` — one-off ops: ICS import, image caching, digest backfill
+
+## Quick start (demo with sample data)
 
 ```bash
-./scripts/dev.sh          # seeds dev DB, starts API (:8000) + Vite (:5173)
-cd web && npx tsc -b      # type-check
-cd web && npx vite build  # production build
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt -r api/requirements.txt
+cp config.example.yaml config.yaml
+python3 seed/seed.py              # seeds sample courses (CS 1100A, …)
+python3 tools/ics_import.py seed/sample.ics   # optional: timetable from ICS
+python3 -m uvicorn api.main:app --port 8000
 ```
 
-## Dev (harness / sync, on the homelab)
+Then open http://localhost:8000 — sample courses render without any LMS
+credentials. Chat needs `bifrost_url` + `bifrost_model` pointing at an
+OpenAI-compatible endpoint (see config).
+
+## Real use
 
 ```bash
-nix-shell                 # playwright + python (system python lacks sqlite3)
-python -m sync auth       # Duo flow — token in ~/.hippocampus
-python -m sync sync       # deterministic Brightspace sync + AI digest
-python -m agent           # interactive harness chat (REPL)
-python -m agent --one "What's due in SE 2250B?" --course "SE 2250B"
+cp config.example.yaml config.yaml   # fill in your LMS + services
+python3 -m sync auth                 # MFA push → token stored
+python3 -m sync sync                 # full sync + AI digest
+python3 -m agent --one "What's due this week?" --course "CS 1100A"
 ```
 
-## Production (homelab)
+Your real enrollment data goes in `seed/courses.local.json` (gitignored) —
+the repo only ever ships sample data. Course content and secrets never touch
+git (see `.gitignore`).
 
-The `campus` Docker container runs everything (NixOS module
-`modules/server/ai/campus.nix`): code mounted ro from `/home/nate/campus`,
-DB + token mounted rw, on the proxy network, running as uid 1000 with
-`--cap-drop ALL`. Web app binds `:8000` → `127.0.0.1:8087` →
-`http://campus.local` (no auth — LAN/Tailscale only).
+## Docs
 
-```bash
-docker exec campus python -m sync sync
-docker exec campus python -m agent --one "question" --course "SE 2250B"
-```
+- [docs/DESIGN.md](docs/DESIGN.md) — architecture & decisions
+- [docs/DATA_MODEL.md](docs/DATA_MODEL.md) — schema & write rules
+- [docs/HANDOFF.md](docs/HANDOFF.md) — implementation brief
 
-## Rules
+## License
 
-- Structured rows beat facts; all AI mutations are audited (audit_log).
-- Never commit data/, *.db, config.yaml, school/ content.
-- The harness owns the tools (terminal, web, mutations); the UI renders them.
+MIT — see [LICENSE](LICENSE).

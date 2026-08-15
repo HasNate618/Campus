@@ -19,7 +19,11 @@ from sync.config import Config
 from sync.db import DB
 
 IMG_RE = re.compile(r'(<img[^>]+src=")([^"]+)"', re.IGNORECASE)
-HOSTS = ("westernu.brightspace.com", "s.brightspace.com")
+
+
+def _hosts(cfg: Config) -> tuple:
+    """Brightspace hosts to cache — config-driven (cfg.brightspace_hosts)."""
+    return tuple(cfg.brightspace_hosts)
 
 
 def _session_headers(cfg: Config) -> dict:
@@ -87,7 +91,7 @@ def cache_course_images(cfg: Config, db: DB, course_id: int) -> dict:
     def rewrite(html: str) -> str:
         def repl(m: re.Match) -> str:
             src = m.group(2)
-            if not any(h in src for h in HOSTS) and not src.startswith("/content/enforced/"):
+            if not any(h in src for h in _hosts(cfg)) and not src.startswith("/content/enforced/"):
                 return m.group(0)
             local = local_for(src)
             if not local:
@@ -99,7 +103,7 @@ def cache_course_images(cfg: Config, db: DB, course_id: int) -> dict:
     for row in db.conn.execute(
             "SELECT id, description FROM content_nodes WHERE course_id=? AND description IS NOT NULL",
             (course_id,)).fetchall():
-        if not row["description"] or ("brightspace.com" not in row["description"]
+        if not row["description"] or (not any(h in row["description"] for h in _hosts(cfg))
                                       and "/content/enforced/" not in row["description"]):
             continue
         new_desc = rewrite(row["description"])

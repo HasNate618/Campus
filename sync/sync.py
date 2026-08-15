@@ -1,6 +1,6 @@
 """Campus sync — deterministic Brightspace pull (H1 pilot).
 
-Usage:  python -m sync  [--code SE 2250B] [--dry-run]
+Usage:  python -m sync  [--code CS 1100A] [--dry-run]
 
 Pipeline per HANDOFF.md: enrollments → match pilot course → content
 tree → download files → dropbox → news → syllabus → upsert SQLite →
@@ -112,7 +112,7 @@ def _looks_like_data_table(t) -> bool:
 
 
 def _extract_code(name: str) -> str:
-    """'SE 2250B 001 LEC FW25: SOFTWARE CONSTRUCTION' -> 'SE2250B'."""
+    """'CS 1100A 001 LEC FW25: SOFTWARE CONSTRUCTION' -> 'CS1100A'."""
     head = (name or "").split(":")[0]
     m = re.match(r"([A-Z]+\s*\d{4}[A-Z]?)", head)
     return _norm_code(m.group(1)) if m else ""
@@ -134,7 +134,7 @@ class SyncEngine:
         items: list[dict] = []
         bookmark = None
         while True:
-            # no isActive filter: pilot course (SE 2250B) is a past enrollment
+            # no isActive filter: pilot course (CS 1100A) is a past enrollment
             path = self.client.lp("/enrollments/myenrollments/?orgUnitTypeId=3")
             if active_only:
                 path = path.replace("?", "?isActive=true&", 1)
@@ -154,8 +154,8 @@ class SyncEngine:
         for e in enrollments:
             ou = e.get("OrgUnit", {})
             candidates = {_norm_code(ou.get("Code", ""))}
-            # Western FW25+ enrollments use UGRD_xxxx codes; the human course
-            # code ("SE 2250B") only appears in the Name field
+            # LMS enrollments use UGRD_xxxx codes; the human course
+            # code ("CS 1100A") only appears in the Name field
             name_code = _extract_code(ou.get("Name", ""))
             if name_code:
                 candidates.add(name_code)
@@ -645,7 +645,7 @@ class SyncEngine:
         for f in folders:
             if f.get("IsCategory", False):
                 continue
-            # Western's dropbox list omits "Instructions" entirely — the
+            # The LMS dropbox list omits "Instructions" entirely — the
             # assignment description lives in "CustomInstructions"
             # ({Text, Html}); the brightspace-mcp reads .Html there too.
             # Fall back to Instructions for D2L instances that still send it.
@@ -688,7 +688,7 @@ class SyncEngine:
             return
 
         def author_of(n) -> str | None:
-            # Western returns CreatedBy as int (user id) — handle both shapes
+            # The LMS returns CreatedBy as int (user id) — handle both shapes
             created = n.get("CreatedBy")
             if isinstance(created, dict):
                 return created.get("DisplayName")
@@ -943,7 +943,7 @@ class SyncEngine:
             enrollments = self.fetch_enrollments()
             courses = [self.db.get_course_by_code(code)] if code else self.db.get_pilot_courses()
             if not courses:
-                print("No course matched. Pass --code SE 2250B or mark a course is_pilot=1")
+                print("No course matched. Pass --code CS 1100A or mark a course is_pilot=1")
                 return 2
 
             if not dry_run:

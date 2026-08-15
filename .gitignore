@@ -11,6 +11,9 @@ config.yaml
 *.token
 !config.example.yaml
 
+# Local real enrollments — the committed copy is courses.example.json
+seed/courses.local.json
+
 # Sync artifacts
 sync_logs/
 

@@ -23,7 +23,7 @@ FACT_TTL_DAYS = 30  # time-sensitive facts older than this are superseded
 
 
 def term_window(term: str) -> tuple[datetime.date, datetime.date] | None:
-    """Western terms: 2026F = Sep-Dec 2026, 2027W = Jan-Apr 2027 (year+1)."""
+    """Term convention: 2026F = Sep-Dec, 2027W = Jan-Apr (year+1)."""
     m = __import__("re").match(r"(\d{4})([FW])", term or "")
     if not m:
         return None

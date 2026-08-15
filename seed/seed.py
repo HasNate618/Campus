@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Seed the campus database with courses + schedule from seed/courses.json.
 
+Resolution order: seed/courses.local.json (real enrollments, gitignored) if
+present, else seed/courses.example.json (sample data shipped in the repo).
+
 Usage: python3 seed/seed.py [--db PATH] [--reset]
 """
 import argparse
@@ -13,6 +16,15 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_DB = os.path.join(REPO, "data", "harness.db")
 
 DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+def load_courses() -> dict:
+    """Local real data wins; the committed example is the fallback."""
+    local = os.path.join(REPO, "seed", "courses.local.json")
+    example = os.path.join(REPO, "seed", "courses.example.json")
+    path = local if os.path.exists(local) else example
+    with open(path) as f:
+        return json.load(f)
 
 
 def connect(db_path: str) -> sqlite3.Connection:
@@ -63,8 +75,7 @@ def main() -> int:
     ap.add_argument("--reset", action="store_true", help="drop all tables first")
     args = ap.parse_args()
 
-    with open(os.path.join(REPO, "seed", "courses.json")) as f:
-        data = json.load(f)
+    data = load_courses()
 
     if args.reset and os.path.exists(args.db):
         os.remove(args.db)

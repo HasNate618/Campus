@@ -17,15 +17,27 @@ DEFAULT_CONFIG_PATH = REPO_ROOT / "config.yaml"
 
 @dataclass
 class Config:
-    base_url: str = "https://westernu.brightspace.com"
+    base_url: str = ""  # LMS base URL, e.g. https://your-university.brightspace.com
     username: str = ""
     password: str = ""  # from env CAMPUS_BRIGHTSPACE_PASSWORD, never config file
 
+    # institution label for the system prompt — config-driven, e.g.
+    # institution: "Your University". Default: generic.
+    institution: str = ""
+
+    # Brightspace-specific hosts used by the content proxy + sanitizer.
+    # Empty = proxy disabled (portable default); set per deployment, e.g.
+    # ["your-university.brightspace.com", "s.brightspace.com"]. Env: CAMPUS_BRIGHTSPACE_HOSTS (comma-separated).
+    brightspace_hosts: list = field(default_factory=list)
+    # Base URL the frontend rebases relative /d2l/ links onto (tool-link
+    # topics open in the real LMS). Empty = no rebase.
+    brightspace_base_url: str = ""
+
     # paths
-    data_root: Path = field(default_factory=lambda: Path("{data_root}"))
+    data_root: Path = field(default_factory=lambda: Path("./school"))
     db_path: Path = field(default_factory=lambda: Path(REPO_ROOT / "data" / "harness.db"))
-    token_dir: Path = field(default_factory=lambda: Path.home() / ".hippocampus")
-    browser_profile_dir: Path = field(default_factory=lambda: Path.home() / ".hippocampus" / "browser-data")
+    token_dir: Path = field(default_factory=lambda: Path.home() / ".campus")
+    browser_profile_dir: Path = field(default_factory=lambda: Path.home() / ".campus" / "browser-data")
 
     # auth
     token_ttl: int = 3600  # seconds; Brightspace Bearer tokens last ~1h
@@ -74,9 +86,14 @@ class Config:
             ("CAMPUS_PDF_EXTRACTOR_URL", "pdf_extractor_url"),
             ("CAMPUS_NTFY_URL", "ntfy_url"),
             ("CAMPUS_TRAWL_URL", "trawl_url"),
+            ("CAMPUS_BRIGHTSPACE_BASE_URL", "brightspace_base_url"),
         ]:
             if os.environ.get(env_key):
                 setattr(cfg, attr, os.environ[env_key])
+        if os.environ.get("CAMPUS_BRIGHTSPACE_HOSTS"):
+            cfg.brightspace_hosts = [
+                h.strip() for h in os.environ["CAMPUS_BRIGHTSPACE_HOSTS"].split(",") if h.strip()
+            ]
         # expand ~ and coerce to Path (YAML strings don't auto-coerce)
         for field in ("data_root", "db_path", "token_dir", "browser_profile_dir"):
             val = getattr(cfg, field)

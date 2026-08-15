@@ -163,3 +163,36 @@ export interface ChatMessage {
   tool?: string
   toolResult?: string
 }
+
+// ── schedule (GET /api/courses/schedule) ───────────────────────────────
+export interface Meeting {
+  day: 'M' | 'Tu' | 'W' | 'Th' | 'F'
+  start: string
+  end: string
+  room?: string
+}
+
+export interface ScheduleBlock {
+  type: 'LEC' | 'LAB' | 'TUT'
+  section: string
+  crn: number
+  instructor?: string
+  meetings: Meeting[]
+}
+
+export interface ScheduleCourse {
+  id: number
+  code: string
+  name: string
+  credit?: string
+  mode: string
+  blocks: ScheduleBlock[]
+}
+
+export const DAY_FULL: Record<Meeting['day'], string> = {
+  M: 'Monday',
+  Tu: 'Tuesday',
+  W: 'Wednesday',
+  Th: 'Thursday',
+  F: 'Friday',
+}
