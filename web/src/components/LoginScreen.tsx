@@ -38,15 +38,13 @@ export function LoginScreen({ onAuthed }: { onAuthed: () => void }) {
         </div>
         <Input
           type="password"
+          name="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="Password"
           autoFocus
           disabled={busy}
-          autoComplete="new-password"
-          data-bwignore="true"
-          data-lpignore="true"
-          data-1p-ignore="true"
+          autoComplete="current-password"
         />
         {error && <p className="login-card-error">{error}</p>}
         <Button type="submit" className="w-full" disabled={busy || !password}>
