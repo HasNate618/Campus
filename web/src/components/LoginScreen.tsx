@@ -30,14 +30,11 @@ export function LoginScreen({ onAuthed }: { onAuthed: () => void }) {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-4">
-      <form
-        onSubmit={submit}
-        className="w-full max-w-xs space-y-4 rounded-lg border border-border bg-card p-6 shadow-lg"
-      >
-        <div>
-          <h1 className="text-lg font-semibold">Sign in</h1>
-          <p className="text-sm text-muted-foreground">Enter the access password to continue.</p>
+    <div className="login-screen">
+      <form onSubmit={submit} className="login-card">
+        <div className="login-card-head">
+          <h1 className="login-card-title">Campus</h1>
+          <p className="login-card-sub">Enter the access password to continue.</p>
         </div>
         <Input
           type="password"
@@ -47,7 +44,7 @@ export function LoginScreen({ onAuthed }: { onAuthed: () => void }) {
           autoFocus
           disabled={busy}
         />
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && <p className="login-card-error">{error}</p>}
         <Button type="submit" className="w-full" disabled={busy || !password}>
           {busy ? 'Signing in…' : 'Sign in'}
         </Button>

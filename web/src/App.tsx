@@ -32,10 +32,18 @@ export default function App() {
   if (authed === null) return null // one fast fetch — no flash of the login form
   if (!authed) return <LoginScreen onAuthed={() => setAuthed(true)} />
 
+  const logout = async () => {
+    try {
+      await api.auth.logout()
+    } finally {
+      setAuthed(false) // back to the login screen regardless of API state
+    }
+  }
+
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<AppShell />}>
+        <Route path="/" element={<AppShell onLogout={logout} />}>
           <Route index element={<TodayPage />} />
           <Route path="today" element={<Navigate to="/" replace />} />
           <Route path="chat" element={<ChatTabPage />} />

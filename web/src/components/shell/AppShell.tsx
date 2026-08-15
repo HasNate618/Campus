@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { BookOpen, CalendarDays, Home, MessageSquare } from 'lucide-react'
+import { BookOpen, CalendarDays, Home, LogOut, MessageSquare } from 'lucide-react'
 import { ChatProvider } from '@/chat/ChatContext'
 import { KeyNavProvider } from '@/lib/keynav'
 import { Sidebar } from './Sidebar'
@@ -12,7 +12,7 @@ const MOBILE_TABS = [
   { to: '/schedule', label: 'Schedule', icon: CalendarDays, end: true },
 ]
 
-function ShellInner() {
+function ShellInner({ onLogout }: { onLogout: () => void }) {
   const location = useLocation()
   // Remount transitions on top-level view changes only, so drilling into
   // content nodes within a course doesn't replay the page animation.
@@ -21,7 +21,7 @@ function ShellInner() {
   return (
     <ChatProvider>
       <div className="shell">
-        <Sidebar />
+        <Sidebar onLogout={onLogout} />
         <main className="main" data-kbd-zone="course">
           <AnimatePresence mode="wait">
             <motion.div
@@ -49,16 +49,20 @@ function ShellInner() {
               {label}
             </NavLink>
           ))}
+          <button className="tabbar-tab tabbar-logout" onClick={onLogout}>
+            <LogOut size={19} />
+            Log out
+          </button>
         </nav>
       </div>
     </ChatProvider>
   )
 }
 
-export function AppShell() {
+export function AppShell({ onLogout }: { onLogout: () => void }) {
   return (
     <KeyNavProvider>
-      <ShellInner />
+      <ShellInner onLogout={onLogout} />
     </KeyNavProvider>
   )
 }

@@ -4,6 +4,7 @@ import {
   CalendarDays,
   GraduationCap,
   Home,
+  LogOut,
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
@@ -21,7 +22,7 @@ const NAV = [
   { to: '/schedule', label: 'Schedule', icon: CalendarDays, end: true },
 ]
 
-export function Sidebar() {
+export function Sidebar({ onLogout }: { onLogout: () => void }) {
   const [courses, setCourses] = useState<Course[]>([])
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem('hc.sidebar.collapsed') === '1',
@@ -228,16 +229,29 @@ export function Sidebar() {
       </div>
 
       <div className="sidebar-footer">
-        <button
-          className="nav-item"
-          onClick={toggle}
-          onMouseEnter={(e) => showTip(e, collapsed ? 'Expand sidebar' : 'Collapse sidebar')}
-          onMouseLeave={hideTip}
-          style={{ width: 'calc(100% - 20px)' }}
-        >
-          {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
-          <span className="side-label">Collapse</span>
-        </button>
+        <div className="sidebar-footer-row">
+          <button
+            className="nav-item"
+            onClick={toggle}
+            onMouseEnter={(e) => showTip(e, collapsed ? 'Expand sidebar' : 'Collapse sidebar')}
+            onMouseLeave={hideTip}
+            style={{ flex: 1 }}
+          >
+            {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+            <span className="side-label">Collapse</span>
+          </button>
+          {!collapsed && (
+            <button
+              className="nav-item sidebar-logout"
+              onClick={onLogout}
+              onMouseEnter={(e) => showTip(e, 'Log out')}
+              onMouseLeave={hideTip}
+            >
+              <LogOut size={17} />
+              <span className="side-label">Log out</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {tip && (
