@@ -22,24 +22,7 @@ jobs:
           playwright install chromium --with-deps || true   # auth module import-safe; browsers optional for tests
 
       - name: Run tests
-        shell: bash
-        run: |
-          python --version
-          pip show pytest || true
-          pytest -q --tb=long > /tmp/pytest-output.txt 2>&1 || rc=$?
-          rc=${rc:-0}
-          if [ "$rc" -ne 0 ]; then
-            echo "::error::pytest exited $rc"
-            tail -80 /tmp/pytest-output.txt | sed 's/^/::error::/'
-          fi
-          exit "$rc"
-
-      - name: Upload test output (debug)
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pytest-output
-          path: /tmp/pytest-output.txt
+        run: pytest
 
   web-build:
     name: Web build (tsc + vite)

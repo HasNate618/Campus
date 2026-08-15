@@ -1,5 +1,7 @@
 # Campus
 
+![CI](https://github.com/HasNate618/Campus/actions/workflows/ci.yml/badge.svg)
+
 A personal AI study system: sync your university LMS into a local knowledge
 base, then ask your courses anything. The agent harness is the product — the
 web UI is a surface over it.
@@ -67,6 +69,17 @@ git (see `.gitignore`).
 - [docs/DESIGN.md](docs/DESIGN.md) — architecture & decisions
 - [docs/DATA_MODEL.md](docs/DATA_MODEL.md) — schema & write rules
 - [docs/HANDOFF.md](docs/HANDOFF.md) — implementation brief
+
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest              # 25 unit tests: config portability, seed/ICS import,
+                    # schedule API contract, search, agent security blocklist
+```
+
+CI (GitHub Actions) runs the backend tests on Python 3.12 and the web
+type-check + production build on Node 22 for every push to `main`.
 
 ## License
 
