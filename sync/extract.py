@@ -1,4 +1,4 @@
-"""PDF extraction CLI + bifrost model listing."""
+"""PDF extraction CLI + LLM model listing."""
 from __future__ import annotations
 
 import argparse
@@ -10,20 +10,21 @@ import httpx
 
 def list_models() -> int:
     from sync.config import Config
+    from agent.chat import llm_headers
 
     cfg = Config.load()
     try:
-        r = httpx.get(cfg.bifrost_url + "/models", timeout=15)
+        r = httpx.get(cfg.llm_url + "/models", headers=llm_headers(cfg), timeout=15)
         r.raise_for_status()
         ids = sorted(m["id"] for m in r.json().get("data", []))
     except Exception as e:
-        print(f"Failed to list models from {cfg.bifrost_url}: {e}")
+        print(f"Failed to list models from {cfg.llm_url}: {e}")
         return 1
-    print(f"Bifrost models ({len(ids)}):")
+    print(f"Available models ({len(ids)}):")
     for mid in ids:
-        marker = "  <- default" if mid == cfg.bifrost_model else ""
+        marker = "  <- default" if mid == cfg.llm_model else ""
         print(f"  {mid}{marker}")
-    print("\nSet the digest model via config.yaml (bifrost_model) or `python -m sync sync --model M`.")
+    print("\nSet the digest model via config.yaml (llm_model) or `python -m sync sync --model M`.")
     return 0
 
 

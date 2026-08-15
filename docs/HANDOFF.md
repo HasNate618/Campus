@@ -16,7 +16,7 @@ Read first: [DESIGN.md](DESIGN.md), [DATA_MODEL.md](DATA_MODEL.md),
 | Runtime course data | `{data_root}/{term}/{code}/` (config; `./school` in dev) |
 | Local/dev DB & content | `data/`, `school/` (gitignored) |
 | LMS REST API | `base_url` in config (any Brightspace/D2L-compatible instance) |
-| LLM gateway | `bifrost_url` in config — any OpenAI-compatible `/v1` endpoint |
+| LLM gateway | `llm_url` in config — any OpenAI-compatible `/v1` endpoint; `llm_api_key` for Bearer auth |
 | PDF extraction | `pdf_extractor_url` in config |
 | Web search/read | `trawl_url` in config (MCP) |
 | Notifications | `ntfy_url` in config |

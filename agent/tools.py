@@ -546,7 +546,7 @@ def search_corpus(db: DB, cfg: Config, args: dict) -> dict:
     files, assignment attachments, announcements, syllabus, active facts AND
     MODULE DESCRIPTIONS (landing-page HTML — incl. office-hours tables and
     policies that never became files). Cohere embeddings + rerank via
-    bifrost, with a lexical exact-phrase boost. Returns cited passages with
+    the configured LLM endpoint, with a lexical exact-phrase boost. Returns cited passages with
     file refs — read the full file with content_read_file. Prefer this over
     content_grep for module-landing text: content_grep only scans files on
     disk."""
@@ -901,7 +901,7 @@ TOOLS = {
     ),
     "search_corpus": _tool(
         "search_corpus",
-        "Semantic search over the course corpus (extracted lecture content, notes, work files, assignment attachments, announcements, syllabus, active facts). Embeddings + rerank via Cohere through bifrost — understands paraphrase, not just keywords. Returns top cited passages with file refs; follow up with content_read_file on the best ref for full context. Use when a question references specific material ('which lecture covered X', 'where does it say Y') that you can't locate by browsing.",
+        "Semantic search over the course corpus (extracted lecture content, notes, work files, assignment attachments, announcements, syllabus, active facts). Embeddings + rerank via the configured LLM endpoint — understands paraphrase, not just keywords. Returns top cited passages with file refs; follow up with content_read_file on the best ref for full context. Use when a question references specific material ('which lecture covered X', 'where does it say Y') that you can't locate by browsing.",
         search_corpus,
         required=["query"],
         query={"type": "string", "description": "the question or topic to find in the course material"},

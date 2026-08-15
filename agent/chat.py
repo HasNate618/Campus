@@ -21,6 +21,14 @@ MAX_ITERATIONS = 24
 NUDGE_AT = 22  # after this many rounds, tell the model to stop calling tools
 
 
+def llm_headers(cfg: Config) -> dict:
+    """Headers for OpenAI-compatible calls. Bearer auth only when a key is set
+    (local gateways usually need none)."""
+    if cfg.llm_api_key:
+        return {"Authorization": f"Bearer {cfg.llm_api_key}"}
+    return {}
+
+
 def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
                 on_token=None, on_reasoning=None) -> tuple[dict, dict | None]:
     """Streaming chat completion. Accumulates content + tool_calls from SSE
@@ -29,9 +37,10 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
     (message, usage) — usage comes in the final chunk of the stream."""
     with httpx.stream(
         "POST",
-        f"{cfg.bifrost_url}/chat/completions",
+        f"{cfg.llm_url}/chat/completions",
+        headers=llm_headers(cfg),
         json={
-            "model": model or cfg.bifrost_model,
+            "model": model or cfg.llm_model,
             "messages": messages,
             "tools": TOOL_SCHEMAS,
             "tool_choice": "auto",
@@ -59,7 +68,7 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
                 content += delta["content"]
                 if on_token:
                     on_token(delta["content"])
-            # chain-of-thought: bifrost streams it as delta['reasoning'];
+            # chain-of-thought: some endpoints stream it as delta['reasoning'];
             # deepseek's native thinking mode uses reasoning_content. Surface
             # both live and keep them on the message (reasoning_content MUST be
             # passed back to the API on subsequent calls or it 400s).
@@ -142,7 +151,7 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
             if emit:
                 emit("done", {
                     "answer": answer,
-                    "model": model or cfg.bifrost_model,
+                    "model": model or cfg.llm_model,
                     "usage": total_usage if any(total_usage.values()) else None,
                 })
             return answer, messages
@@ -188,7 +197,7 @@ def chat_repl(cfg: Config, db: DB, course_code: str | None = None,
             print(f"Scoped to course: {course_code}")
         else:
             print(f"Unknown course: {course_code} — continuing unscoped")
-    print("Campus chat. Type 'exit' to quit. (model: %s)" % (model or cfg.bifrost_model))
+    print("Campus chat. Type 'exit' to quit. (model: %s)" % (model or cfg.llm_model))
     history: list[dict] = []
     while True:
         try:
@@ -216,7 +225,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Campus agent chat")
     ap.add_argument("--one", help="single question, no REPL")
     ap.add_argument("--course", help="course code scope, e.g. 'CS 1100A'")
-    ap.add_argument("--model", help="bifrost model override")
+    ap.add_argument("--model", help="LLM model override")
     ap.add_argument("--verbose/--quiet", dest="verbose", action=argparse.BooleanOptionalAction, default=True)
     args = ap.parse_args()
 

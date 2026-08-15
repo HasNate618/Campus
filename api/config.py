@@ -13,4 +13,4 @@ cfg = HarnessConfig.load()
 DB_PATH = Path(os.environ.get("CAMPUS_DB", cfg.db_path))
 SCHOOL_ROOT = Path(os.environ.get("CAMPUS_SCHOOL_ROOT", cfg.data_root))
 USE_MOCK = False  # the mock scaffold is gone — everything is real now
-TIMEZONE = "America/Toronto"
+TIMEZONE = cfg.timezone

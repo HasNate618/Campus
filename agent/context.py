@@ -1,7 +1,7 @@
 """Context construction — the system prompt built from live state.
 
 The model has no clock and no awareness of what's in the harness, so every
-conversation starts with a fresh snapshot: current time (America/Toronto),
+conversation starts with a fresh snapshot: current time (configured timezone),
 active term, course scope, upcoming events, and the course memory card.
 This is what makes answers grounded instead of guessed.
 """
@@ -13,13 +13,17 @@ from pathlib import Path
 from sync.config import Config
 from sync.db import DB
 
-TZ_NAME = "America/Toronto"
+TZ_NAME = "America/Toronto"  # fallback; overridden by cfg.timezone in callers
 
 
-def _now() -> datetime.datetime:
+def _tz(cfg: Config | None = None) -> str:
+    return getattr(cfg, "timezone", None) or TZ_NAME
+
+
+def _now(cfg: Config | None = None) -> datetime.datetime:
     try:
         from zoneinfo import ZoneInfo
-        return datetime.datetime.now(ZoneInfo(TZ_NAME))
+        return datetime.datetime.now(ZoneInfo(_tz(cfg)))
     except Exception:
         return datetime.datetime.now().astimezone()
 
@@ -41,7 +45,7 @@ def class_events(cfg: Config, db: DB, course_id: int | None, days: int) -> list[
     term_dates: dict = getattr(cfg, "term_dates", {}) or {}
     if not term_dates:
         return []
-    now = _now()
+    now = _now(cfg)
     horizon = now + datetime.timedelta(days=days)
     q = """SELECT cs.*, c.code, c.term, c.id AS course_id
            FROM course_sessions cs JOIN courses c ON c.id = cs.course_id
@@ -83,8 +87,8 @@ def class_events(cfg: Config, db: DB, course_id: int | None, days: int) -> list[
 
 def upcoming_events(cfg: Config, db: DB, course_id: int | None, days: int = 7) -> list[dict]:
     """Next N days: classes (computed) + assignments + exams + hand-created events."""
-    now = _now().isoformat()
-    later = (_now() + datetime.timedelta(days=days)).isoformat()
+    now = _now(cfg).isoformat()
+    later = (_now(cfg) + datetime.timedelta(days=days)).isoformat()
     rows = db.conn.execute(
         """SELECT a.id, c.code, a.title, a.due_at, a.status, a.weight,
                   'assignment' AS kind, NULL AS room
@@ -113,7 +117,7 @@ def upcoming_events(cfg: Config, db: DB, course_id: int | None, days: int = 7) -
 
 
 def build_system_prompt(cfg: Config, db: DB, course_id: int | None = None) -> str:
-    now = _now()
+    now = _now(cfg)
     terms = db.conn.execute("SELECT DISTINCT term FROM courses ORDER BY term").fetchall()
     term_str = ", ".join(r["term"] for r in terms) or "none"
 
@@ -149,7 +153,7 @@ Open assignments: {open_asgn} · announcements (14d): {ann}
 You work over synced LMS data (SQLite + files on disk). You do NOT
 have live LMS access — everything you know comes from the harness.
 
-CURRENT TIME: {now.strftime('%A %Y-%m-%d %H:%M %Z')} (America/Toronto)
+CURRENT TIME: {now.strftime('%A %Y-%m-%d %H:%M %Z')} ({_tz(cfg)})
 ACTIVE TERMS: {term_str}
 
 {scope}{card_text}UPCOMING (next 7 days):

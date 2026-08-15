@@ -1,9 +1,10 @@
 """Quiz-me: free-recall quizzing over memory facts, blind-graded.
 
 Two small model calls (question generation + blind grading), both
-non-streaming completions through bifrost. The blind grader sees ONLY the
-answer key + the user's words — no chat history, no course content — so it
-can't flatter or leak the lesson (the engram pattern).
+non-streaming completions through the configured OpenAI-compatible LLM
+endpoint. The blind grader sees ONLY the answer key + the user's words — no
+chat history, no course content — so it can't flatter or leak the lesson
+(the engram pattern).
 """
 
 from __future__ import annotations
@@ -13,11 +14,14 @@ import re
 
 import httpx
 
+from agent.chat import llm_headers
+
 
 def _complete(cfg, messages: list[dict], max_tokens: int = 300) -> str:
     r = httpx.post(
-        f"{cfg.bifrost_url}/chat/completions",
-        json={"model": cfg.bifrost_model, "messages": messages, "max_tokens": max_tokens},
+        f"{cfg.llm_url}/chat/completions",
+        headers=llm_headers(cfg),
+        json={"model": cfg.llm_model, "messages": messages, "max_tokens": max_tokens},
         timeout=120,
     )
     r.raise_for_status()

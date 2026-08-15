@@ -44,11 +44,18 @@ class Config:
     refresh_buffer: int = 300  # seconds before expiry = invalid
 
     # services (docker network names; host-mapped ports when run on host)
-    bifrost_url: str = "http://127.0.0.1:18081/v1"
-    bifrost_model: str = "opencode-go/deepseek-v4-flash"  # any model from bifrost /v1/models
+    # LLM endpoint: ANY OpenAI-compatible /v1 base URL (OpenAI, OpenRouter,
+    # Together, a local gateway, ...). `llm_api_key` is sent as a Bearer
+    # token when set; empty = the endpoint needs no auth.
+    llm_url: str = "http://127.0.0.1:18081/v1"
+    llm_model: str = "opencode-go/deepseek-v4-flash"  # any model from llm_url /v1/models
+    llm_api_key: str = ""  # env CAMPUS_LLM_API_KEY; Bearer auth when set
     pdf_extractor_url: str = "http://127.0.0.1:8001"
     ntfy_url: str = "http://127.0.0.1:8085"  # topic set per-run
     trawl_url: str = "http://127.0.0.1:11236/mcp"  # trawl MCP (web_search/web_read)
+
+    # timezone for user-facing datetimes + the system prompt clock
+    timezone: str = "America/Toronto"
 
     # sync scope
     pilot_only: bool = True  # H1: only sync is_pilot courses
@@ -81,8 +88,10 @@ class Config:
             ("CAMPUS_DATA_ROOT", "data_root"),
             ("CAMPUS_DB_PATH", "db_path"),
             ("CAMPUS_TOKEN_DIR", "token_dir"),
-            ("CAMPUS_BIFROST_URL", "bifrost_url"),
-            ("CAMPUS_MODEL", "bifrost_model"),
+            ("CAMPUS_LLM_URL", "llm_url"),
+            ("CAMPUS_LLM_MODEL", "llm_model"),
+            ("CAMPUS_LLM_API_KEY", "llm_api_key"),
+            ("CAMPUS_TIMEZONE", "timezone"),
             ("CAMPUS_PDF_EXTRACTOR_URL", "pdf_extractor_url"),
             ("CAMPUS_NTFY_URL", "ntfy_url"),
             ("CAMPUS_TRAWL_URL", "trawl_url"),

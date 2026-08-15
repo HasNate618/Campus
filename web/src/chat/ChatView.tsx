@@ -139,7 +139,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
   const courseSessions = sessionsFor(courseId)
   const path = session ? pathFor(session) : []
   const lastAssistant = [...path].reverse().find((n) => n.role === 'assistant' && !n.intermediate)
-  // real context window of the selected model (bifrost reports context_length);
+  // real context window of the selected model (reported by /api/chat/models);
   // fall back to the configured default model's window when none is selected
   const ctxMax = model
     ? (contexts[model] ?? null)

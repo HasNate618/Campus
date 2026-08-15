@@ -19,12 +19,16 @@ token_dir: "~/.campus"            # prod example: ~/.hippocampus
 # auth
 token_ttl: 3600
 
-# services — any OpenAI-compatible /v1 endpoint works for bifrost_url
-bifrost_url: "http://127.0.0.1:18081/v1"
-bifrost_model: ""                 # pick from: python -m sync models
+# services — any OpenAI-compatible /v1 endpoint works for llm_url
+llm_url: "http://127.0.0.1:18081/v1"
+llm_model: ""                 # pick from: python -m sync models
+llm_api_key: ""               # env CAMPUS_LLM_API_KEY; Bearer auth when set (OpenAI, OpenRouter, ...)
 pdf_extractor_url: "http://127.0.0.1:8001"
 ntfy_url: "http://127.0.0.1:8085"
 trawl_url: "http://127.0.0.1:11236/mcp"
+
+# timezone for user-facing datetimes + the system prompt clock
+# timezone: "America/Toronto"
 
 # auto-extract PDFs to markdown after sync? Cloud engine by default
 # (pdf-extractor's default — no engine param). Set false if you don't want

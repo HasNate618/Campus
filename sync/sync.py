@@ -27,6 +27,8 @@ from sync.d2l import D2LClient, D2LError
 from sync.db import DB
 from sync.token_store import TokenStore
 
+from agent.chat import llm_headers
+
 TOPIC_TYPE_MAP = {1: "file", 2: "link", 3: "link"}
 
 
@@ -123,7 +125,7 @@ class SyncEngine:
         self.cfg = cfg
         self.db = db
         self.client = client
-        self.model = model or cfg.bifrost_model  # --model flag overrides config
+        self.model = model or cfg.llm_model  # --model flag overrides config
         self.stats = {"courses_processed": 0, "files_new": 0,
                       "files_changed": 0, "announcements_new": 0,
                       "facts_added": 0, "pdfs_extracted": 0}
@@ -987,8 +989,8 @@ class SyncEngine:
 
             if not dry_run:
                 self.digest_and_log(run_id, courses)
-                # semantic corpus index (incremental — embeddings via bifrost;
-                # best-effort: a bifrost blip must never fail the sync)
+                # semantic corpus index (incremental — embeddings via the LLM
+                # endpoint; best-effort: a blip there must never fail the sync)
                 try:
                     from sync.search import rebuild as rebuild_index
                     idx = rebuild_index(self.cfg, self.db)
@@ -1071,7 +1073,7 @@ class SyncEngine:
             return []
 
     def digest_and_log(self, run_id: int, courses) -> None:
-        """Bifrost AI pass: delta digest (+ undigested announcement backlog)
+        """LLM digest pass: delta digest (+ undigested announcement backlog)
         → memory_facts + markdown sync log. (Notification is sent once by
         run(), covering the whole sync.)"""
         backlog = self._undigested_announcements(courses)
@@ -1122,7 +1124,8 @@ class SyncEngine:
                 f"{json.dumps(chats, indent=1)}"
             )
         try:
-            r = httpx.post(f"{self.cfg.bifrost_url}/chat/completions",
+            r = httpx.post(f"{self.cfg.llm_url}/chat/completions",
+                           headers=llm_headers(self.cfg),
                            json={"model": self.model,
                                  "messages": [{"role": "user", "content": prompt}]},
                            timeout=120)
@@ -1181,7 +1184,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Campus Brightspace sync (H1 pilot)")
     ap.add_argument("--code", help="course code to sync (default: all is_pilot)")
     ap.add_argument("--dry-run", action="store_true", help="enrollments + match only")
-    ap.add_argument("--model", help="bifrost model for the digest (default: config)")
+    ap.add_argument("--model", help="LLM model for the digest (default: config)")
     args = ap.parse_args()
 
     cfg = Config.load()

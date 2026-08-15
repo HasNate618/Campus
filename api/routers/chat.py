@@ -1,6 +1,6 @@
 """Real chat SSE — streams run_turn with tool_start/tool_end/token/done.
 
-run_turn is synchronous (blocking httpx to bifrost), so it runs in a worker
+run_turn is synchronous (blocking httpx to the LLM endpoint), so it runs in a worker
 thread; events flow through an asyncio.Queue into the SSE response.
 """
 
@@ -48,7 +48,7 @@ class ChatRequest(BaseModel):
     course_id: int | None = None
     history: list[dict[str, Any]] = []
     session_id: int | None = None  # optional server-side persistence
-    model: str | None = None  # bifrost model override (default = config)
+    model: str | None = None  # LLM model override (default = config)
     branch: str | None = None  # user-node id that starts this turn (fork key)
 
 
@@ -193,11 +193,12 @@ def delete_session(sid: int):
 
 @router.get("/models")
 def list_models():
-    """Bifrost model list for the UI model selector."""
+    """LLM model list for the UI model selector (OpenAI-compatible /models)."""
     from api.config import cfg
+    from agent.chat import llm_headers
     import httpx
     try:
-        r = httpx.get(f"{cfg.bifrost_url}/models", timeout=15)
+        r = httpx.get(f"{cfg.llm_url}/models", headers=llm_headers(cfg), timeout=15)
         r.raise_for_status()
         data = r.json()
         models = []
@@ -258,7 +259,7 @@ async def chat(req: ChatRequest) -> EventSourceResponse:
         loop.call_soon_threadsafe(queue.put_nowait, {"event": event, "data": data})
 
     async def runner() -> None:
-        # CRITICAL (2026-08-03): if _do_turn raises (bifrost 400, DB error),
+        # CRITICAL (2026-08-03): if _do_turn raises (LLM 400, DB error),
         # the to_thread re-raises here and — without this guard — None is
         # never queued, so the SSE generator blocks on queue.get() forever
         # and the client's spinner never resolves. Always emit an error

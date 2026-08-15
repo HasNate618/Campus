@@ -1,12 +1,12 @@
-"""Semantic corpus index: Cohere embeddings + rerank via bifrost.
+"""Semantic corpus index: embeddings + rerank via the configured LLM endpoint.
 
 chunks table: id, course_id, ref (display path), chunk_idx, text, embedding
 (BLOB of float32), src_hash (the source item's content hash — incremental
 rebuild skips unchanged refs).
 
 Search flow: embed the query → cosine top-N candidates (brute force — the
-corpus is a few hundred chunks, no vector extension needed) → Cohere rerank
-those candidates through bifrost → top_k cited passages.
+corpus is a few hundred chunks, no vector extension needed) → rerank
+those candidates through the LLM endpoint → top_k cited passages.
 """
 
 from __future__ import annotations
@@ -19,6 +19,8 @@ import struct
 from pathlib import Path
 
 import httpx
+
+from agent.chat import llm_headers
 
 CHUNK_CHARS = 800
 RERANK_CANDIDATES = 20
@@ -53,7 +55,8 @@ def _embed(cfg, texts: list[str]) -> list[list[float]]:
         for i in range(0, len(texts), BATCH):
             batch = texts[i:i + BATCH]
             r = client.post(
-                f"{cfg.bifrost_url}/embeddings",
+                f"{cfg.llm_url}/embeddings",
+                headers=llm_headers(cfg),
                 json={"model": EMBED_MODEL, "input": batch},
             )
             r.raise_for_status()
@@ -64,12 +67,13 @@ def _embed(cfg, texts: list[str]) -> list[list[float]]:
 
 
 def _rerank_scores(cfg, query: str, docs: list[str]) -> list[float]:
-    """Rerank docs via Cohere rerank through bifrost; scores aligned to docs."""
+    """Rerank docs via the LLM endpoint's rerank; scores aligned to docs."""
     if not docs:
         return []
     with httpx.Client(timeout=90) as client:
         r = client.post(
-            f"{cfg.bifrost_url}/rerank",
+            f"{cfg.llm_url}/rerank",
+            headers=llm_headers(cfg),
             json={
                 "model": RERANK_MODEL,
                 "query": query,

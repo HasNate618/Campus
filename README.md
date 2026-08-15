@@ -46,8 +46,8 @@ python3 -m uvicorn api.main:app --port 8000
 ```
 
 Then open http://localhost:8000 — sample courses render without any LMS
-credentials. Chat needs `bifrost_url` + `bifrost_model` pointing at an
-OpenAI-compatible endpoint (see config).
+credentials. Chat needs `llm_url` + `llm_model` (any OpenAI-compatible
+endpoint; set `llm_api_key` if it requires auth).
 
 ## Real use
 

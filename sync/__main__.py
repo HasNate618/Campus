@@ -8,7 +8,7 @@ Commands:
   extract [--code X]   PDF → markdown via pdf-extractor (keeps originals)
           [--file P]   extract a single file
           [--max-mb N] size cap
-  models               list models served by bifrost (for --model / config)
+  models               list models served by the LLM endpoint (for --model / config)
 """
 import sys
 
