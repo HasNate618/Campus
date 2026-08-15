@@ -18,11 +18,11 @@ The agent harness is the product; the web UI is a surface over it.
   content tree, module landing pages, files, dropbox assignments,
   announcements, and syllabus. sha256 change detection; nothing is scraped
   in the background, nothing is re-downloaded unchanged.
-- **Course-scoped AI chat** — an agent with 17 tools over your data:
+- **Course-scoped AI chat** — an agent with 19 tools over your data:
   assignments/announcements/facts, paginated file reads, grep, semantic
   search, audited mutations (extend a due date, add a note, write a fact),
-  and web search for outside questions. Every mutation is written to an
-  `audit_log` with before/after JSON.
+  free-recall quizzes, and web search for outside questions. Every mutation
+  is written to an `audit_log` with before/after JSON.
 - **Semantic + lexical search** — embeddings + rerank over extracted course
   content, with an exact-phrase lexical boost so "where does it say X"
   questions find the verbatim answer instead of burying it under paraphrase
@@ -70,6 +70,11 @@ Three decisions shape everything:
    rerank, *plus* a SQLite `instr()` lexical pre-filter that force-promotes
    verbatim phrase matches to the front of the results. The snippet is
    windowed around the match so the answer text survives the cut.
+4. **Quiz-me is blind-graded free recall.** The harness starts a quiz over
+   the course's active memory facts; the grading model sees ONLY the answer
+   key and the user's words — never the questions — so it can't flatter or
+   leak the lesson. Recently-quizzed facts are skipped for 7 days so the
+   answers don't sit in chat history.
 
 ## Project layout
 
@@ -174,23 +179,6 @@ chunking, cosine), and the agent security blocklist.
 
 GitHub Actions runs the backend tests on Python 3.12 and the web
 type-check + production build on Node 22 for every push to `main`.
-
-## Troubleshooting
-
-- **Chat answers with HTTP 402** — the selected model's provider is
-  rejecting requests (credits, availability). Pick another model in the
-  chat model picker; the UI now auto-drops a stored model that's no longer
-  in the live list, falling back to the configured default.
-- **"No valid token stored"** — the MFA token expired (1h TTL). Run
-  `python3 -m sync auth` and approve the push.
-- **Search misses an exact phrase** — the lexical phrase path is force-
-  promoted ahead of rerank, so a verbatim hit should surface; if it doesn't,
-  check the chunk was indexed (`sync/search.py` rebuild) before assuming a
-  data gap.
-- **Fresh clone dies with "no such table"** — schema is applied only by
-  `seed/seed.py` or the Docker CMD on a missing DB. Seed before syncing.
-- **Code changes don't show in the web app** — the server imports modules
-  at startup; restart the process after changing `api/` or `agent/`.
 
 ## License
 
