@@ -82,6 +82,7 @@ def app_config():
     return {
         "brightspace_hosts": list(_cfg.brightspace_hosts),
         "brightspace_base_url": _cfg.brightspace_base_url,
+        "llm_model": _cfg.llm_model,
     }
 
 

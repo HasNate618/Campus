@@ -18,6 +18,7 @@ import {
 import { courseColor } from '@/lib/courses'
 import { fmtRelative } from '@/lib/format'
 import { api } from '@/api/client'
+import { getLlmModel } from '@/lib/appConfig'
 import { listKeys, useListCursor, useZoneKeys } from '@/lib/keynav'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
 import { useChat, pathFor, type MsgNode, type StepItem } from './ChatContext'
@@ -115,6 +116,9 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
         : models,
     [models, modelQuery],
   )
+  // server-configured default model (config llm_model) — used for the
+  // context-window fallback when nothing is explicitly selected
+  const ctxDefault = getLlmModel() || filteredModels[0] || ''
   const [expandedSteps, setExpandedSteps] = useState<Record<string, boolean>>({})
   const [expandedStepDetail, setExpandedStepDetail] = useState<Record<string, boolean>>({})
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
@@ -129,10 +133,18 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
     api
       .models()
       .then((d) => {
-        if (d.models?.length) setModels(d.models)
+        if (d.models?.length) {
+          setModels(d.models)
+          // A model persisted in localStorage can go stale (removed upstream,
+          // renamed, or a provider that no longer accepts it) — if the stored
+          // model isn't in the live list, drop it so chat falls back to the
+          // server default instead of 402ing on every turn.
+          if (model && !d.models.includes(model)) setModel(null)
+        }
         if (d.contexts) setContexts(d.contexts)
       })
       .catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const session = activeFor(courseId)
@@ -143,7 +155,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
   // fall back to the configured default model's window when none is selected
   const ctxMax = model
     ? (contexts[model] ?? null)
-    : (contexts['opencode-go/deepseek-v4-flash'] ?? contexts['DeepSeek/deepseek-v4-flash'] ?? null)
+    : (ctxDefault ? contexts[ctxDefault] ?? null : null)
   const ctxText =
     lastAssistant?.tokens?.prompt_tokens != null
       ? `${fmtTokens(lastAssistant.tokens.prompt_tokens)}${ctxMax ? `/${fmtTokens(ctxMax)}` : ''}`

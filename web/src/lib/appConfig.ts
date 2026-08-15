@@ -5,9 +5,16 @@
 import { setProxyHosts } from './sanitize'
 
 let brightspaceBaseUrl = ''
+let llmModel = ''
 
 export function getBrightspaceBaseUrl(): string {
   return brightspaceBaseUrl
+}
+
+/** The server-configured default model (config llm_model) — the fallback
+ *  the chat uses when no model is explicitly selected. */
+export function getLlmModel(): string {
+  return llmModel
 }
 
 export async function loadAppConfig(): Promise<void> {
@@ -17,6 +24,7 @@ export async function loadAppConfig(): Promise<void> {
     const cfg = await r.json()
     setProxyHosts(cfg.brightspace_hosts ?? [])
     brightspaceBaseUrl = cfg.brightspace_base_url ?? ''
+    llmModel = cfg.llm_model ?? ''
   } catch {
     /* API not reachable (e.g. static dev) — leave defaults (disabled) */
   }
