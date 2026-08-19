@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSchedule } from '@/lib/useSchedule'
 import {
   DAY_FULL,
@@ -98,6 +98,21 @@ export function SchedulePage() {
   const nowMin = now.getHours() * 60 + now.getMinutes()
   const nowTop = (nowMin - MIN_START) * PX_MIN
   const showNow = today != null && nowMin >= MIN_START && nowMin <= MIN_END
+  const ttWrapRef = useRef<HTMLDivElement>(null)
+  const todayColRef = useRef<HTMLDivElement>(null)
+
+  // On mobile, keep all five days available but focus the current day.
+  useEffect(() => {
+    const wrap = ttWrapRef.current
+    const todayCol = todayColRef.current
+    if (!wrap || !todayCol) return
+    requestAnimationFrame(() => {
+      wrap.scrollLeft = Math.max(0, todayCol.offsetLeft - 48)
+      if (showNow) {
+        wrap.scrollTop = Math.max(0, nowTop - wrap.clientHeight / 2)
+      }
+    })
+  }, [showNow, today, nowTop])
 
   const byDay = useMemo(() => {
     const map: Record<Meeting['day'], Interval[]> = { M: [], Tu: [], W: [], Th: [], F: [] }
@@ -152,13 +167,14 @@ export function SchedulePage() {
         </button>
       </div>
 
+
       {error && (
         <div className="empty">
           Couldn't load your schedule — {error}
         </div>
       )}
       {!error && (
-        <div className="tt-wrap">
+        <div className="tt-wrap" ref={ttWrapRef}>
           {loading && <div className="empty">Loading schedule…</div>}
           <div className="tt">
           <div />
@@ -179,6 +195,7 @@ export function SchedulePage() {
           {DAYS.map((d) => (
             <div
               key={d}
+              ref={d === today ? todayColRef : undefined}
               className={`tt-col${d === today ? ' today' : ''}`}
               style={{ height: (MIN_END - MIN_START) * PX_MIN }}
             >

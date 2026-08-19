@@ -2342,6 +2342,10 @@
   .tt-ruler {
     position: relative;
     grid-row: 2;
+    position: sticky;
+    left: 0;
+    z-index: 5;
+    background: var(--background);
   }
 
   .tt-hour {
@@ -2454,6 +2458,18 @@
   .sched-legend-credit {
     color: var(--text-3);
     font-size: 11.5px;
+  }
+
+  @media (max-width: 860px) {
+    .tt {
+      grid-template-columns: 48px repeat(5, minmax(130px, 1fr));
+      min-width: 820px;
+    }
+
+    .tt-wrap {
+      max-height: calc(100dvh - 260px);
+      overflow: auto;
+    }
   }
 
   .popover.left {
