@@ -2387,7 +2387,10 @@
     position: sticky;
     left: 0;
     z-index: 5;
-    background: var(--glass-bg);
+    /* Opaque gutter: the ruler is sticky over the scrolling day columns, so
+       it must be solid to cull (hide) courses sliding behind it. A
+       translucent fill would let the blocks bleed through under the times. */
+    background: hsl(var(--background));
     border-right: 1px solid var(--glass-border);
   }
 
