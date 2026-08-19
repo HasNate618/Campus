@@ -856,7 +856,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         .map((n) => ({ role: n.role as 'user' | 'assistant', content: n.content }))
       busyRef.current = true
       setBusy(true)
-      streamTurn(sessionId, userNode.id, userNode.content, session.courseId, history)
+      streamTurn(sessionId, userNode.id, userNode.content, session.courseId, history, userNode.attachments ?? [])
     },
     [sessions, streamTurn],
   )
@@ -897,7 +897,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       )
       busyRef.current = true
       setBusy(true)
-      streamTurn(sessionId, nodeId, newText, session.courseId, history)
+      streamTurn(sessionId, nodeId, newText, session.courseId, history, target.attachments ?? [])
     },
     [sessions, streamTurn],
   )
