@@ -100,6 +100,13 @@ export const api = {
     ),
   digest: () => get<{ generated_at: string; markdown: string; source: string }>('/digest/latest'),
   models: () => get<{ models: string[]; contexts?: Record<string, number>; error?: string }>('/chat/models'),
+  chatUpload: async (file: File): Promise<ChatAttachment> => {
+    const form = new FormData()
+    form.append('file', file)
+    const res = await fetch(`${BASE}/chat/uploads`, { method: 'POST', body: form })
+    if (!res.ok) throw new Error((await res.text().catch(() => '')) || `${res.status} ${res.statusText}`)
+    return res.json()
+  },
   // server-side chat sessions (the message tree lives in the DB)
   chatSessions: (courseId?: number) =>
     get<ChatServerSession[]>(`/chat/sessions${courseId != null ? `?course_id=${courseId}` : ''}`),
@@ -109,6 +116,13 @@ export const api = {
   chatSessionSave: (id: number, body: { title?: string; nodes: unknown[]; activeNodeId: string | null; updatedAt?: number }) =>
     put(`/chat/sessions/${id}`, body),
   chatSessionDelete: (id: number) => del(`/chat/sessions/${id}`),
+}
+
+export interface ChatAttachment {
+  id: string
+  name: string
+  mime: string
+  size: number
 }
 
 export interface ChatServerSession {
@@ -143,11 +157,12 @@ export async function streamChat(
   history: { role: 'user' | 'assistant'; content: string }[] = [],
   model?: string,
   branch?: string,
+  attachments: string[] = [],
 ): Promise<void> {
   const res = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-    body: JSON.stringify({ message, course_id: courseId, history, model, branch }),
+    body: JSON.stringify({ message, course_id: courseId, history, model, branch, attachments }),
   })
   if (!res.ok || !res.body) throw new Error('Chat stream failed')
 

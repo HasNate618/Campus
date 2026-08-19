@@ -34,6 +34,18 @@ class DB:
                 topic_id INTEGER NOT NULL REFERENCES content_nodes(id) ON DELETE CASCADE,
                 PRIMARY KEY (file_id, topic_id)
             )""")
+        self.conn.execute(
+            """CREATE TABLE IF NOT EXISTS chat_attachments (
+                id TEXT PRIMARY KEY,
+                session_id INTEGER REFERENCES chat_sessions(id) ON DELETE CASCADE,
+                original_name TEXT NOT NULL,
+                mime_type TEXT NOT NULL,
+                stored_path TEXT NOT NULL,
+                size INTEGER NOT NULL,
+                sha256 TEXT NOT NULL,
+                extracted_text TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )""")
         self.conn.commit()
 
     def link_file_topic(self, file_id: int, topic_id: int) -> None:

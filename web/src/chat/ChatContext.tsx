@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { streamChat, api, type ChatServerSession } from '@/api/client'
+import { streamChat, api, type ChatAttachment, type ChatServerSession } from '@/api/client'
 
 /** Chat message tree (Open WebUI-style): a flat node store linked by
  *  parentId/children. The visible conversation is the path from the root
@@ -51,6 +51,7 @@ export interface MsgNode {
   result?: unknown
   done?: boolean
   open?: boolean
+  attachments?: ChatAttachment[]
   createdAt: number
 }
 
@@ -118,7 +119,7 @@ interface ChatContextValue {
   newChat: (courseId: number) => void
   renameSession: (sessionId: string, title: string) => void
   deleteSession: (sessionId: string) => void
-  send: (courseId: number, text: string) => boolean
+  send: (courseId: number, text: string, attachments?: ChatAttachment[]) => boolean
   regenerate: (sessionId: string, nodeId: string) => void
   editMessage: (sessionId: string, nodeId: string, newText: string) => void
   deleteMessage: (sessionId: string, nodeId: string) => void
@@ -537,7 +538,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   /** Stream one turn into a new assistant child of userNodeId. */
   const streamTurn = useCallback(
-    (sid: string, userNodeId: string, message: string, courseId: number | null, history: { role: 'user' | 'assistant'; content: string }[]) => {
+    (sid: string, userNodeId: string, message: string, courseId: number | null, history: { role: 'user' | 'assistant'; content: string }[], attachments: ChatAttachment[] = []) => {
       let assistantId: string | null = null
       let turnThinking = ''
       let receivedDone = false
@@ -730,6 +731,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         history,
         modelRef.current ?? undefined,
         userNodeId,
+        attachments.map((a) => a.id),
       )
         .catch((err) => {
           // surface stream failures IN the chat — never silent
@@ -790,8 +792,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   )
 
   const send = useCallback(
-    (courseId: number, text: string): boolean => {
-      if (busyRef.current || !text.trim()) return false
+    (courseId: number, text: string, attachments: ChatAttachment[] = []): boolean => {
+      if (busyRef.current || (!text.trim() && !attachments.length)) return false
       let sid = activeFor(courseId)?.id
       if (!sid) {
         // first message of a new session — create it inline (async newChat
@@ -812,7 +814,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           if (s.id !== sid) return s
           const userNode: MsgNode = {
             id: userNodeId, parentId: s.activeNodeId, children: [], role: 'user',
-            content: text, createdAt: Date.now(),
+            content: text, attachments: attachments.length ? attachments : undefined, createdAt: Date.now(),
           }
           const nodes = s.activeNodeId
             ? s.nodes.map((n) => (n.id === s.activeNodeId ? { ...n, children: [...n.children, userNodeId] } : n))
@@ -833,7 +835,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       } catch {
         /* never let a non-critical write kill the stream */
       }
-      streamTurn(sid, userNodeId, text, courseId, history)
+      streamTurn(sid, userNodeId, text, courseId, history, attachments)
       return true
     },
     [activeFor, sessions, setLastCourse, streamTurn],

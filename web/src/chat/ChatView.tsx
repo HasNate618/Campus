@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import { courseColor } from '@/lib/courses'
 import { fmtRelative } from '@/lib/format'
-import { api } from '@/api/client'
+import { api, type ChatAttachment } from '@/api/client'
 import { getLlmModel } from '@/lib/appConfig'
 import { listKeys, useListCursor, useZoneKeys } from '@/lib/keynav'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
@@ -101,6 +101,9 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
     setModel,
   } = useChat()
   const [input, setInput] = useState('')
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [modelOpen, setModelOpen] = useState(false)
@@ -125,6 +128,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
   const [editText, setEditText] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const historyRef = useRef<HTMLDivElement>(null)
   const pickerRef = useRef<HTMLDivElement>(null)
   const modelRef = useRef<HTMLDivElement>(null)
@@ -490,7 +494,12 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
               </div>
             ) : (
               <>
-                <div className="msg-user">{node.content}</div>
+                {node.attachments?.length ? (
+                  <div className="msg-attachments">
+                    {node.attachments.map((a) => <span className="msg-attachment" key={a.id}>{a.name}</span>)}
+                  </div>
+                ) : null}
+                {node.content && <div className="msg-user">{node.content}</div>}
                 <div className="msg-actions">
                   <button className="icon-btn" title="Edit (rewind)" onClick={() => startEdit(node)}>
                     <SquarePen size={12} />
@@ -619,10 +628,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      if (send(courseId, input)) {
-        setInput('')
-        resetInputHeight()
-      }
+      void submit()
     }
   }
 
@@ -638,12 +644,33 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
     if (inputRef.current) inputRef.current.style.height = 'auto'
   }
 
-  const submit = () => {
-    if (send(courseId, input)) {
-      setInput('')
-      resetInputHeight()
+  const submit = async () => {
+    if (busy || uploading || (!input.trim() && !selectedFiles.length)) return
+    setUploading(true)
+    setUploadError(null)
+    try {
+      const attachments: ChatAttachment[] = []
+      for (const file of selectedFiles) attachments.push(await api.chatUpload(file))
+      if (send(courseId, input, attachments)) {
+        setInput('')
+        setSelectedFiles([])
+        resetInputHeight()
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Upload failed'
+      setUploadError(message)
+      console.error('[chat-upload]', e)
+    } finally {
+      setUploading(false)
     }
   }
+
+  const addFiles = (files: FileList | null) => {
+    if (!files) return
+    setSelectedFiles((current) => [...current, ...Array.from(files)].slice(0, 8))
+  }
+
+  const removeFile = (index: number) => setSelectedFiles((files) => files.filter((_, i) => i !== index))
 
   const answerStreaming =
     !!lastAssistant && lastAssistant.streaming && !lastAssistant.intermediate
@@ -831,10 +858,21 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
               onKeyDown={onKeyDown}
               placeholder={`Ask ${course ? course.code : 'about this course'}…`}
               rows={1}
-              disabled={busy}
+              disabled={busy || uploading}
             />
+            {selectedFiles.length > 0 && (
+              <div className="attachment-strip">
+                {selectedFiles.map((file, i) => (
+                  <button type="button" className="attachment-chip" key={`${file.name}-${i}`} onClick={() => removeFile(i)} title="Remove file">
+                    {file.name} ×
+                  </button>
+                ))}
+              </div>
+            )}
+            {uploadError && <div className="upload-error">{uploadError}</div>}
             <div className="input-toolbar">
-              <button className="attach-btn" disabled title="File upload coming soon" aria-label="Attach file">
+              <input ref={fileInputRef} type="file" hidden multiple accept=".pdf,.txt,.md,.csv,.json,image/png,image/jpeg,image/webp,image/gif" onChange={(e) => { addFiles(e.target.files); e.currentTarget.value = '' }} />
+              <button className="attach-btn" type="button" onClick={() => fileInputRef.current?.click()} disabled={busy || uploading} title="Attach files" aria-label="Attach files">
                 <Paperclip size={15} />
               </button>
               <span className="ctx-meter" title="Context used so far vs the selected model's window">
@@ -908,7 +946,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
           <button
             className="send-btn"
             onClick={submit}
-            disabled={busy || !input.trim()}
+            disabled={busy || uploading || (!input.trim() && !selectedFiles.length)}
             aria-label="Send"
           >
             {busy ? <Loader2 size={16} className="animate-spin" /> : <ArrowUp size={16} />}
