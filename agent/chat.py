@@ -6,8 +6,10 @@ function with streaming.
 """
 from __future__ import annotations
 
+import base64
 import json
 import time
+from pathlib import Path
 
 import httpx
 
@@ -101,7 +103,7 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
 
 def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = None,
              model: str | None = None, history: list[dict] | None = None,
-             verbose: bool = True, emit=None) -> tuple[str, list[dict]]:
+             verbose: bool = True, emit=None, attachments: list[dict] | None = None) -> tuple[str, list[dict]]:
     """Run one user turn. Returns (final_answer, full_message_history).
 
     emit(event, data) is called for SSE streaming:
@@ -113,7 +115,25 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
     """
     messages = [{"role": "system", "content": build_system_prompt(cfg, db, course_id)}]
     messages.extend(history or [])
-    messages.append({"role": "user", "content": user_message})
+    files = attachments or []
+    extracted = [
+        f"\n\n--- Attached file: {a['original_name']} ---\n{a['extracted_text']}\n--- End attached file ---"
+        for a in files if a.get("extracted_text")
+    ]
+    images = []
+    for a in files:
+        if a.get("mime_type", "").startswith("image/"):
+            raw = Path(a["stored_path"]).read_bytes()
+            encoded = base64.b64encode(raw).decode("ascii")
+            images.append({"type": "image_url", "image_url": {
+                "url": f"data:{a['mime_type']};base64,{encoded}",
+            }})
+    if images:
+        content: str | list[dict] = [{"type": "text", "text": user_message + "".join(extracted)}]
+        content.extend(images)
+    else:
+        content = user_message + "".join(extracted)
+    messages.append({"role": "user", "content": content})
 
     total_usage: dict = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     for i in range(MAX_ITERATIONS):

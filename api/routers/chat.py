@@ -7,10 +7,15 @@ thread; events flow through an asyncio.Queue into the SSE response.
 from __future__ import annotations
 
 import asyncio
+
+import hashlib
 import json
+import mimetypes
+import uuid
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -50,6 +55,82 @@ class ChatRequest(BaseModel):
     session_id: int | None = None  # optional server-side persistence
     model: str | None = None  # LLM model override (default = config)
     branch: str | None = None  # user-node id that starts this turn (fork key)
+    attachments: list[str] = []
+
+
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+ALLOWED_UPLOADS = {
+    "application/pdf", "text/plain", "text/markdown", "text/csv", "application/json",
+    "image/png", "image/jpeg", "image/webp", "image/gif",
+}
+
+
+def _upload_root(cfg) -> Path:
+    root = cfg.db_path.parent / "chat_uploads"
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return root
+
+
+def _extract_upload(path: Path, mime: str) -> str | None:
+    if mime == "application/pdf":
+        import fitz
+        doc = fitz.open(path)
+        text = "\n\n".join(f"[Page {i + 1}]\n{page.get_text()}" for i, page in enumerate(doc))
+        return text[:120_000] or None
+    if mime.startswith("text/") or mime == "application/json":
+        return path.read_text(encoding="utf-8", errors="replace")[:120_000]
+    return None
+
+
+@router.post("/uploads")
+async def upload_attachment(file: UploadFile = File(...)):
+    """Store one chat attachment and return metadata, never raw file bytes."""
+    from sync.config import Config
+    from sync.db import DB
+    cfg = Config.load()
+    mime = (file.content_type or mimetypes.guess_type(file.filename or "")[0] or "").lower()
+    if mime not in ALLOWED_UPLOADS:
+        raise HTTPException(415, "Unsupported file type")
+    attachment_id = uuid.uuid4().hex
+    path = _upload_root(cfg) / attachment_id
+    digest = hashlib.sha256()
+    size = 0
+    try:
+        with path.open("wb") as out:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > MAX_UPLOAD_BYTES:
+                    raise HTTPException(413, "File exceeds the 20 MB limit")
+                digest.update(chunk)
+                out.write(chunk)
+        extracted = _extract_upload(path, mime)
+        db = DB(cfg.db_path)
+        try:
+            db.conn.execute(
+                "INSERT INTO chat_attachments (id, original_name, mime_type, stored_path, size, sha256, extracted_text) VALUES (?,?,?,?,?,?,?)",
+                (attachment_id, (file.filename or "attachment")[:240], mime, str(path), size, digest.hexdigest(), extracted),
+            )
+            db.conn.commit()
+        finally:
+            db.close()
+        return {"id": attachment_id, "name": (file.filename or "attachment")[:240], "mime": mime, "size": size}
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+
+
+def _load_attachments(db, cfg, ids: list[str]) -> list[dict[str, Any]]:
+    if not ids:
+        return []
+    clean = list(dict.fromkeys(ids))[:8]
+    rows = db.conn.execute(
+        f"SELECT id, original_name, mime_type, stored_path, extracted_text FROM chat_attachments WHERE id IN ({','.join('?' for _ in clean)})",
+        clean,
+    ).fetchall()
+    found = {r["id"] for r in rows}
+    if found != set(clean):
+        raise HTTPException(404, "One or more attachments were not found")
+    return [dict(r) for r in rows]
 
 
 @router.get("/sessions")
@@ -227,9 +308,10 @@ def _do_turn(req: ChatRequest, emit) -> None:
     key: tuple = (req.session_id or req.course_id, req.branch or "")
     try:
         history = _inject_reasoning(req.history, key)
+        attachments = _load_attachments(db, cfg, req.attachments)
         answer, full_history = run_turn(cfg, db, req.message, course_id=req.course_id,
                                         model=req.model, history=history,
-                                        verbose=False, emit=emit)
+                                        verbose=False, emit=emit, attachments=attachments)
         _store_reasoning(full_history, key)
         if req.session_id:
             db.conn.execute(
