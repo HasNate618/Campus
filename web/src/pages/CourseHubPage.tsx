@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Bell, CalendarDays } from 'lucide-react'
+import { ArrowLeft, Bell, CalendarDays } from 'lucide-react'
 import { api } from '@/api/client'
 import { ChatView } from '@/chat/ChatView'
 import { useChat } from '@/chat/ChatContext'
@@ -88,12 +88,15 @@ export function CourseLayout() {
     <div className="page course-page">
       <header className="course-head">
         <div className="course-head-main">
+          <Link to="/courses" className="course-back mobile-only">
+            <ArrowLeft size={14} /> Courses
+          </Link>
           <div className="course-head-title">
             {course && (
               <span className="dot" style={{ background: courseColor(course), width: 10, height: 10 }} />
             )}
             <h1 className="page-title">{course?.code ?? '…'}</h1>
-            {course && <span className="chip">{course.term}</span>}
+            {course && <span className="chip course-term">{course.term}</span>}
             <p className="page-sub course-head-name">{course?.name ?? ''}</p>
           </div>
         </div>
@@ -113,6 +116,20 @@ export function CourseLayout() {
             </NavLink>
           </nav>
         </div>
+        <nav className="course-tabs-mobile mobile-only" aria-label="Course sections">
+          <NavLink to={`/courses/${cid}`} end className={({ isActive }) => `tab-link${isActive ? ' active' : ''}`}>
+            Overview
+          </NavLink>
+          <NavLink to={`/courses/${cid}/content`} className={({ isActive }) => `tab-link${isActive ? ' active' : ''}`}>
+            Content
+          </NavLink>
+          <NavLink to={`/courses/${cid}/assignments`} className={({ isActive }) => `tab-link${isActive ? ' active' : ''}`}>
+            Assignments
+          </NavLink>
+          <NavLink to={`/courses/${cid}/workspace`} className={({ isActive }) => `tab-link${isActive ? ' active' : ''}`}>
+            Workspace
+          </NavLink>
+        </nav>
       </header>
       <div className="course-scroll">
         <div className="page-col">
