@@ -1,9 +1,9 @@
 {
-  "id": "/",
+  "id": "/today",
   "name": "Campus",
   "short_name": "Campus",
   "description": "Personal AI study system — sync your LMS, ask your courses",
-  "start_url": "/",
+  "start_url": "/today",
   "scope": "/",
   "display": "standalone",
   "background_color": "#09090c",
