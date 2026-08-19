@@ -2353,17 +2353,33 @@
   }
 
   .tt-wrap {
-    overflow-x: auto;
     border: 1px solid var(--glass-border);
     border-radius: 12px;
     background: var(--glass-bg);
     box-shadow: var(--glass-shadow);
+    overflow: hidden;
   }
 
+  /* Two-pane timetable: a static time gutter (.tt-ruler) sits left of a
+     horizontally-scrolling day grid (.tt-scroll). Courses live only in the
+     scrolling pane, so they never enter the gutter — they're culled by
+     layout, not by painting an opaque fill. */
   .tt {
+    display: flex;
+    align-items: stretch;
+  }
+
+  .tt-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .tt-grid {
     display: grid;
-    grid-template-columns: 52px repeat(5, minmax(130px, 1fr));
-    min-width: 820px;
+    grid-template-columns: repeat(5, minmax(130px, 1fr));
+    min-width: 768px;
   }
 
   .tt-day-head {
@@ -2373,7 +2389,11 @@
     text-transform: uppercase;
     color: var(--text-3);
     text-align: center;
-    padding: 8px 4px 6px;
+    height: 36px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     border-left: 1px solid var(--glass-border);
   }
 
@@ -2382,16 +2402,37 @@
   }
 
   .tt-ruler {
+    /* No background: this gutter is a separate non-scrolling pane, so
+       courses are culled by layout (they never sit under it). */
     position: relative;
-    grid-row: 2;
-    position: sticky;
-    left: 0;
-    z-index: 5;
-    /* Opaque gutter: the ruler is sticky over the scrolling day columns, so
-       it must be solid to cull (hide) courses sliding behind it. A
-       translucent fill would let the blocks bleed through under the times. */
-    background: hsl(var(--background));
+    flex: 0 0 52px;
+    width: 52px;
     border-right: 1px solid var(--glass-border);
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Header spacer aligns the ruler's hour labels with the day grid's
+     header row; the body below it is the absolutely-positioned hour track. */
+  .tt-ruler-head {
+    height: 36px;
+    flex: 0 0 36px;
+    border-bottom: 1px solid var(--glass-border);
+  }
+
+  .tt-ruler-body {
+    position: relative;
+    flex: 1;
+  }
+
+  .tt-now-ruler {
+    left: 0;
+    right: 0;
+  }
+
+  .tt-now-ruler .tt-now-dot {
+    left: -3px;
   }
 
   .tt-hour {
@@ -2507,14 +2548,23 @@
   }
 
   @media (max-width: 860px) {
-    .tt {
-      grid-template-columns: 48px repeat(5, minmax(130px, 1fr));
-      min-width: 820px;
+    .tt-ruler {
+      flex-basis: 48px;
+      width: 48px;
+    }
+
+    .tt-grid {
+      grid-template-columns: repeat(5, minmax(130px, 1fr));
+      min-width: 768px;
     }
 
     .tt-wrap {
       max-height: calc(100dvh - 260px);
-      overflow: auto;
+    }
+
+    /* vertical scroll rides with the day grid (the gutter is fixed by flex) */
+    .tt-scroll {
+      overflow-y: auto;
     }
   }
 

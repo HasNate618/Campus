@@ -98,12 +98,12 @@ export function SchedulePage() {
   const nowMin = now.getHours() * 60 + now.getMinutes()
   const nowTop = (nowMin - MIN_START) * PX_MIN
   const showNow = today != null && nowMin >= MIN_START && nowMin <= MIN_END
-  const ttWrapRef = useRef<HTMLDivElement>(null)
+  const ttScrollRef = useRef<HTMLDivElement>(null)
   const todayColRef = useRef<HTMLDivElement>(null)
 
   // On mobile, keep all five days available but focus the current day.
   useEffect(() => {
-    const wrap = ttWrapRef.current
+    const wrap = ttScrollRef.current
     const todayCol = todayColRef.current
     if (!wrap || !todayCol) return
     requestAnimationFrame(() => {
@@ -174,75 +174,86 @@ export function SchedulePage() {
         </div>
       )}
       {!error && (
-        <div className="tt-wrap" ref={ttWrapRef}>
+        <div className="tt">
           {loading && <div className="empty">Loading schedule…</div>}
-          <div className="tt">
-          <div />
-          {DAYS.map((d) => (
-            <div key={d} className={`tt-day-head${d === today ? ' today' : ''}`}>
-              {DAY_FULL[d]}
-            </div>
-          ))}
-
+          {/* Static time gutter — never scrolls, so courses in the day pane
+              to its right are culled by layout, not by an opaque fill. */}
           <div className="tt-ruler">
-            {hours.map((h) => (
-              <span key={h} className="tt-hour" style={{ top: (h * 60 - MIN_START) * PX_MIN }}>
-                {fmtHour(h)}
-              </span>
-            ))}
-          </div>
-
-          {DAYS.map((d) => (
-            <div
-              key={d}
-              ref={d === today ? todayColRef : undefined}
-              className={`tt-col${d === today ? ' today' : ''}`}
-              style={{ height: (MIN_END - MIN_START) * PX_MIN }}
-            >
+            <div className="tt-ruler-head" />
+            <div className="tt-ruler-body">
               {hours.map((h) => (
-                <span key={h} className="tt-line" style={{ top: (h * 60 - MIN_START) * PX_MIN }} />
+                <span key={h} className="tt-hour" style={{ top: (h * 60 - MIN_START) * PX_MIN }}>
+                  {fmtHour(h)}
+                </span>
               ))}
-              {d === today && showNow && (
-                <span className="tt-now" style={{ top: nowTop }}>
+              {showNow && (
+                <span className="tt-now tt-now-ruler" style={{ top: nowTop }}>
                   <span className="tt-now-dot" />
                 </span>
               )}
-              {byDay[d].map((iv, i) => {
-                const color = courseColor(iv.course)
-                const top = (iv.start - MIN_START) * PX_MIN
-                const height = Math.max((iv.end - iv.start) * PX_MIN, 18)
-                const w = 100 / iv.lanes
-                const tall = height >= 44
-                return (
-                  <div
-                    key={i}
-                    className="tt-block"
-                    title={`${iv.course.code} · ${iv.course.name}\n${iv.block.type} ${iv.block.section} · CRN ${iv.block.crn}${iv.block.instructor ? ` · ${iv.block.instructor}` : ''}\n${iv.meeting.start} – ${iv.meeting.end}${iv.meeting.room ? ` · ${iv.meeting.room}` : ''}`}
-                    style={{
-                      top,
-                      height,
-                      left: `${iv.lane * w}%`,
-                      width: `${w}%`,
-                      background: `${color}24`,
-                      borderColor: `${color}66`,
-                      color,
-                    }}
-                  >
-                    <b className="tt-code">{iv.course.code}</b>
-                    {tall && <span className="tt-type">{iv.block.type}</span>}
-                    {tall && (
-                      <span className="tt-time">
-                        {iv.meeting.start}–{iv.meeting.end}
-                        {iv.meeting.room ? ` · ${iv.meeting.room}` : ''}
-                      </span>
-                    )}
-                  </div>
-                )
-              })}
             </div>
-          ))}
+          </div>
+
+          <div className="tt-scroll" ref={ttScrollRef}>
+            <div className="tt-grid">
+              {DAYS.map((d) => (
+                <div key={d} className={`tt-day-head${d === today ? ' today' : ''}`}>
+                  {DAY_FULL[d]}
+                </div>
+              ))}
+
+              {DAYS.map((d) => (
+                <div
+                  key={d}
+                  ref={d === today ? todayColRef : undefined}
+                  className={`tt-col${d === today ? ' today' : ''}`}
+                  style={{ height: (MIN_END - MIN_START) * PX_MIN }}
+                >
+                  {hours.map((h) => (
+                    <span key={h} className="tt-line" style={{ top: (h * 60 - MIN_START) * PX_MIN }} />
+                  ))}
+                  {d === today && showNow && (
+                    <span className="tt-now" style={{ top: nowTop }}>
+                      <span className="tt-now-dot" />
+                    </span>
+                  )}
+                  {byDay[d].map((iv, i) => {
+                    const color = courseColor(iv.course)
+                    const top = (iv.start - MIN_START) * PX_MIN
+                    const height = Math.max((iv.end - iv.start) * PX_MIN, 18)
+                    const w = 100 / iv.lanes
+                    const tall = height >= 44
+                    return (
+                      <div
+                        key={i}
+                        className="tt-block"
+                        title={`${iv.course.code} · ${iv.course.name}\n${iv.block.type} ${iv.block.section} · CRN ${iv.block.crn}${iv.block.instructor ? ` · ${iv.block.instructor}` : ''}\n${iv.meeting.start} – ${iv.meeting.end}${iv.meeting.room ? ` · ${iv.meeting.room}` : ''}`}
+                        style={{
+                          top,
+                          height,
+                          left: `${iv.lane * w}%`,
+                          width: `${w}%`,
+                          background: `${color}24`,
+                          borderColor: `${color}66`,
+                          color,
+                        }}
+                      >
+                        <b className="tt-code">{iv.course.code}</b>
+                        {tall && <span className="tt-type">{iv.block.type}</span>}
+                        {tall && (
+                          <span className="tt-time">
+                            {iv.meeting.start}–{iv.meeting.end}
+                            {iv.meeting.room ? ` · ${iv.meeting.room}` : ''}
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
-      </div>
       )}
 
       <div className="sched-legend">
