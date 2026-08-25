@@ -1,24 +1,16 @@
-import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '@/api/client'
+import { useSWR } from '@/lib/useSWR'
 import { listKeys, useListCursor, useZoneKeys } from '@/lib/keynav'
 import { courseColor } from '@/lib/courses'
 import { fmtRelative } from '@/lib/format'
 import type { Course } from '@/types'
 
 export function CoursesPage() {
-  const [courses, setCourses] = useState<Course[]>([])
-  const [loading, setLoading] = useState(true)
+  // SWR-cached: revisiting this tab renders the list instantly, then revalidates
+  const [courses, loading] = useSWR<Course[]>('courses', () => api.courses(), [])
   const navigate = useNavigate()
   const cursor = useListCursor(courses.length)
-
-  useEffect(() => {
-    api
-      .courses()
-      .then(setCourses)
-      .catch(console.error)
-      .finally(() => setLoading(false))
-  }, [])
 
   useZoneKeys('course', (key) =>
     listKeys(key, cursor, () => {

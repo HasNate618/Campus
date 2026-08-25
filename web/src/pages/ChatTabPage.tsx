@@ -1,16 +1,14 @@
-import { useEffect, useState } from 'react'
 import { api } from '@/api/client'
+import { useSWR } from '@/lib/useSWR'
 import { ChatView } from '@/chat/ChatView'
 import { useChat } from '@/chat/ChatContext'
 import type { Course } from '@/types'
 
 export function ChatTabPage() {
-  const [courses, setCourses] = useState<Course[]>([])
+  // SWR-cached (shared 'courses' key with CoursesPage): without it every tab
+  // revisit flashed the "No courses synced yet" empty state while refetching
+  const [courses] = useSWR<Course[]>('courses', () => api.courses(), [])
   const { lastCourseId, setLastCourse } = useChat()
-
-  useEffect(() => {
-    api.courses().then(setCourses).catch(console.error)
-  }, [])
 
   const course = courses.find((c) => c.id === lastCourseId) ?? courses[0] ?? null
 

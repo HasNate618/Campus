@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
 import { CalendarDays, Home, LogOut } from 'lucide-react'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
 import { api } from '@/api/client'
+import { useSWR } from '@/lib/useSWR'
 import { CalendarCard } from '@/components/CalendarCard'
 import { SyncCard } from '@/components/SyncCard'
 import { eventDayKey, fmtDateTime, fmtRelative, fmtTime } from '@/lib/format'
@@ -16,13 +16,9 @@ function eventChipClass(kind: string): string {
 }
 
 export function TodayPage({ onLogout }: { onLogout?: () => void }) {
-  const [digest, setDigest] = useState<Digest | null>(null)
-  const [events, setEvents] = useState<Event[]>([])
-
-  useEffect(() => {
-    api.digest().then(setDigest).catch(() => setDigest(null))
-    api.eventsNext7().then(setEvents).catch(() => setEvents([]))
-  }, [])
+  // SWR-cached loads: revisiting this tab paints instantly and revalidates
+  const [digest] = useSWR<Digest | null>('digest', api.digest, null)
+  const [events] = useSWR<Event[]>('events-next-7', api.eventsNext7, [])
 
   const today = new Date().toLocaleDateString(undefined, {
     weekday: 'long',
