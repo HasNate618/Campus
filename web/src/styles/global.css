@@ -86,9 +86,8 @@
     --sidebar-w: 200px;
     --sidebar-w-collapsed: 62px;
 
-    /* app canvas + sidebar section (desktop matches the mobile tone) */
+    /* app canvas (desktop matches the mobile tone) */
     --bg-app: #0a0a0c;
-    --bg-sidebar: #101014;
   }
 
   html {
@@ -128,8 +127,8 @@
     width: var(--sidebar-w);
     flex-shrink: 0;
     /* integrated section, not a floating card: flush to the window edge,
-       flat surface, separated from the content area by one hairline */
-    background: var(--bg-sidebar);
+       no fill of its own — the hairline alone separates it from content */
+    background: transparent;
     border-right: 1px solid var(--glass-border);
     display: flex;
     flex-direction: column;
@@ -181,7 +180,8 @@
     cursor: pointer;
     white-space: nowrap;
     text-decoration: none;
-    transition: background 120ms ease, color 120ms ease;
+    transition: background 120ms ease, color 120ms ease,
+      padding 180ms cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .nav-item:hover {
@@ -228,7 +228,6 @@
   .sidebar-footer {
     margin-top: auto;
     padding: 8px 0 10px;
-    border-top: 1px solid var(--glass-border);
   }
 
   .sidebar-footer-row {
@@ -286,9 +285,13 @@
     overflow: hidden;
   }
 
+  /* collapsed rows stay anchored at the left edge — icons glide a few px
+     into perfect center via the padding transition above. (Centering with
+     justify-content instead made icons jump right, then drift back left
+     as the width animated.) */
   .sidebar.collapsed .nav-item {
-    justify-content: center;
     gap: 0;
+    padding-left: 12.5px; /* centers the 17px icon in the 62px rail */
   }
 
   .main {
