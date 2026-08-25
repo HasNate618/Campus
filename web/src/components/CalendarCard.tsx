@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { CalendarDays } from 'lucide-react'
 import { api } from '@/api/client'
+import { useSWR } from '@/lib/useSWR'
 import { dayKey, eventDayKey } from '@/lib/format'
 import type { Event } from '@/types'
 
@@ -10,17 +11,17 @@ const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 export function CalendarCard() {
   const navigate = useNavigate()
   const now = new Date()
-  const [events, setEvents] = useState<Event[]>([])
-
-  useEffect(() => {
-    const from = new Date(now.getFullYear(), now.getMonth(), 1)
-    const to = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
-    api
-      .events({ from_dt: from.toISOString(), to_dt: to.toISOString() })
-      .then(setEvents)
-      .catch(console.error)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  // SWR-cached per month: revisiting Home paints the grid instantly. The
+  // key is stable for the card's lifetime (the month at mount time).
+  const [events] = useSWR<Event[]>(
+    `events-month:${now.getFullYear()}:${now.getMonth()}`,
+    () => {
+      const from = new Date(now.getFullYear(), now.getMonth(), 1)
+      const to = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
+      return api.events({ from_dt: from.toISOString(), to_dt: to.toISOString() })
+    },
+    [],
+  )
 
   const byDay = useMemo(() => {
     const m = new Map<string, number>()
