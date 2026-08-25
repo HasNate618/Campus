@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 if [[ ! -d .venv ]]; then
-  python3 -m venv .venv
-  .venv/bin/pip install -q -r api/requirements.txt
+	python3 -m venv .venv
+	.venv/bin/pip install -q -r api/requirements.txt
 fi
 
 if [[ ! -f data/harness.db ]]; then
-  python3 seed/seed.py --reset
-  python3 seed/pilot_data.py
+	python3 seed/seed.py --reset
+	python3 seed/pilot_data.py
 fi
 
 LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || echo '<this-host-ip>')"
