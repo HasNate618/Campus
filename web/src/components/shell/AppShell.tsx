@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { AnimatePresence, motion } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { BookOpen, CalendarDays, Home, MessageSquare } from 'lucide-react'
 import { ChatProvider } from '@/chat/ChatContext'
 import { KeyNavProvider } from '@/lib/keynav'
@@ -14,27 +14,30 @@ const MOBILE_TABS = [
 
 function ShellInner({ onLogout }: { onLogout: () => void }) {
   const location = useLocation()
-  // Remount transitions on top-level view changes only, so drilling into
-  // content nodes within a course doesn't replay the page animation.
-  const transitionKey = location.pathname.split('/').slice(0, 3).join('/')
+  // Remount transitions on section changes only: slice(0,4) animates
+  // top-level navigation AND course-tab switches (overview ↔ content ↔
+  // assignments), while drilling into content nodes / assignment details
+  // inside a section keeps the key stable and does not replay it.
+  const transitionKey = location.pathname.split('/').slice(0, 4).join('/')
 
   return (
     <ChatProvider>
       <div className="shell">
         <Sidebar onLogout={onLogout} />
         <main className="main" data-kbd-zone="course">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={transitionKey}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={{ duration: 0.16 }}
-              style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
-            >
-              <Outlet />
-            </motion.div>
-          </AnimatePresence>
+          {/* Keyed remount → exactly ONE entrance animation per navigation.
+              Deliberately no AnimatePresence/exit animation: exit + enter
+              back-to-back read as the slide-in playing twice (and course
+              pages used to stack a second animated wrapper on top). */}
+          <motion.div
+            key={transitionKey}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.16 }}
+            style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
+          >
+            <Outlet />
+          </motion.div>
         </main>
 
         <nav className="tabbar">

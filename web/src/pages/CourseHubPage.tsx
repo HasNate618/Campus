@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { motion } from 'framer-motion'
 import { ArrowLeft, Bell, CalendarDays } from 'lucide-react'
 import { api } from '@/api/client'
 import { ChatView } from '@/chat/ChatView'
@@ -133,20 +132,12 @@ export function CourseLayout() {
       </header>
       <div className="course-scroll">
         <div className="page-col">
-          {/* Key by SECTION (overview / content / assignments) — tab
-              switches keep their transition, but navigating inside a
-              section (content nodes, assignment details) must NOT replay
-              it: remounting the pane re-animates the content tree and
-              resets its scroll on every click. */}
-          <motion.div
-            key={pathname.split('/').slice(0, 4).join('/')}
-            style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.16 }}
-          >
+          {/* No entrance animation here — the shell already plays one on
+              section changes (AppShell keys on the same slice(0,4)); this
+              wrapper used to stack a second slide-in on top of it. */}
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             <Outlet />
-          </motion.div>
+          </div>
         </div>
       </div>
     </div>
