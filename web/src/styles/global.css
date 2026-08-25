@@ -66,9 +66,14 @@
     --glass-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
     --glass-blur: blur(20px) saturate(1.4);
 
-    --text-1: rgba(255, 255, 255, 0.93);
-    --text-2: rgba(255, 255, 255, 0.62);
-    --text-3: rgba(255, 255, 255, 0.38);
+    /* OPAQUE equivalents of the old white alphas (0.93 / 0.62 / 0.38 over
+       the solid dark canvas). Stroked SVG icons self-overlap where their
+       paths join, and alpha stacking made those joints render darker —
+       blotchy glyphs in the tab bar and sidebar. Solid greys look
+       identical on our solid surfaces but composite correctly. */
+    --text-1: #ededed;
+    --text-2: #a1a1a3;
+    --text-3: #656566;
 
     --violet: #a179f0;
     --violet-solid: #7a4dbb;
