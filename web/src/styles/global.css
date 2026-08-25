@@ -2720,7 +2720,7 @@
     }
 
     .course-head {
-      padding: 8px 16px 6px;
+      padding: 8px 16px 0;
       display: block;
     }
 
@@ -2754,11 +2754,14 @@
       text-decoration: none;
     }
 
+    /* underline section tabs — plain labels, violet bar under the active
+       one riding the head's own bottom hairline (most native feel) */
     .course-tabs-mobile {
       display: flex;
-      gap: 6px;
+      gap: 20px;
+      margin: 2px -16px 0; /* full-bleed track edge-to-edge */
+      padding: 0 16px;
       overflow-x: auto;
-      padding: 7px 0 2px;
       scrollbar-width: none;
     }
 
@@ -2767,20 +2770,67 @@
     }
 
     .course-tabs-mobile .tab-link {
+      position: relative;
       flex: 0 0 auto;
-      padding: 5px 9px;
-      border-radius: 999px;
+      padding: 9px 1px;
+      border-radius: 0;
       white-space: nowrap;
-      font-size: 11px;
+      font-size: 13px;
     }
 
     .course-tabs-mobile .tab-link.active {
-      background: var(--violet);
-      color: white;
+      background: none;
+      color: var(--text-1);
     }
 
+    .course-tabs-mobile .tab-link.active::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 2px;
+      border-radius: 2px 2px 0 0;
+      background: var(--violet);
+    }
+
+    /* ---- mobile-native course sections ----
+       Flat full-width sections separated by hairlines instead of stacked
+       glass boxes: section spacing restores the vertical gaps, rows keep
+       their built-in .row dividers, titles become iOS-style micro-labels.
+       Scoped to list surfaces only — the workspace editor keeps its card
+       surface so text stays readable against the canvas. */
     .overview-body {
       display: block;
+    }
+
+    .overview-body > * + * {
+      margin-top: 20px;
+      padding-top: 18px;
+      border-top: 1px solid var(--glass-border);
+    }
+
+    .overview-body .card,
+    .assign-card,
+    .split-tree {
+      background: transparent;
+      border: none;
+      border-radius: 0;
+      box-shadow: none;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      padding: 0;
+    }
+
+    .overview-body .card-title,
+    .assign-card .card-title,
+    .split-tree .card-title {
+      color: var(--text-3);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 4px;
     }
 
     .overview-body .announce-card {
@@ -2788,7 +2838,8 @@
       overflow: visible;
     }
 
-    .overview-body .announce-scroll {
+    .overview-body .announce-scroll,
+    .assign-card .assign-scroll {
       max-height: none;
       overflow: visible;
       margin: 0;
