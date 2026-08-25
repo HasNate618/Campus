@@ -728,7 +728,15 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
         </div>
 
         {courses && onPickCourse ? (
-          <div ref={pickerRef} style={{ position: 'relative' }}>
+          <div
+            ref={pickerRef}
+            style={{
+              position: 'relative',
+              flex: 1,
+              display: 'flex',
+              justifyContent: 'center',
+            }}
+          >
             <button className="scope-pill" onClick={() => setPickerOpen((o) => !o)}>
               {course && <span className="dot" style={{ background: courseColor(course) }} />}
               {course ? course.code : 'Select course'}

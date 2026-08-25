@@ -88,6 +88,8 @@
 
     /* app canvas (desktop matches the mobile tone) */
     --bg-app: #0a0a0c;
+    /* opaque raised surface: schedule panel, mobile popovers/inputs */
+    --bg-raised: #16161b;
   }
 
   html {
@@ -112,6 +114,13 @@
     scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
   }
 
+  /* AMOLED: true-black canvas on phones */
+  @media (max-width: 860px) {
+    html,
+    body {
+      background: #000;
+    }
+  }
 }
 
 @layer components {
@@ -2354,7 +2363,9 @@
   .tt-wrap {
     border: 1px solid var(--glass-border);
     border-radius: 12px;
-    background: var(--glass-bg);
+    /* opaque panel — over the flat dark canvas the old 5%-white glass
+       read as no panel at all */
+    background: var(--bg-raised);
     box-shadow: var(--glass-shadow);
     overflow: hidden;
   }
@@ -2547,9 +2558,16 @@
   }
 
   @media (max-width: 860px) {
+    /* pull the timetable toward the screen edge: slimmer page gutters and
+       a narrower ruler put the hour labels close to the left bezel */
+    .page.page-schedule {
+      padding-left: 6px;
+      padding-right: 6px;
+    }
+
     .tt-ruler {
-      flex-basis: 48px;
-      width: 48px;
+      flex-basis: 40px;
+      width: 40px;
     }
 
     .tt-grid {
@@ -2570,6 +2588,14 @@
   .popover.left {
     left: 0;
     right: auto;
+  }
+
+  /* course picker opens under a header-centered pill — center it too
+     (the mobile block additionally sizes/scrolls it) */
+  .course-picker {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
   }
 
   .popover-divider {
@@ -2887,7 +2913,7 @@
       right: 0;
       bottom: 0;
       z-index: 30;
-      background: hsl(var(--background));
+      background: #000;
       backdrop-filter: none;
       -webkit-backdrop-filter: none;
       border-top: 1px solid var(--glass-border-strong);
@@ -2944,7 +2970,9 @@
     .popover,
     .scope-pill,
     .attach-btn {
-      background: rgba(20, 20, 26, 0.9);
+      /* opaque + identical across all four — translucency made each pick
+         up a different apparent fill depending on what scrolled beneath */
+      background: var(--bg-raised);
     }
   }
 
