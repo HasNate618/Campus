@@ -146,6 +146,7 @@
     gap: 8px;
     padding: 14px 12px 10px;
     white-space: nowrap;
+    transition: padding 180ms cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .logo-mark {
@@ -2275,10 +2276,10 @@
   }
 
   .sidebar.collapsed .brand {
-    justify-content: center;
-    gap: 0;
-    padding-left: 0;
-    padding-right: 0;
+    /* anchored like the nav rows: glides 12px → 16px so the 30px mark
+       lands dead-center in the 62px rail. (justify-content:center here
+       made the logo swing right then drift back during the animation.) */
+    padding-left: 16px;
   }
 
   .sidebar.collapsed .session-delete {
