@@ -28,10 +28,10 @@
 
 /*
  * Campus design system — "dark glass".
- * Chat-first Claude-style shell. Page background is transparent so Zen
- * browser transparency shows through; panels are dark-tinted translucent
- * glass. A purple accent is reserved for interactive elements. Solid flat
- * surfaces on mobile.
+ * Chat-first Claude-style shell. The app sits on a solid dark-grey canvas
+ * (same tone on desktop and mobile); panels are dark-tinted translucent
+ * glass. A purple accent is reserved for interactive elements. The sidebar
+ * is an integrated flat section, not a floating card.
  */
 
 @layer base {
@@ -85,6 +85,10 @@
     --radius-ctl: 10px;
     --sidebar-w: 200px;
     --sidebar-w-collapsed: 62px;
+
+    /* app canvas + sidebar section (desktop matches the mobile tone) */
+    --bg-app: #0a0a0c;
+    --bg-sidebar: #101014;
   }
 
   html {
@@ -93,7 +97,7 @@
 
   html,
   body {
-    background: transparent;
+    background: var(--bg-app);
   }
 
   body {
@@ -109,12 +113,6 @@
     scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
   }
 
-  @media (max-width: 860px) {
-    html,
-    body {
-      background: #0a0a0c;
-    }
-  }
 }
 
 @layer components {
@@ -129,13 +127,10 @@
   .sidebar {
     width: var(--sidebar-w);
     flex-shrink: 0;
-    margin: 12px 0 12px 12px;
-    border-radius: var(--radius-panel);
-    background: var(--glass-bg);
-    border: 1px solid var(--glass-border);
-    box-shadow: var(--glass-shadow);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
+    /* integrated section, not a floating card: flush to the window edge,
+       flat surface, separated from the content area by one hairline */
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--glass-border);
     display: flex;
     flex-direction: column;
     overflow: hidden;
