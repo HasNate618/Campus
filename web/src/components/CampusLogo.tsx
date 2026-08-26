@@ -27,21 +27,9 @@ export function CampusLogo({
 					y2="872"
 					gradientUnits="userSpaceOnUse"
 				>
-					<stop offset="0" stopColor="#ede9fe" stopOpacity="0.9" />
-					<stop offset="0.3" stopColor="#a78bfa" stopOpacity="0.7" />
-					<stop offset="0.7" stopColor="#8b5cf6" stopOpacity="0.6" />
-					<stop offset="1" stopColor="#6d28d9" stopOpacity="0.8" />
-				</linearGradient>
-				<linearGradient
-					id="campus-logo-highlight"
-					x1="0"
-					y1="0"
-					x2="0"
-					y2="1"
-					gradientUnits="objectBoundingBox"
-				>
-					<stop offset="0" stopColor="#ffffff" stopOpacity="0.45" />
-					<stop offset="1" stopColor="#ffffff" stopOpacity="0" />
+					<stop offset="0" stopColor="#8b5cf6" />
+					<stop offset="0.5" stopColor="#7c3aed" />
+					<stop offset="1" stopColor="#5b21b6" />
 				</linearGradient>
 			</defs>
 			<g fill="url(#campus-logo-purple)">
@@ -50,11 +38,6 @@ export function CampusLogo({
 				<path d="M578.6 481.9 A162 162 0 1 0 311 664 L300 754 L380 725 A162 162 0 0 0 578.6 674.1 Q584 666 594.9 666 L681 666 A26 26 0 0 1 707 692 A281 281 0 1 1 707 464 A26 26 0 0 1 681 490 L594.9 490 Q584 490 578.6 481.9 Z" />
 				<path d="M67 190 L89 190 L89 372 L67 372 Z M52 388 A26 26 0 1 1 104 388 A26 26 0 1 1 52 388 Z M63.6 425.5 Q65 419 71 419 L85 419 Q91 419 92.4 425.5 L103 478 Q105 486 97 486 L59 486 Q51 486 53 478 Z" />
 			</g>
-			<path
-				d="M418 16 Q450 3 482 16 L852.3 170 Q894 187 850.9 200 L701 245 A415 415 0 0 0 199 245 L49.1 200 Q6 187 47.7 170 Z"
-				fill="url(#campus-logo-highlight)"
-				opacity="0.5"
-			/>
 		</svg>
 	);
 }
@@ -89,10 +72,9 @@ export function CampusLogoFull({
 					x1="-0.93382"
 					id="campus-full-logoGradient"
 				>
-					<stop stopColor="#ede9fe" stopOpacity="0.9" />
-					<stop stopColor="#a78bfa" stopOpacity="0.7" offset="0.3" />
-					<stop stopColor="#8b5cf6" stopOpacity="0.6" offset="0.7" />
-					<stop stopColor="#6d28d9" stopOpacity="0.8" offset="1" />
+					<stop stopColor="#8b5cf6" />
+					<stop stopColor="#7c3aed" offset="0.5" />
+					<stop stopColor="#5b21b6" offset="1" />
 				</linearGradient>
 				<linearGradient
 					y2="3.66239"
@@ -101,10 +83,9 @@ export function CampusLogoFull({
 					x1="0.0861"
 					id="campus-full-paint0"
 				>
-					<stop stopColor="#ede9fe" stopOpacity="0.9" />
-					<stop stopColor="#a78bfa" stopOpacity="0.7" offset="0.3" />
-					<stop stopColor="#8b5cf6" stopOpacity="0.6" offset="0.7" />
-					<stop stopColor="#6d28d9" stopOpacity="0.8" offset="1" />
+					<stop stopColor="#8b5cf6" />
+					<stop stopColor="#7c3aed" offset="0.5" />
+					<stop stopColor="#5b21b6" offset="1" />
 				</linearGradient>
 				<linearGradient
 					y2="3.04502"
@@ -113,10 +94,9 @@ export function CampusLogoFull({
 					x1="-0.19721"
 					id="campus-full-paint1"
 				>
-					<stop stopColor="#ede9fe" stopOpacity="0.9" />
-					<stop stopColor="#a78bfa" stopOpacity="0.7" offset="0.3" />
-					<stop stopColor="#8b5cf6" stopOpacity="0.6" offset="0.7" />
-					<stop stopColor="#6d28d9" stopOpacity="0.8" offset="1" />
+					<stop stopColor="#8b5cf6" />
+					<stop stopColor="#7c3aed" offset="0.5" />
+					<stop stopColor="#5b21b6" offset="1" />
 				</linearGradient>
 				<linearGradient
 					y2="1.02313"
@@ -125,10 +105,9 @@ export function CampusLogoFull({
 					x1="-0.1286"
 					id="campus-full-paint2"
 				>
-					<stop stopColor="#ede9fe" stopOpacity="0.9" />
-					<stop stopColor="#a78bfa" stopOpacity="0.7" offset="0.3" />
-					<stop stopColor="#8b5cf6" stopOpacity="0.6" offset="0.7" />
-					<stop stopColor="#6d28d9" stopOpacity="0.8" offset="1" />
+					<stop stopColor="#8b5cf6" />
+					<stop stopColor="#7c3aed" offset="0.5" />
+					<stop stopColor="#5b21b6" offset="1" />
 				</linearGradient>
 				<linearGradient
 					y1="-0.8"
@@ -137,10 +116,9 @@ export function CampusLogoFull({
 					x2="1.0"
 					id="campus-full-paint3"
 				>
-					<stop stopColor="#ede9fe" stopOpacity="0.9" />
-					<stop stopColor="#a78bfa" stopOpacity="0.7" offset="0.3" />
-					<stop stopColor="#8b5cf6" stopOpacity="0.6" offset="0.7" />
-					<stop stopColor="#6d28d9" stopOpacity="0.8" offset="1" />
+					<stop stopColor="#8b5cf6" />
+					<stop stopColor="#7c3aed" offset="0.5" />
+					<stop stopColor="#5b21b6" offset="1" />
 				</linearGradient>
 			</defs>
 			<g>

@@ -1,34 +1,29 @@
 <svg width="580" height="220" xmlns="http://www.w3.org/2000/svg" fill="none">
  <defs>
   <linearGradient y2="1.53721" x2="1.06936" y1="-1.44466" x1="-0.93382" id="logoGradient">
-   <stop stop-color="#ede9fe" stop-opacity="0.9"/>
-   <stop stop-color="#a78bfa" stop-opacity="0.7" offset="0.3"/>
-   <stop stop-color="#8b5cf6" stop-opacity="0.6" offset="0.7"/>
-   <stop stop-color="#6d28d9" stop-opacity="0.8" offset="1"/>
+   <stop stop-color="#8b5cf6"/>
+   <stop stop-color="#7c3aed" offset="0.5"/>
+   <stop stop-color="#5b21b6" offset="1"/>
   </linearGradient>
   <linearGradient y2="3.66239" x2="0.79565" y1="-0.04035" x1="0.0861" id="paint0_linear_19_15">
-   <stop stop-color="#ede9fe" stop-opacity="0.9"/>
-   <stop stop-color="#a78bfa" stop-opacity="0.7" offset="0.3"/>
-   <stop stop-color="#8b5cf6" stop-opacity="0.6" offset="0.7"/>
-   <stop stop-color="#6d28d9" stop-opacity="0.8" offset="1"/>
+   <stop stop-color="#8b5cf6"/>
+   <stop stop-color="#7c3aed" offset="0.5"/>
+   <stop stop-color="#5b21b6" offset="1"/>
   </linearGradient>
   <linearGradient y2="3.04502" x2="0.99801" y1="-0.80316" x1="-0.19721" id="paint1_linear_19_15">
-   <stop stop-color="#ede9fe" stop-opacity="0.9"/>
-   <stop stop-color="#a78bfa" stop-opacity="0.7" offset="0.3"/>
-   <stop stop-color="#8b5cf6" stop-opacity="0.6" offset="0.7"/>
-   <stop stop-color="#6d28d9" stop-opacity="0.8" offset="1"/>
+   <stop stop-color="#8b5cf6"/>
+   <stop stop-color="#7c3aed" offset="0.5"/>
+   <stop stop-color="#5b21b6" offset="1"/>
   </linearGradient>
   <linearGradient y2="1.02313" x2="0.98699" y1="-0.52846" x1="-0.1286" id="paint2_linear_19_15">
-   <stop stop-color="#ede9fe" stop-opacity="0.9"/>
-   <stop stop-color="#a78bfa" stop-opacity="0.7" offset="0.3"/>
-   <stop stop-color="#8b5cf6" stop-opacity="0.6" offset="0.7"/>
-   <stop stop-color="#6d28d9" stop-opacity="0.8" offset="1"/>
+   <stop stop-color="#8b5cf6"/>
+   <stop stop-color="#7c3aed" offset="0.5"/>
+   <stop stop-color="#5b21b6" offset="1"/>
   </linearGradient>
   <linearGradient y1="-0.8" x1="-0.2" y2="3.0" x2="1.0" id="paint3_linear_19_15">
-   <stop stop-color="#ede9fe" stop-opacity="0.9"/>
-   <stop stop-color="#a78bfa" stop-opacity="0.7" offset="0.3"/>
-   <stop stop-color="#8b5cf6" stop-opacity="0.6" offset="0.7"/>
-   <stop stop-color="#6d28d9" stop-opacity="0.8" offset="1"/>
+   <stop stop-color="#8b5cf6"/>
+   <stop stop-color="#7c3aed" offset="0.5"/>
+   <stop stop-color="#5b21b6" offset="1"/>
   </linearGradient>
  </defs>
  <g>
