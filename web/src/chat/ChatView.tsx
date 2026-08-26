@@ -594,11 +594,30 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 							<>
 								{node.attachments?.length ? (
 									<div className="msg-attachments">
-										{node.attachments.map((a) => (
+									{node.attachments.map((a) =>
+										a.mime.startsWith("image/") ? (
+											<img
+												key={a.id}
+												className="msg-image"
+												src={api.chatAttachmentUrl(a.id)}
+												alt={a.name}
+												loading="lazy"
+												title={`${a.name} — click to open`}
+												onClick={(e) => {
+													e.stopPropagation();
+													window.open(
+														api.chatAttachmentUrl(a.id),
+														"_blank",
+														"noopener",
+													);
+												}}
+											/>
+										) : (
 											<span className="msg-attachment" key={a.id}>
 												{a.name}
 											</span>
-										))}
+										),
+									)}
 									</div>
 								) : null}
 								{node.content && <div className="msg-user">{node.content}</div>}
@@ -780,11 +799,18 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 			const attachments: ChatAttachment[] = [];
 			for (const file of selectedFiles)
 				attachments.push(await api.chatUpload(file));
-			if (send(courseId, input, attachments)) {
-				setInput("");
-				setSelectedFiles([]);
-				resetInputHeight();
-			}
+				if (send(courseId, input, attachments)) {
+					setInput("");
+					for (const f of selectedFiles) {
+						const url = previewUrlsRef.current.get(f);
+						if (url) {
+							URL.revokeObjectURL(url);
+							previewUrlsRef.current.delete(f);
+						}
+					}
+					setSelectedFiles([]);
+					resetInputHeight();
+				}
 		} catch (e) {
 			const message = e instanceof Error ? e.message : "Upload failed";
 			setUploadError(message);
@@ -801,8 +827,30 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		);
 	};
 
-	const removeFile = (index: number) =>
-		setSelectedFiles((files) => files.filter((_, i) => i !== index));
+	// local object-URL previews for image attachments (revoked on removal)
+	const previewUrlsRef = useRef(new Map<File, string>());
+	const previewFor = (f: File): string => {
+		let url = previewUrlsRef.current.get(f);
+		if (!url) {
+			url = URL.createObjectURL(f);
+			previewUrlsRef.current.set(f, url);
+		}
+		return url;
+	};
+
+	const removeFile = (index: number) => {
+		setSelectedFiles((files) => {
+			const gone = files[index];
+			if (gone) {
+				const url = previewUrlsRef.current.get(gone);
+				if (url) {
+					URL.revokeObjectURL(url);
+					previewUrlsRef.current.delete(gone);
+				}
+			}
+			return files.filter((_, i) => i !== index);
+		});
+	};
 
 	const answerStreaming =
 		!!lastAssistant && lastAssistant.streaming && !lastAssistant.intermediate;
@@ -1029,17 +1077,30 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 						/>
 						{selectedFiles.length > 0 && (
 							<div className="attachment-strip">
-								{selectedFiles.map((file, i) => (
-									<button
-										type="button"
-										className="attachment-chip"
-										key={`${file.name}-${i}`}
-										onClick={() => removeFile(i)}
-										title="Remove file"
-									>
-										{file.name} ×
-									</button>
-								))}
+								{selectedFiles.map((file, i) =>
+									file.type.startsWith("image/") ? (
+										<button
+												type="button"
+												className="attach-thumb"
+												key={`${file.name}-${i}`}
+												onClick={() => removeFile(i)}
+												title={`Remove ${file.name}`}
+										>
+												<img src={previewFor(file)} alt={file.name} />
+												<span className="attach-thumb-x">×</span>
+										</button>
+									) : (
+										<button
+												type="button"
+												className="attachment-chip"
+												key={`${file.name}-${i}`}
+												onClick={() => removeFile(i)}
+												title="Remove file"
+										>
+												{file.name} ×
+										</button>
+									),
+								)}
 							</div>
 						)}
 						{uploadError && <div className="upload-error">{uploadError}</div>}

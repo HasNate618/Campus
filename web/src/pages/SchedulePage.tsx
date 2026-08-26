@@ -174,6 +174,7 @@ export function SchedulePage() {
         </div>
       )}
       {!error && (
+        <div className="tt-wrap">
         <div className="tt">
           {loading && <div className="empty">Loading schedule…</div>}
           {/* Static time gutter — never scrolls, so courses in the day pane
@@ -253,6 +254,7 @@ export function SchedulePage() {
               ))}
             </div>
           </div>
+        </div>
         </div>
       )}
 

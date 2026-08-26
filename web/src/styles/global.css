@@ -734,20 +734,26 @@
   }
 
   .chat-head {
-    /* 3-column grid so the middle element is optically centered no matter
-       which branches render around it (flex space-between pushed the pill
-       right in new chats and the title off-center everywhere) */
+    /* 3 equal columns so the middle element is optically centered no
+       matter which branches render around it — and a long title gets
+       clamped by its own column instead of shoving the layout */
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     align-items: center;
     gap: 8px;
-    padding: 10px 10px 0;
+    padding: 10px 12px 6px;
     position: relative;
     z-index: 10;
   }
 
   .chat-head > :first-child {
     justify-self: start;
+  }
+
+  .chat-head > :nth-child(2) {
+    justify-self: center;
+    max-width: 100%;
+    min-width: 0;
   }
 
   .chat-head > :last-child {
@@ -930,6 +936,48 @@
     align-self: flex-end;
     max-width: 82%;
     margin-bottom: 4px;
+  }
+
+  .msg-image {
+    display: block;
+    max-width: min(300px, 100%);
+    border-radius: var(--radius-card);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-edge);
+    cursor: zoom-in;
+  }
+
+  .attach-thumb {
+    position: relative;
+    width: 56px;
+    height: 56px;
+    padding: 0;
+    border: 1px solid var(--glass-border-strong);
+    border-radius: 10px;
+    overflow: hidden;
+    background: none;
+    cursor: pointer;
+  }
+
+  .attach-thumb img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .attach-thumb-x {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    font-size: 11px;
+    line-height: 16px;
+    text-align: center;
   }
 
   .msg-attachment,
@@ -2626,8 +2674,18 @@
       -webkit-backdrop-filter: none;
     }
 
-    .zen-pdf-frame {
-      height: min(72dvh, calc(100dvh - 140px));
+    /* must out-specify the desktop flex/height rule higher in the file,
+       or the frame collapses to a ~150px slice on phones */
+    .split-viewer.pdf-mode .zen-pdf-frame {
+      height: min(80dvh, calc(100dvh - 150px));
+      width: calc(100% + 24px); /* break out of the course gutters —
+                                   PDFs touch the screen edges */
+      margin: 0 -12px;
+    }
+
+    .split-viewer.pdf-mode .pdf-zen {
+      padding-left: 0;
+      padding-right: 0;
     }
 
     .page-schedule .page-head {
@@ -2813,7 +2871,8 @@
     }
 
     .course-scroll {
-      padding: 12px 12px 76px;
+      /* extra bottom room so content never hides under the fixed tabbar */
+      padding: 12px 12px 96px;
     }
 
     .course-head .course-term,

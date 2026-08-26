@@ -136,6 +136,7 @@ export const api = {
 			contexts?: Record<string, number>;
 			error?: string;
 		}>("/chat/models"),
+	chatAttachmentUrl: (id: string) => `${BASE}/api/chat/uploads/${id}`,
 	chatUpload: async (file: File): Promise<ChatAttachment> => {
 		const form = new FormData();
 		form.append("file", file);

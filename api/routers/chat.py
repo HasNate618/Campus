@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -117,6 +118,34 @@ async def upload_attachment(file: UploadFile = File(...)):
     except Exception:
         path.unlink(missing_ok=True)
         raise
+
+
+@router.get("/uploads/{attachment_id}")
+async def serve_attachment(attachment_id: str):
+    """Serve one stored attachment — inline image previews in the chat UI."""
+    try:
+        uuid.UUID(attachment_id)
+    except ValueError:
+        raise HTTPException(400, "malformed attachment id")
+    from sync.config import Config
+    from sync.db import DB
+
+    cfg = Config.load()
+    db = DB(cfg.db_path)
+    try:
+        row = db.conn.execute(
+            "SELECT mime_type, stored_path, original_name FROM chat_attachments WHERE id = ?",
+            (attachment_id,),
+        ).fetchone()
+    finally:
+        db.close()
+    if row is None:
+        raise HTTPException(404, "attachment not found")
+    mime, stored_path, original_name = row[0], row[1], row[2]
+    path = Path(stored_path)
+    if not path.is_file():
+        raise HTTPException(404, "attachment file missing")
+    return FileResponse(path, media_type=mime or "application/octet-stream", filename=original_name)
 
 
 def _load_attachments(db, cfg, ids: list[str]) -> list[dict[str, Any]]:
