@@ -9,7 +9,7 @@ import {
 	Pencil,
 	Trash2,
 } from "lucide-react";
-import { CampusLogo } from "@/components/CampusLogo";
+import { CampusLogo, CampusLogoFull } from "@/components/CampusLogo";
 import { api } from "@/api/client";
 import { useChat } from "@/chat/ChatContext";
 import { listKeys, useListCursor, useZoneKeys } from "@/lib/keynav";
@@ -148,10 +148,13 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 			data-kbd-zone="sidebar"
 		>
 			<div className="brand">
-				<div className="logo-mark campus-logo-mark">
-					<CampusLogo size={22} />
-				</div>
-				<span className="brand-name side-label">Campus</span>
+				{collapsed ? (
+					<div className="logo-mark campus-logo-mark">
+						<CampusLogo size={22} />
+					</div>
+				) : (
+					<CampusLogoFull height={28} />
+				)}
 			</div>
 
 			<div className="sidebar-scroll">

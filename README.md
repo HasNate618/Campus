@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="web/public/logo-full.svg" width="360" alt="Campus wordmark" />
+</p>
+
 # Campus
 
 ![CI](https://github.com/HasNate618/Campus/actions/workflows/ci.yml/badge.svg)
@@ -79,7 +83,7 @@ Three decisions shape everything:
 ## Project layout
 
 | Path | What |
-|------|------|
+| ------ | ------ |
 | `sync/` | LMS sync engine: `config.py` (defaults < yaml < env), `token_store.py`, `auth.py` (Playwright/MFA), `d2l.py` (REST client), `sync.py` (the pipeline), `extract.py` (PDF → markdown), `search.py` (embeddings/rerank/lexical index) |
 | `agent/` | The harness: `context.py` (system prompt from live state), `tools.py` (17 tools + security blocklist), `chat.py` (tool-calling loop, SSE), `memory.py` (memory card + supersede), `quiz.py` (blind-graded self-tests), `mcp.py` (minimal MCP client for web tools) |
 | `api/` | FastAPI backend: `routers/courses.py`, `data.py`, `sync.py`, `digest.py`, `chat.py` (SSE), `services.py` (read layer), SPA serving |
@@ -118,7 +122,7 @@ Everything environment-specific lives in `config.yaml` (gitignored) or
 `CAMPUS_*` env vars — the repo itself carries zero personal configuration.
 
 | Config key | Env var | Purpose |
-|-----------|---------|---------|
+| ----------- | --------- | --------- |
 | `base_url` | `CAMPUS_BASE_URL` | LMS instance (any Brightspace/D2L) |
 | `username` | `CAMPUS_USERNAME` | LMS username; password via `CAMPUS_BRIGHTSPACE_PASSWORD` |
 | `llm_url` / `llm_model` / `llm_api_key` | `CAMPUS_LLM_*` | Any OpenAI-compatible `/v1` endpoint; Bearer key optional |
