@@ -208,6 +208,7 @@
     border: none;
     background: none;
     padding: 0;
+    transform: translateY(-2px);
     cursor: pointer;
     border-radius: 8px;
     color: var(--text-2);
