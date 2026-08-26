@@ -1168,7 +1168,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 								{ctxText}
 							</span>
 							<div style={{ flex: 1 }} />
-							<div ref={modelRef} style={{ position: "relative" }}>
+							<div ref={modelRef} style={{ position: "static" }}>
 								<button
 									className="scope-pill"
 									onClick={() => {

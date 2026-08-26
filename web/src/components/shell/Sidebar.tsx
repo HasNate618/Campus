@@ -2,8 +2,6 @@ import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
 	CalendarDays,
-	GraduationCap,
-	History,
 	Home,
 	LogOut,
 	PanelLeftClose,
@@ -200,10 +198,7 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 
 				{recentChats.length > 0 && (
 					<>
-						<p className="section-label">
-							<History size={12} className="section-icon" />
-							<span className="side-label">Recent Chats</span>
-						</p>
+						<p className="section-label">Recent Chats</p>
 						<div className="sidebar-list">
 							{recentChats.map((s, i) => {
 								const c = courseById.get(s.courseId);
@@ -303,10 +298,7 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 					</>
 				)}
 
-				<p className="section-label">
-					<GraduationCap size={12} className="section-icon" />
-					<span className="side-label">Courses</span>
-				</p>
+				<p className="section-label">Courses</p>
 				<div className="sidebar-list">
 					{courses.map((c, i) => (
 						<NavLink
