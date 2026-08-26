@@ -780,6 +780,14 @@
     border-color: rgba(255, 255, 255, 0.26);
   }
 
+  /* composer model selector: ghost on all viewports (no fill) — only
+     inside .input-toolbar, so the chat-header course pill keeps its fill */
+  .input-toolbar .scope-pill {
+    background: none;
+    box-shadow: none;
+    border-color: var(--glass-border);
+  }
+
   .popover {
     position: absolute;
     top: calc(100% + 6px);
