@@ -284,7 +284,6 @@ export function SchedulePage() {
 							paddingLeft: 8,
 						}}
 					>
-
 						<span className="sched-legend-code">{course.code}</span>
 						<span className="sched-legend-name">{course.name}</span>
 						{course.credit && (

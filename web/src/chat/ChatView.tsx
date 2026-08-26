@@ -925,7 +925,11 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 							className="scope-pill course-picker-pill"
 							style={
 								course
-									? { background: courseColor(course), borderColor: "transparent", color: "#fff" }
+									? {
+											background: courseColor(course),
+											borderColor: "transparent",
+											color: "#fff",
+										}
 									: undefined
 							}
 							onClick={() => setPickerOpen((o) => !o)}
