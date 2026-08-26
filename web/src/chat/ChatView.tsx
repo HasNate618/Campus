@@ -850,15 +850,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 				</div>
 
 				{courses && onPickCourse ? (
-					<div
-						ref={pickerRef}
-						style={{
-							position: "relative",
-							flex: 1,
-							display: "flex",
-							justifyContent: "center",
-						}}
-					>
+					<div ref={pickerRef} style={{ position: "relative" }}>
 						<button
 							className="scope-pill"
 							onClick={() => setPickerOpen((o) => !o)}
@@ -917,14 +909,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 						}}
 					/>
 				) : (
-					<div
-						style={{
-							flex: 1,
-							minWidth: 0,
-							display: "flex",
-							justifyContent: "center",
-						}}
-					>
+					<div style={{ minWidth: 0 }}>
 						<span
 							className="chat-head-title"
 							title="Rename chat"
@@ -985,7 +970,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 									transition={{ duration: 0.18 }}
 								>
 									<div
-										className="msg-assistant"
+										className="thinking-row msg-assistant"
 										style={{
 											display: "inline-flex",
 											alignItems: "center",

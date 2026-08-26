@@ -7,6 +7,7 @@ import {
 	useNavigate,
 	useParams,
 } from "react-router-dom";
+import { motion } from "framer-motion";
 import { ArrowLeft, Bell, CalendarDays } from "lucide-react";
 import { api } from "@/api/client";
 import { ChatView } from "@/chat/ChatView";
@@ -60,6 +61,11 @@ export function CourseLayout() {
 	const [hideChat, setHideChat] = useState(
 		() => localStorage.getItem("hc.split.hideChat") === "1",
 	);
+	// True only while a course-tab switch is in flight: the content pane's
+	// entrance animation is gated on it so entering the course fresh (or
+	// drilling into a node) never double-animates with the shell transition.
+	const [tabAnim, setTabAnim] = useState(false);
+	const markSectionSwitch = () => setTabAnim(true);
 
 	useEffect(() => {
 		const h = (e: Event) => {
@@ -81,6 +87,12 @@ export function CourseLayout() {
 	}, []);
 
 	useEffect(() => {
+		if (!tabAnim) return;
+		const t = setTimeout(() => setTabAnim(false), 300);
+		return () => clearTimeout(t);
+	}, [tabAnim]);
+
+	useEffect(() => {
 		setCourse(null);
 		setLastCourse(cid);
 		api.course(cid).then(setCourse).catch(console.error);
@@ -96,6 +108,7 @@ export function CourseLayout() {
 		if (idx === -1) idx = 0;
 		const next =
 			(idx + (key === "]" ? 1 : -1) + TAB_ORDER.length) % TAB_ORDER.length;
+		setTabAnim(true);
 		navigate(`/courses/${cid}${TAB_ORDER[next] ? `/${TAB_ORDER[next]}` : ""}`);
 		return true;
 	});
@@ -124,7 +137,7 @@ export function CourseLayout() {
 					</div>
 				</div>
 				<div className="course-head-right">
-					<nav className="tabs">
+					<nav className="tabs" onClick={markSectionSwitch}>
 						<NavLink
 							to={`/courses/${cid}`}
 							end
@@ -163,6 +176,7 @@ export function CourseLayout() {
 				<nav
 					className="course-tabs-mobile mobile-only"
 					aria-label="Course sections"
+					onClick={markSectionSwitch}
 				>
 					<NavLink
 						to={`/courses/${cid}`}
@@ -191,23 +205,27 @@ export function CourseLayout() {
 					</NavLink>
 				</nav>
 			</header>
-			<div className="course-scroll">
-				<div className="page-col">
-					{/* No entrance animation here — the shell already plays one on
-              section changes (AppShell keys on the same slice(0,4)); this
-              wrapper used to stack a second slide-in on top of it. */}
-					<div
-						style={{
-							flex: 1,
-							minHeight: 0,
-							display: "flex",
-							flexDirection: "column",
-						}}
-					>
-						<Outlet />
+				<div className="course-scroll">
+					<div className="page-col">
+						{/* Animates ONLY on explicit section switches (tabs clicked or
+              [ / ] pressed) — entering the course mounts this pane with
+              initial=false so it never stacks onto the shell's own slide. */}
+						<motion.div
+							key={pathname.split("/").slice(0, 4).join("/")}
+							initial={tabAnim ? { opacity: 0, y: 6 } : false}
+							animate={{ opacity: 1, y: 0 }}
+							transition={{ duration: 0.16 }}
+							style={{
+								flex: 1,
+								minHeight: 0,
+								display: "flex",
+								flexDirection: "column",
+							}}
+						>
+							<Outlet />
+						</motion.div>
 					</div>
 				</div>
-			</div>
 		</div>
 	);
 

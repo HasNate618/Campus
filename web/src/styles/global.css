@@ -79,11 +79,11 @@
     --text-2: #a1a1a3;
     --text-3: #656566;
 
-    --violet: #a179f0;
-    --violet-solid: #7a4dbb;
-    --violet-solid-hover: #8b5fd6;
-    --violet-soft: rgba(122, 77, 187, 0.25);
-    --violet-border: rgba(139, 92, 246, 0.4);
+    --violet: #a78bfa;
+    --violet-solid: #8b5cf6;
+    --violet-solid-hover: #9d74f8;
+    --violet-soft: rgba(139, 92, 246, 0.26);
+    --violet-border: rgba(167, 139, 250, 0.45);
 
     --green: #4ade80;
     --red: #f87171;
@@ -97,8 +97,8 @@
 
     /* app canvas (desktop matches the mobile tone) */
     --bg-app: #0a0a0c;
-    /* opaque raised surface: schedule panel, mobile popovers/inputs */
-    --bg-raised: #16161b;
+    /* opaque raised surface: schedule panel, composer, pills, popovers */
+    --bg-raised: #1e1e1e;
   }
 
   html {
@@ -576,7 +576,7 @@
     padding: 3px 9px;
     border-radius: 999px;
     border: 1px solid var(--glass-border-strong);
-    background: var(--glass-bg);
+    background: var(--glass-bg-strong);
     box-shadow: var(--glass-edge);
     color: var(--text-2);
     white-space: nowrap;
@@ -734,12 +734,24 @@
   }
 
   .chat-head {
-    display: flex;
+    /* 3-column grid so the middle element is optically centered no matter
+       which branches render around it (flex space-between pushed the pill
+       right in new chats and the title off-center everywhere) */
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: center;
-    justify-content: space-between;
+    gap: 8px;
     padding: 10px 10px 0;
     position: relative;
     z-index: 10;
+  }
+
+  .chat-head > :first-child {
+    justify-self: start;
+  }
+
+  .chat-head > :last-child {
+    justify-self: end;
   }
 
   .scope-pill {
@@ -752,7 +764,7 @@
     color: var(--text-1);
     /* solid neutral fill (user choice 2026-08-05) — no translucent glass,
        no backdrop sampling */
-    background: rgb(30, 30, 30);
+    background: var(--bg-raised);
     border: 1px solid rgba(255, 255, 255, 0.16);
     border-radius: 999px;
     padding: 5px 12px;
@@ -773,7 +785,7 @@
     min-width: 200px;
     /* solid neutral fill (user choice 2026-08-05) — same surface as the
        selector pills */
-    background: rgb(30, 30, 30);
+    background: var(--bg-raised);
     border: 1px solid var(--glass-border-strong);
     border-radius: 12px;
     box-shadow: var(--glass-edge), var(--glass-shadow);
@@ -900,10 +912,12 @@
   .msg-user {
     align-self: flex-end;
     max-width: 82%;
-    background: var(--glass-bg-strong);
-    border: 1px solid var(--glass-border);
+    /* violet-tinted glass — the user's side carries the accent */
+    background: rgba(139, 92, 246, 0.16);
+    border: 1px solid rgba(167, 139, 250, 0.3);
     border-radius: 18px;
     padding: 9px 14px;
+    box-shadow: var(--glass-edge);
   }
 
   .msg-attachments,
@@ -925,9 +939,9 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--text-2);
-    background: var(--glass-bg-strong);
-    border: 1px solid var(--glass-border);
+    color: var(--text-1);
+    background: rgba(139, 92, 246, 0.1);
+    border: 1px solid rgba(167, 139, 250, 0.28);
     border-radius: var(--radius-ctl);
     padding: 4px 8px;
     font-size: 11px;
@@ -952,6 +966,20 @@
     align-self: flex-start;
     max-width: 100%;
     color: var(--text-1);
+    /* assistant answers sit on the neutral glass panel */
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-card);
+    padding: 12px 16px;
+    box-shadow: var(--glass-edge);
+  }
+
+  /* the small "Thinking…" row reuses this name-space but must stay bare */
+  .thinking-row.msg-assistant {
+    background: none;
+    border: none;
+    box-shadow: none;
+    padding: 0;
   }
 
   .stream-cursor {
@@ -987,13 +1015,14 @@
        line — truncate with ellipsis instead of wrapping the pill taller */
     white-space: nowrap;
     overflow: hidden;
-    color: var(--text-2);
-    background: var(--glass-bg);
-    border: 1px solid var(--glass-border);
+    color: var(--text-1);
+    /* violet-tinted glass — tool activity is the app's signature moment */
+    background: rgba(139, 92, 246, 0.08);
+    border: 1px solid rgba(167, 139, 250, 0.22);
     border-radius: var(--radius-ctl);
     padding: 7px 11px;
     cursor: pointer;
-    transition: border-color 120ms ease;
+    transition: border-color 120ms ease, background 120ms ease;
   }
 
   .tool-chip span {
@@ -1007,7 +1036,8 @@
   }
 
   .tool-chip:hover {
-    border-color: var(--glass-border-strong);
+    border-color: rgba(167, 139, 250, 0.45);
+    background: rgba(139, 92, 246, 0.14);
   }
 
   .tool-chip svg {
@@ -2347,7 +2377,7 @@
     font-size: 12.5px;
     font-weight: 600;
     color: var(--text-1);
-    background: rgb(30, 30, 30);
+    background: var(--bg-raised);
     border: 1px solid var(--glass-border-strong);
     border-radius: 8px;
     box-shadow: var(--glass-edge), var(--glass-shadow);
@@ -2367,7 +2397,7 @@
     font-size: 12.5px;
     font-weight: 600;
     color: var(--text-2);
-    background: rgb(30, 30, 30);
+    background: var(--bg-raised);
     border: 1px solid rgba(255, 255, 255, 0.16);
     border-radius: 999px;
     padding: 5px 14px;

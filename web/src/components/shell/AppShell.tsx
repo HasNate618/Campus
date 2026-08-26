@@ -14,11 +14,10 @@ const MOBILE_TABS = [
 
 function ShellInner({ onLogout }: { onLogout: () => void }) {
 	const location = useLocation();
-	// Remount transitions on section changes only: slice(0,4) animates
-	// top-level navigation AND course-tab switches (overview ↔ content ↔
-	// assignments), while drilling into content nodes / assignment details
-	// inside a section keeps the key stable and does not replay it.
-	const transitionKey = location.pathname.split("/").slice(0, 4).join("/");
+	// Animate TOP-LEVEL navigation only: slice(0,3) keeps '/courses/:id'
+	// stable across course-tab switches — CourseHubPage animates just its
+	// content pane for those, so the header/tabs never replay.
+	const transitionKey = location.pathname.split("/").slice(0, 3).join("/");
 
 	return (
 		<ChatProvider>
