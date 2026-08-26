@@ -902,7 +902,7 @@
     position: relative;
     z-index: 10;
     min-width: 0;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .chat-head > :nth-child(2) {
@@ -910,14 +910,14 @@
     max-width: 100%;
     display: flex;
     justify-content: center;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .chat-head > :nth-child(2) > div {
     min-width: 0;
     max-width: 100%;
     width: 100%;
-    overflow: hidden;
+    overflow: visible;
     display: flex;
     justify-content: center;
   }
@@ -2914,10 +2914,34 @@
       border-color: var(--glass-border);
     }
 
-    /* mobile pdf: taller viewer — previous 190px offset cut off more than half the screen */
+    /* mobile pdf: fill to bottom — flex inside course-scroll instead of fixed vh */
+    .course-scroll:has(.split-viewer.pdf-mode) {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .course-scroll:has(.split-viewer.pdf-mode) > .page-col {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .course-scroll:has(.split-viewer.pdf-mode) .split {
+      flex: 1;
+      min-height: 0;
+    }
     .split-viewer.pdf-mode {
-      height: calc(100dvh - 110px);
-      min-height: calc(100dvh - 110px);
+      flex: 1;
+      min-height: 0;
+      height: auto;
+      display: flex;
+      flex-direction: column;
+    }
+    .split-viewer.pdf-mode .pdf-zen {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
     }
 
     .split-viewer.pdf-mode .zen-pdf-frame {
@@ -3421,6 +3445,17 @@
     .course-card {
       /* mobile: more noticeable gradient than desktop */
       filter: saturate(1.25) brightness(1.12);
+    }
+
+    /* mobile: selector popups opaque black fill */
+    .popover,
+    .popover.course-picker,
+    .popover.left {
+      background: #000 !important;
+      border-color: rgba(255, 255, 255, 0.14) !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+      box-shadow: 0 10px 32px rgba(0, 0, 0, 0.6) !important;
     }
   }
 
