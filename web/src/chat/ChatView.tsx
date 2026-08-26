@@ -922,7 +922,12 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 				{courses && onPickCourse ? (
 					<div ref={pickerRef} style={{ position: "relative" }}>
 						<button
-							className="scope-pill"
+							className="scope-pill course-picker-pill"
+							style={
+								course
+									? { background: courseColor(course), borderColor: "transparent", color: "#fff" }
+									: undefined
+							}
 							onClick={() => setPickerOpen((o) => !o)}
 						>
 							{course && (
@@ -931,8 +936,10 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 									style={{ background: courseColor(course) }}
 								/>
 							)}
-							{course ? course.code : "Select course"}
-							<ChevronDown size={13} />
+							<span className="picker-label">
+								{course ? course.code : "Select course"}
+							</span>
+							<ChevronDown size={13} className="picker-chevron" />
 						</button>
 						{pickerOpen && (
 							<div className="popover course-picker">

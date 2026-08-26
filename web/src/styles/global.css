@@ -765,11 +765,30 @@
     overflow: hidden;
   }
 
+  .chat-head > :nth-child(2) > div {
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+  }
+
   /* rename input fills middle column, not centered */
   .chat-head > input.chat-head-rename {
     display: block;
     justify-self: stretch;
     width: 100%;
+  }
+
+  /* desktop: course picker pill stays neutral — the inline courseColor is
+     for the mobile solid-button variant only */
+  @media (min-width: 861px) {
+    .chat-head .scope-pill.course-picker-pill {
+      background: var(--bg-raised) !important;
+      border-color: rgba(255, 255, 255, 0.16) !important;
+      color: var(--text-1) !important;
+    }
   }
 
   .scope-pill {
@@ -3140,6 +3159,34 @@
 
     .split.has-selection .pdf-zen {
       padding: 0;
+    }
+
+    /* chat header — mobile: recents left, title centered, compact
+       coloured course button right (no label, fixed size prevents
+       overflow on new chats) */
+    .chat-head {
+      gap: 6px;
+      padding: 8px 10px 6px;
+    }
+
+    .chat-head .course-picker-pill .picker-label,
+    .chat-head .course-picker-pill .picker-chevron {
+      display: none;
+    }
+
+    .chat-head .scope-pill.course-picker-pill {
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      justify-content: center;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .chat-head .scope-pill.course-picker-pill .dot {
+      background: #fff !important;
+      width: 8px;
+      height: 8px;
     }
 
     .card {
