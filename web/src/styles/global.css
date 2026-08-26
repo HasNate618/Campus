@@ -196,6 +196,7 @@
     font-size: 16px;
     letter-spacing: -0.02em;
     color: #fff;
+    margin-left: -2px;
   }
 
   .brand-logo-btn {
@@ -310,7 +311,7 @@
   .sidebar-list {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 6px;
   }
 
   .section-label {
@@ -376,6 +377,29 @@
   .sidebar.collapsed .nav-item {
     gap: 0;
     padding-left: 12.5px; /* centers the 17px icon in the 62px rail */
+  }
+
+  /* collapsed courses: hide the wash/border — show a centered dot instead */
+  .sidebar.collapsed .nav-item[style*="border-left"] {
+    background: none !important;
+    border-left-color: transparent !important;
+  }
+
+  .course-dot-collapsed {
+    display: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .sidebar.collapsed .course-dot-collapsed {
+    display: block;
+  }
+
+  .sidebar.collapsed .session-item {
+    background: none !important;
+    border-left-color: transparent !important;
   }
 
   .main {

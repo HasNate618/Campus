@@ -204,20 +204,20 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 								const c = courseById.get(s.courseId);
 								const active = activeFor(s.courseId)?.id === s.id;
 								return (
-								<div
-									key={s.id}
-									ref={cursor.setRef(i + 1)}
-									data-navrow
-									className={`session-item${active ? " active" : ""}${cursor.cursor === i + 1 ? " kbd-cursor" : ""}`}
-									style={
-										c
-											? {
-													borderLeft: `3px solid ${courseColor(c)}`,
-													background: `linear-gradient(135deg, ${courseColor(c)}14 0%, transparent 65%)`,
-												}
-											: undefined
-									}
-								>
+									<div
+										key={s.id}
+										ref={cursor.setRef(i + 1)}
+										data-navrow
+										className={`session-item${active ? " active" : ""}${cursor.cursor === i + 1 ? " kbd-cursor" : ""}`}
+										style={
+											c
+												? {
+														borderLeft: `3px solid ${courseColor(c)}`,
+														background: `linear-gradient(135deg, ${courseColor(c)}14 0%, transparent 65%)`,
+													}
+												: undefined
+										}
+									>
 										<button
 											className="session-btn"
 											onMouseEnter={(e) =>
@@ -229,7 +229,13 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 												navigate(`/courses/${s.courseId}`);
 											}}
 										>
-											{renamingId === s.id ? (
+												<span
+													className="dot course-dot-collapsed"
+													style={{
+														background: c ? courseColor(c) : "var(--violet)",
+													}}
+												/>
+												{renamingId === s.id ? (
 												<input
 													className="session-rename"
 													value={renameText}
@@ -300,6 +306,10 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 								background: `linear-gradient(135deg, ${courseColor(c)}18 0%, transparent 60%)`,
 							}}
 						>
+							<span
+								className="dot course-dot-collapsed"
+								style={{ background: courseColor(c) }}
+							/>
 							<span className="side-label">{c.code}</span>
 						</NavLink>
 					))}
