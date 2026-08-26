@@ -31,6 +31,22 @@ function buildMeta(): Plugin {
 	};
 }
 
+// Prefer CAMPUS_API_TARGET / :8000; if nothing healthy answers there
+// (e.g. another app owns :8000), fall back to :8010 so a plain
+// `npm run dev` just works alongside whatever else is running.
+async function resolveApiTarget(): Promise<string> {
+	const preferred = process.env.CAMPUS_API_TARGET || "http://127.0.0.1:8000";
+	try {
+		const res = await fetch(`${preferred}/api/health`, {
+			signal: AbortSignal.timeout(500),
+		});
+		if (res.ok) return preferred;
+	} catch {
+		/* not a Campus API — fall through */
+	}
+	return "http://127.0.0.1:8010";
+}
+
 export default defineConfig({
 	plugins: [buildMeta(), react(), tailwindcss()],
 	resolve: {
@@ -43,9 +59,7 @@ export default defineConfig({
 		port: 5173,
 		proxy: {
 			"/api": {
-				// CAMPUS_API_TARGET overrides where /api proxies (e.g. :8010 when
-				// something else already owns :8000)
-				target: process.env.CAMPUS_API_TARGET || "http://127.0.0.1:8000",
+				target: await resolveApiTarget(),
 				changeOrigin: true,
 			},
 		},
