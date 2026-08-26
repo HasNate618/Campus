@@ -3394,6 +3394,11 @@
       backdrop-filter: none;
       -webkit-backdrop-filter: none;
     }
+
+    .course-card {
+      /* mobile: more noticeable gradient than desktop */
+      filter: saturate(1.25) brightness(1.12);
+    }
   }
 
   /* auto-collapse sidebar on narrow desktop windows */

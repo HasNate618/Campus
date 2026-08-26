@@ -51,7 +51,8 @@ export function CoursesPage() {
 							textDecoration: "none",
 							color: "inherit",
 							display: "block",
-							background: `linear-gradient(135deg, ${courseColor(c)}18 0%, transparent 60%)`,
+							['--course-color' as string]: courseColor(c),
+							background: `linear-gradient(135deg, ${courseColor(c)}30 0%, transparent 60%)`,
 						}}
 					>
 						<div className="course-card-top">
