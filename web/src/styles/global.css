@@ -2417,11 +2417,12 @@
   }
 
   .tt-wrap {
-    border: 1px solid var(--glass-border);
+    border: 1px solid var(--glass-border-strong);
     border-radius: var(--radius-card);
-    /* opaque panel — over the flat dark canvas the old 5%-white glass
-       read as no panel at all */
-    background: var(--bg-raised);
+    /* translucent glass pane — blur does the work on desktop */
+    background: var(--glass-bg-strong);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
     box-shadow: var(--glass-edge), var(--glass-shadow);
     overflow: hidden;
   }
@@ -2633,6 +2634,13 @@
 
     .tt-wrap {
       max-height: calc(100dvh - 260px);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+
+    .page-schedule .page-head {
+      /* 'My Schedule / Weekly timetable' is chrome, not content, on phones */
+      display: none;
     }
 
     /* vertical scroll rides with the day grid (the gutter is fixed by flex) */
@@ -2806,8 +2814,14 @@
       display: block;
     }
 
+    /* the generic mobile .page padding was leaking onto course pages —
+       that's where the big top gap and wide side margins came from */
+    .page.course-page {
+      padding: 0;
+    }
+
     .course-scroll {
-      padding: 16px 16px 76px;
+      padding: 12px 12px 76px;
     }
 
     .course-head .course-term,
@@ -2863,6 +2877,9 @@
     .course-tabs-mobile .tab-link.active {
       background: none;
       color: var(--text-1);
+      /* kill the glass edge here — its top light reads as an overline on
+         the underline tab style */
+      box-shadow: none;
     }
 
     .course-tabs-mobile .tab-link.active::after {
@@ -2892,9 +2909,13 @@
       border-top: 1px solid var(--glass-border);
     }
 
+    /* .card-prefixed selectors: the generic .card rule LATER in this block
+       would otherwise out-cascade these single-class flattens and bring
+       the boxes back (that's exactly what happened before) */
     .overview-body .card,
-    .assign-card,
-    .split-tree {
+    .card.assign-card,
+    .card.split-tree,
+    .card.split-viewer {
       background: transparent;
       border: none;
       border-radius: 0;
@@ -2913,6 +2934,16 @@
       letter-spacing: 0.08em;
       text-transform: uppercase;
       margin-bottom: 4px;
+    }
+
+    /* overview rows stack natively: title + body full width, date chip
+       drops below instead of stealing a column */
+    .overview-body .row {
+      display: block;
+    }
+
+    .overview-body .row .chip {
+      margin-top: 4px;
     }
 
     .overview-body .announce-card {
@@ -3000,13 +3031,25 @@
       color: var(--violet);
     }
 
-    .split.has-selection .split-viewer.pdf-mode {
+    .split.has-selection .split-viewer {
       position: fixed;
       inset: 0;
       z-index: 40;
       display: flex;
       flex-direction: column;
-      background: hsl(var(--background));
+      background: var(--bg-app);
+      overflow-y: auto;
+      padding: 0;
+    }
+
+    /* PDF fullscreen: only the back-to-tree link survives in the head */
+    .split.has-selection .split-viewer.pdf-mode .viewer-head .btn,
+    .split.has-selection .split-viewer.pdf-mode .viewer-title,
+    .split.has-selection .split-viewer.pdf-mode .viewer-path {
+      display: none;
+    }
+
+    .split.has-selection .pdf-zen {
       padding: 0;
     }
 

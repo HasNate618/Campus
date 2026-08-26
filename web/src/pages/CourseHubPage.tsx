@@ -118,7 +118,7 @@ export function CourseLayout() {
 			<header className="course-head">
 				<div className="course-head-main">
 					<Link to="/courses" className="course-back mobile-only">
-						<ArrowLeft size={14} /> Courses
+						<ArrowLeft size={14} />
 					</Link>
 					<div className="course-head-title">
 						{course && (
@@ -205,27 +205,27 @@ export function CourseLayout() {
 					</NavLink>
 				</nav>
 			</header>
-				<div className="course-scroll">
-					<div className="page-col">
-						{/* Animates ONLY on explicit section switches (tabs clicked or
+			<div className="course-scroll">
+				<div className="page-col">
+					{/* Animates ONLY on explicit section switches (tabs clicked or
               [ / ] pressed) — entering the course mounts this pane with
               initial=false so it never stacks onto the shell's own slide. */}
-						<motion.div
-							key={pathname.split("/").slice(0, 4).join("/")}
-							initial={tabAnim ? { opacity: 0, y: 6 } : false}
-							animate={{ opacity: 1, y: 0 }}
-							transition={{ duration: 0.16 }}
-							style={{
-								flex: 1,
-								minHeight: 0,
-								display: "flex",
-								flexDirection: "column",
-							}}
-						>
-							<Outlet />
-						</motion.div>
-					</div>
+					<motion.div
+						key={pathname.split("/").slice(0, 4).join("/")}
+						initial={tabAnim ? { opacity: 0, y: 6 } : false}
+						animate={{ opacity: 1, y: 0 }}
+						transition={{ duration: 0.16 }}
+						style={{
+							flex: 1,
+							minHeight: 0,
+							display: "flex",
+							flexDirection: "column",
+						}}
+					>
+						<Outlet />
+					</motion.div>
 				</div>
+			</div>
 		</div>
 	);
 
