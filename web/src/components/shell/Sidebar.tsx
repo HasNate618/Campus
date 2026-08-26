@@ -204,12 +204,20 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 								const c = courseById.get(s.courseId);
 								const active = activeFor(s.courseId)?.id === s.id;
 								return (
-									<div
-										key={s.id}
-										ref={cursor.setRef(i + 1)}
-										data-navrow
-										className={`session-item${active ? " active" : ""}${cursor.cursor === i + 1 ? " kbd-cursor" : ""}`}
-									>
+								<div
+									key={s.id}
+									ref={cursor.setRef(i + 1)}
+									data-navrow
+									className={`session-item${active ? " active" : ""}${cursor.cursor === i + 1 ? " kbd-cursor" : ""}`}
+									style={
+										c
+											? {
+													borderLeft: `3px solid ${courseColor(c)}`,
+													background: `linear-gradient(135deg, ${courseColor(c)}14 0%, transparent 65%)`,
+												}
+											: undefined
+									}
+								>
 										<button
 											className="session-btn"
 											onMouseEnter={(e) =>
@@ -221,13 +229,6 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 												navigate(`/courses/${s.courseId}`);
 											}}
 										>
-											<span
-												className="dot"
-												style={{
-													background: c ? courseColor(c) : "var(--violet)",
-													flexShrink: 0,
-												}}
-											/>
 											{renamingId === s.id ? (
 												<input
 													className="session-rename"
@@ -294,11 +295,11 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 							className={({ isActive }) =>
 								`nav-item${isActive ? " active" : ""}${cursor.cursor === i + 1 + recentChats.length ? " kbd-cursor" : ""}`
 							}
+							style={{
+								borderLeft: `3px solid ${courseColor(c)}`,
+								background: `linear-gradient(135deg, ${courseColor(c)}18 0%, transparent 60%)`,
+							}}
 						>
-							<span
-								className="dot"
-								style={{ background: courseColor(c), margin: "0 5px" }}
-							/>
 							<span className="side-label">{c.code}</span>
 						</NavLink>
 					))}
