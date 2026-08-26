@@ -162,7 +162,8 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 14px 10px 10px;
+    padding: 12px 10px;
+    min-height: 44px;
     white-space: nowrap;
     transition: padding 260ms cubic-bezier(0.2, 0, 0, 1);
   }
@@ -225,9 +226,8 @@
   }
 
   .sidebar.collapsed .brand {
-    justify-content: center;
-    padding-left: 0;
-    padding-right: 0;
+    /* keep left-aligned when collapsed — icons stay under nav icons, not centered */
+    justify-content: flex-start;
   }
 
   .sidebar.collapsed .brand-logo-btn:hover .brand-logo {
@@ -333,17 +333,10 @@
     justify-content: flex-start;
   }
 
-  .sidebar.collapsed .sidebar-footer {
-    padding-left: 0;
-    padding-right: 0;
-    display: flex;
-    justify-content: center;
-  }
-
   .sidebar.collapsed .sidebar-footer .nav-item.sidebar-logout {
-    width: auto;
-    padding: 8px;
-    justify-content: center;
+    /* keep left-aligned in collapsed rail — same 10px inset as the brand */
+    justify-content: flex-start;
+    padding-left: 8px;
   }
 
   .sidebar-logout:hover {
