@@ -1,0 +1,43 @@
+export function CampusLogo({
+	size = 30,
+	className,
+	title = "Campus",
+}: {
+	size?: number;
+	className?: string;
+	title?: string;
+}) {
+	return (
+		<svg
+			xmlns="http://www.w3.org/2000/svg"
+			viewBox="0 0 900 872"
+			width={size}
+			height={size}
+			role="img"
+			aria-label={title}
+			className={className}
+		>
+			{title ? <title>{title}</title> : null}
+			<defs>
+				<linearGradient
+					id="campus-logo-purple"
+					x1="100"
+					y1="0"
+					x2="700"
+					y2="872"
+					gradientUnits="userSpaceOnUse"
+				>
+					<stop offset="0" stopColor="#B249F8" />
+					<stop offset="0.5" stopColor="#7B2CBF" />
+					<stop offset="1" stopColor="#5A189A" />
+				</linearGradient>
+			</defs>
+			<g fill="url(#campus-logo-purple)">
+				<path d="M418 16 Q450 3 482 16 L852.3 170 Q894 187 850.9 200 L701 245 A415 415 0 0 0 199 245 L49.1 200 Q6 187 47.7 170 Z" />
+				<path d="M199 245 A531.5 531.5 0 0 1 701 245 L701 408.6 A303 303 0 0 0 199 408.6 Z" />
+				<path d="M578.6 481.9 A162 162 0 1 0 311 664 L300 754 L380 725 A162 162 0 0 0 578.6 674.1 Q584 666 594.9 666 L681 666 A26 26 0 0 1 707 692 A281 281 0 1 1 707 464 A26 26 0 0 1 681 490 L594.9 490 Q584 490 578.6 481.9 Z" />
+				<path d="M67 190 L89 190 L89 372 L67 372 Z M52 388 A26 26 0 1 1 104 388 A26 26 0 1 1 52 388 Z M63.6 425.5 Q65 419 71 419 L85 419 Q91 419 92.4 425.5 L103 478 Q105 486 97 486 L59 486 Q51 486 53 478 Z" />
+			</g>
+		</svg>
+	);
+}

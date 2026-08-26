@@ -13,7 +13,6 @@ import {
 	Check,
 	ChevronDown,
 	Cpu,
-	GraduationCap,
 	History,
 	Loader2,
 	Plus,
@@ -23,6 +22,7 @@ import {
 	Trash2,
 	Wrench,
 } from "lucide-react";
+import { CampusLogo } from "@/components/CampusLogo";
 import { courseColor } from "@/lib/courses";
 import { fmtRelative } from "@/lib/format";
 import { api, type ChatAttachment } from "@/api/client";
@@ -1010,8 +1010,8 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 				<div className="chat-col">
 					{!session || path.length === 0 ? (
 						<div className="chat-empty">
-							<div className="logo-mark">
-								<GraduationCap size={24} />
+							<div className="logo-mark campus-logo-mark">
+								<CampusLogo size={32} />
 							</div>
 							<p className="greeting">{greeting()}</p>
 							<p className="page-sub" style={{ margin: 0 }}>

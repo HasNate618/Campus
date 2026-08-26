@@ -179,6 +179,16 @@
     color: var(--violet);
   }
 
+  .campus-logo-mark {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+  }
+
+  .campus-logo-mark svg {
+    display: block;
+  }
+
   .brand-name {
     font-weight: 700;
     font-size: 15px;
@@ -734,26 +744,32 @@
   }
 
   .chat-head {
-    /* middle element is absolutely centered so it uses the full panel
-       width (clamped short of the side buttons) — a fixed grid third cut
-       titles off way too early */
-    display: flex;
+    /* grid: side buttons auto-sized, middle 1fr grows with panel width —
+       title uses available space and ellipsis only when truly overflowing */
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
-    justify-content: space-between;
     gap: 8px;
     padding: 10px 12px 6px;
     position: relative;
     z-index: 10;
+    min-width: 0;
+    overflow: hidden;
   }
 
-  .chat-head > :nth-child(2):not(.chat-head-rename) {
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
-    max-width: calc(100% - 116px);
+  .chat-head > :nth-child(2) {
     min-width: 0;
+    max-width: 100%;
     display: flex;
     justify-content: center;
+    overflow: hidden;
+  }
+
+  /* rename input fills middle column, not centered */
+  .chat-head > input.chat-head-rename {
+    display: block;
+    justify-self: stretch;
+    width: 100%;
   }
 
   .scope-pill {

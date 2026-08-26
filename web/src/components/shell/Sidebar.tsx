@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
 	CalendarDays,
-	GraduationCap,
 	Home,
 	LogOut,
 	PanelLeftClose,
@@ -10,6 +9,7 @@ import {
 	Pencil,
 	Trash2,
 } from "lucide-react";
+import { CampusLogo } from "@/components/CampusLogo";
 import { api } from "@/api/client";
 import { useChat } from "@/chat/ChatContext";
 import { listKeys, useListCursor, useZoneKeys } from "@/lib/keynav";
@@ -148,8 +148,8 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 			data-kbd-zone="sidebar"
 		>
 			<div className="brand">
-				<div className="logo-mark">
-					<GraduationCap size={17} />
+				<div className="logo-mark campus-logo-mark">
+					<CampusLogo size={22} />
 				</div>
 				<span className="brand-name side-label">Campus</span>
 			</div>
