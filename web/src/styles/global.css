@@ -372,7 +372,6 @@
   }
 
   .sidebar.collapsed .side-label,
-  .sidebar.collapsed .section-label,
   .sidebar.collapsed .session-title,
   .sidebar.collapsed .session-time,
   .sidebar.collapsed .session-delete {
@@ -407,6 +406,18 @@
     justify-content: center;
   }
 
+  .sidebar.collapsed .session-item {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .sidebar.collapsed .session-btn {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
   /* model picker anchored to toolbar right: keep popover inside viewport,
      bottom above composer, right edges aligned */
   .input-toolbar .popover.course-picker {
@@ -419,10 +430,11 @@
 
   .course-dot-collapsed {
     display: none;
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
     flex-shrink: 0;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
   }
 
   .sidebar.collapsed .course-dot-collapsed {

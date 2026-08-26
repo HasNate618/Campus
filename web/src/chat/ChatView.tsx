@@ -1196,6 +1196,8 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 										style={{
 											bottom: "calc(100% + 8px)",
 											top: "auto",
+											right: 0,
+											left: "auto",
 											width: 280,
 											maxHeight: 330,
 											display: "flex",
