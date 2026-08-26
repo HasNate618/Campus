@@ -151,7 +151,7 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    transition: width 260ms cubic-bezier(0.2, 0, 0, 1);
+    transition: width 260ms cubic-bezier(0.2, 0, 0, 1) !important;
   }
 
   .sidebar.collapsed {
@@ -165,7 +165,7 @@
     padding: 12px 10px;
     min-height: 44px;
     white-space: nowrap;
-    transition: padding 260ms cubic-bezier(0.2, 0, 0, 1);
+    transition: padding 260ms cubic-bezier(0.2, 0, 0, 1) !important;
   }
 
   .logo-mark {
@@ -334,9 +334,16 @@
   }
 
   .sidebar.collapsed .section-label {
-    justify-content: center;
-    padding-left: 0;
-    padding-right: 0;
+    /* keep vertical separation between Recent Chats / Courses even when
+       the text is hidden — hidden text + spacer instead of display:none */
+    display: block;
+    visibility: hidden;
+    pointer-events: none;
+    overflow: hidden;
+    height: 12px;
+    min-height: 12px;
+    padding: 0;
+    margin: 10px 0 4px;
   }
 
   .sidebar.collapsed .section-icon {
@@ -388,10 +395,7 @@
     overflow: hidden;
   }
 
-  /* collapsed rows stay anchored at the left edge — icons glide a few px
-     into perfect center via the padding transition above. (Centering with
-     justify-content instead made icons jump right, then drift back left
-     as the width animated.) */
+  /* collapsed: icons/dots horizontally centred in the 62px rail */
   .sidebar.collapsed .nav-item {
     gap: 0;
     padding-left: 0;
@@ -399,11 +403,13 @@
     justify-content: center;
   }
 
-  /* collapsed courses: hide the wash/border — show a centered dot */
+  /* collapsed courses: hide the wash/border — dot centred */
   .sidebar.collapsed .nav-item[style*="border-left"] {
     background: none !important;
     border-left-color: transparent !important;
     justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
   }
 
   .sidebar.collapsed .session-item {
@@ -418,17 +424,26 @@
     padding-right: 0;
   }
 
+  /* keep recent-chat dots centred, matching course dots */
+  .sidebar.collapsed .session-item .session-btn {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
   .chat-input {
     position: relative;
   }
 
-  /* model picker: bottom above the whole composer box, right edges aligned */
+  /* model picker: bottom above the whole composer box, right edges aligned to composer */
   .input-toolbar .popover.course-picker {
     right: 0 !important;
     left: auto !important;
     bottom: calc(100% + 12px) !important;
     top: auto !important;
+    transform: none !important;
     max-width: min(280px, calc(100vw - 16px));
+    margin-right: 0;
   }
 
   .course-dot-collapsed {
@@ -948,13 +963,17 @@
     border-color: rgba(255, 255, 255, 0.26);
   }
 
-  /* composer model selector: ghost on all viewports (no fill) — only
+  /* composer model selector: no fill — ghost button, only
      inside .input-toolbar, so the chat-header course pill keeps its fill */
   .input-toolbar .scope-pill {
-    background: rgba(255, 255, 255, 0.06);
-    box-shadow: var(--glass-edge);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border-color: transparent;
+  }
+  .input-toolbar .scope-pill:hover {
+    background: var(--glass-bg);
     border-color: var(--glass-border);
   }
 
@@ -1119,17 +1138,21 @@
 
   .msg-attachments {
     align-self: flex-end;
+    justify-content: flex-end;
     max-width: 82%;
     margin-bottom: 4px;
   }
 
   .msg-image {
     display: block;
-    max-width: min(300px, 100%);
+    max-width: min(320px, 100%);
+    max-height: 320px;
+    object-fit: contain;
     border-radius: var(--radius-card);
     border: 1px solid var(--glass-border);
     box-shadow: var(--glass-edge);
     cursor: zoom-in;
+    background: var(--glass-bg);
   }
 
   .attach-thumb {
@@ -1431,11 +1454,13 @@
     padding-top: 8px;
   }
 
-  /* the upload button sits in the toolbar's left side — compact round
-     control, same glass family */
+  /* upload button: left side of toolbar, circular, vertically centered */
   .input-toolbar .attach-btn {
-    width: 26px;
-    height: 26px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    align-self: center;
+    flex-shrink: 0;
   }
 
   .chat-input:focus-within {
@@ -1477,24 +1502,21 @@
     transition: background 140ms ease, opacity 140ms ease;
   }
 
-  /* file-upload stub: a real round button on the box's right edge, same
-     size family as send but glass (matches the box's surface) */
+  /* file-upload: circular glass button — hover is a circle, not a square */
   .attach-btn {
     flex-shrink: 0;
-    align-self: flex-end;
-    height: 34px;
-    padding: 0 6px;
-    border: none;
+    align-self: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 50%;
     background: none;
     color: var(--text-3);
     display: grid;
     place-items: center;
     cursor: pointer;
-    transition: color 120ms ease;
-  }
-
-  .attach-btn:hover:not(:disabled) {
-    color: var(--text-1);
+    transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
   }
 
   .attach-btn:hover:not(:disabled) {
@@ -2543,14 +2565,13 @@
   .sidebar.collapsed .session-btn,
   .sidebar.collapsed .session-nav,
   .sidebar.collapsed .section-head .icon-btn {
-    justify-content: flex-start;
+    justify-content: center;
     gap: 0;
-    padding-left: 10px;
+    padding-left: 0;
+    padding-right: 0;
   }
 
-  /* collapsed alignment: the session row must center its dot like the
-     nav icons — the rename/delete buttons steal row width and shove the
-     dot off-center, and the brand logo sits 3px left of the icon line */
+  /* collapsed: dots/icons centred — rename/delete hidden */
   .sidebar.collapsed .session-rename-btn,
   .sidebar.collapsed .session-delete {
     display: none;
@@ -2867,13 +2888,13 @@
       -webkit-backdrop-filter: none;
     }
 
-    /* model selector reads as plain text — no fill, no chrome */
+    /* model selector: no fill even on mobile — ghost */
     .input-toolbar .scope-pill {
-      background: rgba(255, 255, 255, 0.04);
-      box-shadow: var(--glass-edge);
-      backdrop-filter: var(--glass-blur);
-      -webkit-backdrop-filter: var(--glass-blur);
-      border-color: var(--glass-border);
+      background: transparent;
+      box-shadow: none;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      border-color: transparent;
     }
 
     .chat-head .scope-pill {
@@ -3330,24 +3351,39 @@
       padding: 8px 10px 6px;
     }
 
-    .chat-head .course-picker-pill .picker-label,
-    .chat-head .course-picker-pill .picker-chevron {
-      display: none;
-    }
-
+    /* mobile course selector: keep label visible, subtle pill centred
+       like the title — not a tiny dot-circle which hid the course code */
     .chat-head .scope-pill.course-picker-pill {
-      width: 28px;
-      height: 28px;
-      padding: 0;
+      width: auto;
+      max-width: min(44vw, 180px);
+      height: auto;
+      padding: 5px 10px;
+      border-radius: 999px;
       justify-content: center;
-      border-radius: 50%;
-      flex-shrink: 0;
+      flex-shrink: 1;
+      min-width: 0;
+      background: var(--glass-bg) !important;
+      border-color: var(--glass-border) !important;
+      color: var(--text-1) !important;
+      box-shadow: var(--glass-edge);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
     }
-
+    .chat-head .scope-pill.course-picker-pill .picker-label {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+    }
+    .chat-head .scope-pill.course-picker-pill .picker-chevron {
+      display: block;
+      flex-shrink: 0;
+      opacity: 0.6;
+    }
     .chat-head .scope-pill.course-picker-pill .dot {
-      background: #fff !important;
-      width: 8px;
-      height: 8px;
+      width: 7px;
+      height: 7px;
     }
 
     .card {

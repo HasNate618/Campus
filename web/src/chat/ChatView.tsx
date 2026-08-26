@@ -595,7 +595,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 								{node.attachments?.length ? (
 									<div className="msg-attachments">
 										{node.attachments.map((a) =>
-											a.mime.startsWith("image/") ? (
+											a.mime && a.mime.startsWith("image/") ? (
 												<img
 													key={a.id}
 													className="msg-image"
@@ -1030,7 +1030,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 					</div>
 				)}
 
-				{session && path.length > 0 && (
+				{session && path.length > 0 ? (
 					<button
 						className="icon-btn"
 						onClick={() => newChat(courseId)}
@@ -1038,6 +1038,11 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 					>
 						<SquarePen size={15} />
 					</button>
+				) : (
+					/* keep grid balanced when no new-chat button — same width as
+					   the history button so the centred course picker/title stays
+					   truly centred on mobile */
+					<div aria-hidden style={{ width: 26, flexShrink: 0 }} />
 				)}
 			</div>
 
