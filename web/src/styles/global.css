@@ -315,6 +315,9 @@
   }
 
   .section-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     padding: 14px 14px 7px;
     font-size: 11px;
     font-weight: 600;
@@ -322,6 +325,22 @@
     text-transform: uppercase;
     color: var(--text-3);
     white-space: nowrap;
+  }
+
+  .section-icon {
+    display: none;
+    flex-shrink: 0;
+    color: var(--text-3);
+  }
+
+  .sidebar.collapsed .section-label {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .sidebar.collapsed .section-icon {
+    display: block;
   }
 
   .sidebar-footer {
@@ -387,31 +406,14 @@
 
   .course-dot-collapsed {
     display: none;
-    width: 10px;
-    height: 10px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
     flex-shrink: 0;
-    border: 1.5px solid rgba(255, 255, 255, 0.9);
-    box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.12),
-      0 2px 8px rgba(0, 0, 0, 0.35),
-      0 0 10px rgba(0, 0, 0, 0.2);
-    transition:
-      transform 140ms ease,
-      box-shadow 140ms ease;
   }
 
   .sidebar.collapsed .course-dot-collapsed {
     display: block;
-  }
-
-  .sidebar.collapsed .nav-item:hover .course-dot-collapsed,
-  .sidebar.collapsed .session-item:hover .course-dot-collapsed {
-    transform: scale(1.15);
-    box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.18),
-      0 3px 10px rgba(0, 0, 0, 0.45),
-      0 0 12px rgba(0, 0, 0, 0.25);
   }
 
   .sidebar.collapsed .session-item {
@@ -1350,7 +1352,7 @@
   }
 
   .chat-input {
-    max-width: 740px;
+    max-width: 860px;
     margin: 0 auto;
     display: flex;
     align-items: flex-end;
