@@ -82,7 +82,7 @@ export function TodayPage({ onLogout }: { onLogout?: () => void }) {
 								)}
 							</p>
 							{digest ? (
-									<ZenMarkdown content={digest.markdown} />
+								<ZenMarkdown content={digest.markdown} />
 							) : digestLoading ? (
 								<div className="empty compact">Loading…</div>
 							) : (
