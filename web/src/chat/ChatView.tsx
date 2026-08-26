@@ -594,30 +594,30 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 							<>
 								{node.attachments?.length ? (
 									<div className="msg-attachments">
-									{node.attachments.map((a) =>
-										a.mime.startsWith("image/") ? (
-											<img
-												key={a.id}
-												className="msg-image"
-												src={api.chatAttachmentUrl(a.id)}
-												alt={a.name}
-												loading="lazy"
-												title={`${a.name} — click to open`}
-												onClick={(e) => {
-													e.stopPropagation();
-													window.open(
-														api.chatAttachmentUrl(a.id),
-														"_blank",
-														"noopener",
-													);
-												}}
-											/>
-										) : (
-											<span className="msg-attachment" key={a.id}>
-												{a.name}
-											</span>
-										),
-									)}
+										{node.attachments.map((a) =>
+											a.mime.startsWith("image/") ? (
+												<img
+													key={a.id}
+													className="msg-image"
+													src={api.chatAttachmentUrl(a.id)}
+													alt={a.name}
+													loading="lazy"
+													title={`${a.name} — click to open`}
+													onClick={(e) => {
+														e.stopPropagation();
+														window.open(
+															api.chatAttachmentUrl(a.id),
+															"_blank",
+															"noopener",
+														);
+													}}
+												/>
+											) : (
+												<span className="msg-attachment" key={a.id}>
+													{a.name}
+												</span>
+											),
+										)}
 									</div>
 								) : null}
 								{node.content && <div className="msg-user">{node.content}</div>}
@@ -799,18 +799,18 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 			const attachments: ChatAttachment[] = [];
 			for (const file of selectedFiles)
 				attachments.push(await api.chatUpload(file));
-				if (send(courseId, input, attachments)) {
-					setInput("");
-					for (const f of selectedFiles) {
-						const url = previewUrlsRef.current.get(f);
-						if (url) {
-							URL.revokeObjectURL(url);
-							previewUrlsRef.current.delete(f);
-						}
+			if (send(courseId, input, attachments)) {
+				setInput("");
+				for (const f of selectedFiles) {
+					const url = previewUrlsRef.current.get(f);
+					if (url) {
+						URL.revokeObjectURL(url);
+						previewUrlsRef.current.delete(f);
 					}
-					setSelectedFiles([]);
-					resetInputHeight();
 				}
+				setSelectedFiles([]);
+				resetInputHeight();
+			}
 		} catch (e) {
 			const message = e instanceof Error ? e.message : "Upload failed";
 			setUploadError(message);
@@ -1080,24 +1080,24 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 								{selectedFiles.map((file, i) =>
 									file.type.startsWith("image/") ? (
 										<button
-												type="button"
-												className="attach-thumb"
-												key={`${file.name}-${i}`}
-												onClick={() => removeFile(i)}
-												title={`Remove ${file.name}`}
+											type="button"
+											className="attach-thumb"
+											key={`${file.name}-${i}`}
+											onClick={() => removeFile(i)}
+											title={`Remove ${file.name}`}
 										>
-												<img src={previewFor(file)} alt={file.name} />
-												<span className="attach-thumb-x">×</span>
+											<img src={previewFor(file)} alt={file.name} />
+											<span className="attach-thumb-x">×</span>
 										</button>
 									) : (
 										<button
-												type="button"
-												className="attachment-chip"
-												key={`${file.name}-${i}`}
-												onClick={() => removeFile(i)}
-												title="Remove file"
+											type="button"
+											className="attachment-chip"
+											key={`${file.name}-${i}`}
+											onClick={() => removeFile(i)}
+											title="Remove file"
 										>
-												{file.name} ×
+											{file.name} ×
 										</button>
 									),
 								)}

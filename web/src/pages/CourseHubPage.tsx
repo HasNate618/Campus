@@ -115,22 +115,23 @@ export function CourseLayout() {
 
 	const page = (
 		<div className="page course-page">
-			<header className="course-head">
+			<header
+				className="course-head"
+				style={
+					course
+						? {
+								// subtle colour wash identifying the course — replaces
+								// the dot indicator
+								background: `linear-gradient(135deg, ${courseColor(course)}21 0%, transparent 60%)`,
+							}
+						: undefined
+				}
+			>
 				<div className="course-head-main">
 					<Link to="/courses" className="course-back mobile-only">
 						<ArrowLeft size={14} />
 					</Link>
 					<div className="course-head-title">
-						{course && (
-							<span
-								className="dot"
-								style={{
-									background: courseColor(course),
-									width: 10,
-									height: 10,
-								}}
-							/>
-						)}
 						<h1 className="page-title">{course?.code ?? "…"}</h1>
 						{course && <span className="chip course-term">{course.term}</span>}
 						<p className="page-sub course-head-name">{course?.name ?? ""}</p>
