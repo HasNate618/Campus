@@ -153,7 +153,9 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 						<CampusLogo size={22} />
 					</div>
 				) : (
-					<CampusLogoFull height={28} />
+					<div style={{ display: "flex", justifyContent: "center", width: "100%" }}>
+						<CampusLogoFull height={38} />
+					</div>
 				)}
 			</div>
 
