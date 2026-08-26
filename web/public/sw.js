@@ -4,7 +4,7 @@
  * - navigations are network-first with an offline fallback to the shell
  * Bump VERSION to invalidate the cache on a new deploy.
  */
-const VERSION = 'campus-v1'
+const VERSION = 'campus-v2'
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
@@ -27,7 +27,12 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const req = e.request
   if (req.method !== 'GET') return
-  const url = new URL(req.url)
+  let url
+  try {
+    url = new URL(req.url)
+  } catch {
+    return
+  }
   if (url.origin !== self.location.origin) return
   if (url.pathname.startsWith('/api/')) return // live data + SSE — never cached
 
