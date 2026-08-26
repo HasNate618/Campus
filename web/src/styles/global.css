@@ -912,9 +912,8 @@
   .msg-user {
     align-self: flex-end;
     max-width: 82%;
-    /* violet-tinted glass — the user's side carries the accent */
-    background: rgba(139, 92, 246, 0.16);
-    border: 1px solid rgba(167, 139, 250, 0.3);
+    background: var(--glass-bg-strong);
+    border: 1px solid var(--glass-border);
     border-radius: 18px;
     padding: 9px 14px;
     box-shadow: var(--glass-edge);
@@ -939,9 +938,9 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--text-1);
-    background: rgba(139, 92, 246, 0.1);
-    border: 1px solid rgba(167, 139, 250, 0.28);
+    color: var(--text-2);
+    background: var(--glass-bg-strong);
+    border: 1px solid var(--glass-border);
     border-radius: var(--radius-ctl);
     padding: 4px 8px;
     font-size: 11px;
@@ -966,20 +965,6 @@
     align-self: flex-start;
     max-width: 100%;
     color: var(--text-1);
-    /* assistant answers sit on the neutral glass panel */
-    background: var(--glass-bg);
-    border: 1px solid var(--glass-border);
-    border-radius: var(--radius-card);
-    padding: 12px 16px;
-    box-shadow: var(--glass-edge);
-  }
-
-  /* the small "Thinking…" row reuses this name-space but must stay bare */
-  .thinking-row.msg-assistant {
-    background: none;
-    border: none;
-    box-shadow: none;
-    padding: 0;
   }
 
   .stream-cursor {
@@ -1015,14 +1000,13 @@
        line — truncate with ellipsis instead of wrapping the pill taller */
     white-space: nowrap;
     overflow: hidden;
-    color: var(--text-1);
-    /* violet-tinted glass — tool activity is the app's signature moment */
-    background: rgba(139, 92, 246, 0.08);
-    border: 1px solid rgba(167, 139, 250, 0.22);
+    color: var(--text-2);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
     border-radius: var(--radius-ctl);
     padding: 7px 11px;
     cursor: pointer;
-    transition: border-color 120ms ease, background 120ms ease;
+    transition: border-color 120ms ease;
   }
 
   .tool-chip span {
@@ -1036,8 +1020,7 @@
   }
 
   .tool-chip:hover {
-    border-color: rgba(167, 139, 250, 0.45);
-    background: rgba(139, 92, 246, 0.14);
+    border-color: var(--glass-border-strong);
   }
 
   .tool-chip svg {
@@ -1264,17 +1247,21 @@
   /* file-upload stub: a real round button on the box's right edge, same
      size family as send but glass (matches the box's surface) */
   .attach-btn {
-    width: 34px;
-    height: 34px;
     flex-shrink: 0;
-    border-radius: 50%;
-    background: var(--glass-bg);
-    border: 1px solid var(--glass-border);
-    color: var(--text-2);
+    align-self: flex-end;
+    height: 34px;
+    padding: 0 6px;
+    border: none;
+    background: none;
+    color: var(--text-3);
     display: grid;
     place-items: center;
     cursor: pointer;
-    transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+    transition: color 120ms ease;
+  }
+
+  .attach-btn:hover:not(:disabled) {
+    color: var(--text-1);
   }
 
   .attach-btn:hover:not(:disabled) {
@@ -2419,8 +2406,9 @@
   .tt-wrap {
     border: 1px solid var(--glass-border-strong);
     border-radius: var(--radius-card);
-    /* translucent glass pane — blur does the work on desktop */
-    background: var(--glass-bg-strong);
+    /* unmistakable glass pane — 11% white + blur reads as a real surface
+       over the near-black canvas (8% was too shy to notice) */
+    background: rgba(255, 255, 255, 0.11);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
     box-shadow: var(--glass-edge), var(--glass-shadow);
@@ -2638,6 +2626,10 @@
       -webkit-backdrop-filter: none;
     }
 
+    .zen-pdf-frame {
+      height: min(72dvh, calc(100dvh - 140px));
+    }
+
     .page-schedule .page-head {
       /* 'My Schedule / Weekly timetable' is chrome, not content, on phones */
       display: none;
@@ -2810,7 +2802,7 @@
     }
 
     .course-head {
-      padding: 8px 16px 0;
+      padding: 14px 16px 6px;
       display: block;
     }
 
@@ -2936,14 +2928,16 @@
       margin-bottom: 4px;
     }
 
-    /* overview rows stack natively: title + body full width, date chip
-       drops below instead of stealing a column */
+    /* overview rows stack natively with the date ABOVE the title */
     .overview-body .row {
-      display: block;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 4px;
     }
 
     .overview-body .row .chip {
-      margin-top: 4px;
+      order: -1;
     }
 
     .overview-body .announce-card {
@@ -3031,18 +3025,7 @@
       color: var(--violet);
     }
 
-    .split.has-selection .split-viewer {
-      position: fixed;
-      inset: 0;
-      z-index: 40;
-      display: flex;
-      flex-direction: column;
-      background: var(--bg-app);
-      overflow-y: auto;
-      padding: 0;
-    }
-
-    /* PDF fullscreen: only the back-to-tree link survives in the head */
+    /* PDF inline: only the back-to-tree link survives in the head */
     .split.has-selection .split-viewer.pdf-mode .viewer-head .btn,
     .split.has-selection .split-viewer.pdf-mode .viewer-title,
     .split.has-selection .split-viewer.pdf-mode .viewer-path {
@@ -3053,12 +3036,6 @@
       padding: 0;
     }
 
-    .split.has-selection .split-viewer.pdf-mode .zen-pdf-frame {
-      flex: 1;
-      min-height: 0;
-      height: auto;
-    }
-
     .card {
       /* glass lives on mobile too now — but blur stays off: the canvas is
          solid so blur would be invisible GPU cost */
@@ -3066,16 +3043,6 @@
       box-shadow: var(--glass-edge);
       backdrop-filter: none;
       -webkit-backdrop-filter: none;
-    }
-
-    .chat-input,
-    .popover,
-    .scope-pill,
-    .attach-btn {
-      /* opaque + identical across all four — translucency made each pick
-         up a different apparent fill depending on what scrolled beneath */
-      background: var(--bg-raised);
-      box-shadow: var(--glass-edge);
     }
   }
 

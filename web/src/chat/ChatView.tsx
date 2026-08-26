@@ -16,8 +16,9 @@ import {
 	GraduationCap,
 	History,
 	Loader2,
-	Paperclip,
+	Plus,
 	RefreshCw,
+	Square,
 	SquarePen,
 	Trash2,
 	Wrench,
@@ -100,6 +101,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		renameSession,
 		deleteSession,
 		send,
+		stop,
 		regenerate,
 		editMessage,
 		deleteMessage,
@@ -278,12 +280,32 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		}
 	});
 
+	// Sticky scroll: follow streaming output ONLY while the user is pinned
+	// to the bottom — scrolling up detaches the follow until they return.
+	const pinnedRef = useRef(true);
+
 	useEffect(() => {
 		const el = scrollRef.current;
 		if (!el) return;
-		const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-		if (busy || nearBottom) el.scrollTop = el.scrollHeight;
-	}, [session?.nodes, session?.activeNodeId, session?.id, busy]);
+		const onScroll = () => {
+			pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+		};
+		el.addEventListener("scroll", onScroll, { passive: true });
+		return () => el.removeEventListener("scroll", onScroll);
+	}, []);
+
+	useEffect(() => {
+		// switching sessions always jumps to the newest message and re-pins
+		pinnedRef.current = true;
+		const el = scrollRef.current;
+		if (el) el.scrollTop = el.scrollHeight;
+	}, [session?.id]);
+
+	useEffect(() => {
+		const el = scrollRef.current;
+		if (!el || !pinnedRef.current) return;
+		el.scrollTop = el.scrollHeight;
+	}, [session?.nodes, session?.activeNodeId]);
 
 	/** Tool children of an assistant node (fallback + tree semantics). */
 	const toolChildren = (assistantId: string): MsgNode[] =>
@@ -1041,7 +1063,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 								title="Attach files"
 								aria-label="Attach files"
 							>
-								<Paperclip size={15} />
+								<Plus size={18} />
 							</button>
 							<span
 								className="ctx-meter"
@@ -1145,15 +1167,16 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 						</div>
 					</div>
 					<button
-						className="send-btn"
-						onClick={submit}
+						className={`send-btn${busy ? " stopping" : ""}`}
+						onClick={busy ? stop : submit}
 						disabled={
-							busy || uploading || (!input.trim() && !selectedFiles.length)
+							uploading || (!busy && !input.trim() && !selectedFiles.length)
 						}
-						aria-label="Send"
+						aria-label={busy ? "Stop generating" : "Send"}
+						title={busy ? "Stop generating" : "Send"}
 					>
 						{busy ? (
-							<Loader2 size={16} className="animate-spin" />
+							<Square size={13} fill="currentColor" />
 						) : (
 							<ArrowUp size={16} />
 						)}

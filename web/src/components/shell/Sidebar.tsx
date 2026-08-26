@@ -81,6 +81,35 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 
   const cursor = useListCursor(rows.length)
 
+  // Collapsed sidebar: mirror the hover tooltips for j/k navigation — the
+  // cursor row announces itself exactly where the mouse tooltip appears.
+  useEffect(() => {
+    if (!collapsed) {
+      setTip(null)
+      return
+    }
+    const row = rows[cursor.cursor]
+    const el = cursor.refs.current[cursor.cursor]
+    if (!row || !el) {
+      setTip(null)
+      return
+    }
+    const r = el.getBoundingClientRect()
+    const chat =
+      row.kind === 'chat' ? sessions.find((s) => s.id === row.sessionId) : undefined
+    const c = courseById.get(row.courseId ?? NaN)
+    const label =
+      row.kind === 'nav'
+        ? (NAV.find((n) => n.to === row.to)?.label ?? '')
+        : row.kind === 'chat'
+          ? `${c?.code ?? 'Course'} — ${chat?.title ?? ''}`
+          : `${c?.code ?? ''} — ${c?.name ?? ''}`
+    setTip({ label, x: r.right + 10, y: r.top + r.height / 2 })
+    // rows/sessions/courseById are stable per render; cursor position and
+    // collapse state drive the tooltip
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapsed, cursor.cursor])
+
   useZoneKeys('sidebar', (key) => {
     if (key === 'c') {
       toggle()
@@ -110,16 +139,16 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 
       <div className="sidebar-scroll">
         <nav>
-          {NAV.map(({ to, label, icon: Icon, end }) => (
+          {NAV.map(({ to, label, icon: Icon, end }, navIdx) => (
             <NavLink
               key={to}
               to={to}
               end={end}
-              ref={cursor.setRef(0)}
+              ref={cursor.setRef(navIdx)}
               onMouseEnter={(e) => showTip(e, label)}
               onMouseLeave={hideTip}
               className={({ isActive }) =>
-                `nav-item${isActive ? ' active' : ''}${cursor.cursor === 0 ? ' kbd-cursor' : ''}`
+                `nav-item${isActive ? ' active' : ''}${cursor.cursor === navIdx ? ' kbd-cursor' : ''}`
               }
             >
               <Icon size={17} />
@@ -139,6 +168,7 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
                   <div
                     key={s.id}
                     ref={cursor.setRef(i + 1)}
+                    data-navrow
                     className={`session-item${active ? ' active' : ''}${cursor.cursor === i + 1 ? ' kbd-cursor' : ''}`}
                   >
                     <button
