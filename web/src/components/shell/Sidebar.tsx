@@ -238,6 +238,7 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 												className="dot course-dot-collapsed"
 												style={{
 													background: c ? courseColor(c) : "var(--violet)",
+													boxShadow: `0 0 8px ${c ? courseColor(c) : "#8b5cf6"}66`,
 												}}
 											/>
 											{renamingId === s.id ? (
@@ -324,7 +325,10 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 						>
 							<span
 								className="dot course-dot-collapsed"
-								style={{ background: courseColor(c) }}
+								style={{
+									background: courseColor(c),
+									boxShadow: `0 0 8px ${courseColor(c)}66`,
+								}}
 							/>
 							<span className="side-label">{c.code}</span>
 						</NavLink>

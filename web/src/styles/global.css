@@ -406,12 +406,21 @@
     justify-content: flex-start;
   }
 
+  /* model picker anchored to toolbar right: keep popover inside viewport */
+  .input-toolbar .popover.course-picker {
+    right: 0;
+    left: auto;
+    max-width: min(280px, calc(100vw - 16px));
+  }
+
   .course-dot-collapsed {
     display: none;
-    width: 8px;
-    height: 8px;
+    width: 9px;
+    height: 9px;
     border-radius: 50%;
     flex-shrink: 0;
+    border: 1.5px solid rgba(255, 255, 255, 0.92);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
   }
 
   .sidebar.collapsed .course-dot-collapsed {
@@ -924,8 +933,10 @@
   /* composer model selector: ghost on all viewports (no fill) — only
      inside .input-toolbar, so the chat-header course pill keeps its fill */
   .input-toolbar .scope-pill {
-    background: none;
-    box-shadow: none;
+    background: rgba(255, 255, 255, 0.06);
+    box-shadow: var(--glass-edge);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
     border-color: var(--glass-border);
   }
 
@@ -934,14 +945,25 @@
     top: calc(100% + 6px);
     right: 8px;
     min-width: 200px;
-    /* solid neutral fill (user choice 2026-08-05) — same surface as the
-       selector pills */
-    background: var(--bg-raised);
+    max-width: min(320px, calc(100vw - 20px));
+    background: var(--glass-bg-strong);
     border: 1px solid var(--glass-border-strong);
     border-radius: 12px;
     box-shadow: var(--glass-edge), var(--glass-shadow);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
     padding: 5px;
     z-index: 40;
+  }
+
+  .popover.left {
+    right: auto;
+    left: 8px;
+  }
+
+  .popover.course-picker {
+    right: 0;
+    left: auto;
   }
 
   .popover-item {
@@ -2503,8 +2525,9 @@
   .sidebar.collapsed .session-btn,
   .sidebar.collapsed .session-nav,
   .sidebar.collapsed .section-head .icon-btn {
-    justify-content: center;
+    justify-content: flex-start;
     gap: 0;
+    padding-left: 10px;
   }
 
   /* collapsed alignment: the session row must center its dot like the
@@ -2518,6 +2541,11 @@
   .sidebar.collapsed .session-btn {
     padding-left: 0;
     padding-right: 0;
+  }
+
+  /* ensure course/nav dots stay left, not centered */
+  .sidebar.collapsed .nav-item .course-dot-collapsed {
+    margin-left: 0;
   }
 
   .sidebar.collapsed .brand {
@@ -2823,8 +2851,17 @@
 
     /* model selector reads as plain text — no fill, no chrome */
     .input-toolbar .scope-pill {
-      background: none;
-      box-shadow: none;
+      background: rgba(255, 255, 255, 0.04);
+      box-shadow: var(--glass-edge);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      border-color: var(--glass-border);
+    }
+
+    .chat-head .scope-pill {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
       border-color: var(--glass-border);
     }
 
