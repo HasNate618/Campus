@@ -201,9 +201,9 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 				{recentChats.length > 0 && (
 					<>
 						<p className="section-label">
-					<History size={12} className="section-icon" />
-					<span className="side-label">Recent Chats</span>
-				</p>
+							<History size={12} className="section-icon" />
+							<span className="side-label">Recent Chats</span>
+						</p>
 						<div className="sidebar-list">
 							{recentChats.map((s, i) => {
 								const c = courseById.get(s.courseId);
@@ -283,7 +283,15 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 										<button
 											className="icon-btn session-delete"
 											title="Delete chat"
-											onClick={() => deleteSession(s.id)}
+											onClick={() => {
+												if (
+													!window.confirm(
+														`Delete chat "${s.title}"? This cannot be undone.`,
+													)
+												)
+													return;
+												deleteSession(s.id);
+											}}
 										>
 											<Trash2 size={12} />
 										</button>

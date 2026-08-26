@@ -632,7 +632,10 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 									<button
 										className="icon-btn"
 										title="Delete message"
-										onClick={() => deleteMessage(session.id, node.id)}
+										onClick={() => {
+											if (!window.confirm("Delete this message? This cannot be undone.")) return;
+											deleteMessage(session.id, node.id);
+										}}
 									>
 										<Trash2 size={12} />
 									</button>
@@ -729,7 +732,10 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 							<button
 								className="icon-btn"
 								title="Delete message"
-								onClick={() => deleteMessage(session.id, node.id)}
+								onClick={() => {
+									if (!window.confirm("Delete this message? This cannot be undone.")) return;
+									deleteMessage(session.id, node.id);
+								}}
 							>
 								<Trash2 size={12} />
 							</button>
@@ -897,7 +903,10 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 									</button>
 									<button
 										className="icon-btn popover-delete"
-										onClick={() => deleteSession(s.id)}
+										onClick={() => {
+											if (!window.confirm(`Delete chat "${s.title}"? This cannot be undone.`)) return;
+											deleteSession(s.id);
+										}}
 										title="Delete chat"
 									>
 										<Trash2 size={12} />
