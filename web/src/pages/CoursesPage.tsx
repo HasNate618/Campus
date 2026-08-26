@@ -51,10 +51,10 @@ export function CoursesPage() {
 							textDecoration: "none",
 							color: "inherit",
 							display: "block",
+							background: `linear-gradient(135deg, ${courseColor(c)}18 0%, transparent 60%)`,
 						}}
 					>
 						<div className="course-card-top">
-							<span className="dot" style={{ background: courseColor(c) }} />
 							<div className="row-main">
 								<div className="row-title">{c.code}</div>
 								<div className="row-sub">

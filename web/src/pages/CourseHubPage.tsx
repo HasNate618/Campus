@@ -120,9 +120,7 @@ export function CourseLayout() {
 				style={
 					course
 						? {
-								// subtle colour wash identifying the course — replaces
-								// the dot indicator
-								background: `linear-gradient(135deg, ${courseColor(course)}21 0%, transparent 60%)`,
+								background: `linear-gradient(135deg, ${courseColor(course)}28 0%, ${courseColor(course)}14 25%, transparent 65%)`,
 							}
 						: undefined
 				}

@@ -276,8 +276,15 @@ export function SchedulePage() {
 
 			<div className="sched-legend">
 				{termCourses.map((course) => (
-					<div key={course.id} className="sched-legend-row">
-						<span className="dot" style={{ background: courseColor(course) }} />
+					<div
+						key={course.id}
+						className="sched-legend-row"
+						style={{
+							borderLeft: `3px solid ${courseColor(course)}`,
+							paddingLeft: 8,
+						}}
+					>
+
 						<span className="sched-legend-code">{course.code}</span>
 						<span className="sched-legend-name">{course.name}</span>
 						{course.credit && (
