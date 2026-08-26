@@ -211,9 +211,9 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 								return (
 									<div
 										key={s.id}
-										ref={cursor.setRef(i + 1)}
+										ref={cursor.setRef(i + NAV.length)}
 										data-navrow
-										className={`session-item${active ? " active" : ""}${cursor.cursor === i + 1 ? " kbd-cursor" : ""}`}
+										className={`session-item${active ? " active" : ""}${cursor.cursor === i + NAV.length ? " kbd-cursor" : ""}`}
 										style={
 											c
 												? {
@@ -312,11 +312,11 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 						<NavLink
 							key={c.id}
 							to={`/courses/${c.id}`}
-							ref={cursor.setRef(i + 1 + recentChats.length)}
+							ref={cursor.setRef(i + NAV.length + recentChats.length)}
 							onMouseEnter={(e) => showTip(e, `${c.code} — ${c.name}`)}
 							onMouseLeave={hideTip}
 							className={({ isActive }) =>
-								`nav-item${isActive ? " active" : ""}${cursor.cursor === i + 1 + recentChats.length ? " kbd-cursor" : ""}`
+								`nav-item${isActive ? " active" : ""}${cursor.cursor === i + NAV.length + recentChats.length ? " kbd-cursor" : ""}`
 							}
 							style={{
 								borderLeft: `3px solid ${courseColor(c)}`,

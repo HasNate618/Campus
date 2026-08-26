@@ -395,32 +395,34 @@
      as the width animated.) */
   .sidebar.collapsed .nav-item {
     gap: 0;
-    padding-left: 10px;
-    justify-content: flex-start;
+    padding-left: 0;
+    padding-right: 0;
+    justify-content: center;
   }
 
-  /* collapsed courses: hide the wash/border — show a left-aligned dot */
+  /* collapsed courses: hide the wash/border — show a centered dot */
   .sidebar.collapsed .nav-item[style*="border-left"] {
     background: none !important;
     border-left-color: transparent !important;
-    justify-content: flex-start;
+    justify-content: center;
   }
 
-  /* model picker anchored to toolbar right: keep popover inside viewport */
+  /* model picker anchored to toolbar right: keep popover inside viewport,
+     bottom above composer, right edges aligned */
   .input-toolbar .popover.course-picker {
-    right: 0;
-    left: auto;
+    right: 0 !important;
+    left: auto !important;
+    bottom: calc(100% + 8px) !important;
+    top: auto !important;
     max-width: min(280px, calc(100vw - 16px));
   }
 
   .course-dot-collapsed {
     display: none;
-    width: 9px;
-    height: 9px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
     flex-shrink: 0;
-    border: 1.5px solid rgba(255, 255, 255, 0.92);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
   }
 
   .sidebar.collapsed .course-dot-collapsed {
@@ -430,13 +432,15 @@
   .sidebar.collapsed .session-item {
     background: none !important;
     border-left-color: transparent !important;
-    justify-content: flex-start;
-    padding-left: 10px;
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
   }
 
   .sidebar.collapsed .session-btn {
-    justify-content: flex-start;
+    justify-content: center;
     padding-left: 0;
+    padding-right: 0;
   }
 
   .main {
