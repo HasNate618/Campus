@@ -9,7 +9,7 @@ import {
 	Pencil,
 	Trash2,
 } from "lucide-react";
-import { CampusLogo, CampusLogoFull } from "@/components/CampusLogo";
+import { CampusLogo } from "@/components/CampusLogo";
 import { api } from "@/api/client";
 import { useChat } from "@/chat/ChatContext";
 import { listKeys, useListCursor, useZoneKeys } from "@/lib/keynav";
@@ -148,17 +148,32 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 			data-kbd-zone="sidebar"
 		>
 			<div className="brand">
-				{collapsed ? (
-					<div className="logo-mark campus-logo-mark">
+				<button
+					className="brand-logo-btn"
+					onClick={collapsed ? toggle : undefined}
+					onMouseEnter={(e) => collapsed && showTip(e, "Expand sidebar")}
+					onMouseLeave={hideTip}
+					title={collapsed ? "Expand sidebar" : undefined}
+					aria-label={collapsed ? "Expand sidebar" : "Campus"}
+				>
+					<span className="brand-logo">
 						<CampusLogo size={22} />
-					</div>
-				) : (
-					<div
-						style={{ display: "flex", justifyContent: "center", width: "100%" }}
-					>
-						<CampusLogoFull height={38} />
-					</div>
-				)}
+					</span>
+					<span className="brand-expand-icon">
+						<PanelLeftOpen size={18} />
+					</span>
+				</button>
+				<span className="brand-name side-label">Campus</span>
+				<button
+					className="brand-collapse-btn"
+					onClick={toggle}
+					onMouseEnter={(e) => showTip(e, "Collapse sidebar")}
+					onMouseLeave={hideTip}
+					title="Collapse sidebar"
+					aria-label="Collapse sidebar"
+				>
+					<PanelLeftClose size={17} />
+				</button>
 			</div>
 
 			<div className="sidebar-scroll">
@@ -291,36 +306,17 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 			</div>
 
 			<div className="sidebar-footer">
-				<div className="sidebar-footer-row">
-					<button
-						className="nav-item icon-btn-flat"
-						onClick={toggle}
-						onMouseEnter={(e) =>
-							showTip(e, collapsed ? "Expand sidebar" : "Collapse sidebar")
-						}
-						onMouseLeave={hideTip}
-						title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-						aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-					>
-						{collapsed ? (
-							<PanelLeftOpen size={17} />
-						) : (
-							<PanelLeftClose size={17} />
-						)}
-					</button>
-					{!collapsed && (
-						<button
-							className="nav-item icon-btn-flat sidebar-logout"
-							onClick={onLogout}
-							onMouseEnter={(e) => showTip(e, "Log out")}
-							onMouseLeave={hideTip}
-							title="Log out"
-							aria-label="Log out"
-						>
-							<LogOut size={17} />
-						</button>
-					)}
-				</div>
+				<button
+					className="nav-item sidebar-logout"
+					onClick={onLogout}
+					onMouseEnter={(e) => showTip(e, "Log out")}
+					onMouseLeave={hideTip}
+					title="Log out"
+					aria-label="Log out"
+				>
+					<LogOut size={17} />
+					<span className="side-label">Log out</span>
+				</button>
 			</div>
 
 			{tip && (
