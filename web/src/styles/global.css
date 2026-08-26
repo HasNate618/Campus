@@ -3447,6 +3447,29 @@
       filter: saturate(1.25) brightness(1.12);
     }
 
+    /* sync panel: tags below text on mobile, span horizontally */
+    .sync-head {
+      flex-direction: column;
+      align-items: stretch !important;
+    }
+    .sync-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      width: 100%;
+    }
+    .sync-tags .chip {
+      flex: 1 1 auto;
+      justify-content: center;
+      text-align: center;
+      min-width: fit-content;
+    }
+    .sync-tags .btn {
+      flex: 1 1 100%;
+      width: 100%;
+      justify-content: center;
+    }
+
     /* mobile: selector popups opaque black fill */
     .popover,
     .popover.course-picker,

@@ -89,7 +89,7 @@ export function SyncPage() {
         </div>
 
         <div className="card">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div className="sync-head" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <div className="row-main">
               <div className="row-title">
                 {lastRun ? `Last run ${fmtRelative(lastRun.started_at)}` : 'Never synced'}
@@ -100,12 +100,14 @@ export function SyncPage() {
                   : 'Run a sync to pull course content, announcements, and deadlines.'}
               </div>
             </div>
-            {tokenValid === false && <span className="chip red">token expired</span>}
-            {lastRun && <span className={statusChip(lastRun.status)}>{lastRun.status}</span>}
-            <button className="btn btn-primary" onClick={trigger} disabled={triggering}>
-              {triggering ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} />}
-              Sync now
-            </button>
+            <div className="sync-tags">
+              {tokenValid === false && <span className="chip red">token expired</span>}
+              {lastRun && <span className={statusChip(lastRun.status)}>{lastRun.status}</span>}
+              <button className="btn btn-primary" onClick={trigger} disabled={triggering}>
+                {triggering ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} />}
+                Sync now
+              </button>
+            </div>
           </div>
           {triggerMsg && (
             <p className="row-sub" style={{ marginTop: 10, marginBottom: 0 }}>
