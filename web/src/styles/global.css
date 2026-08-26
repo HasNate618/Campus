@@ -63,8 +63,12 @@
     --glass-bg-strong: rgba(255, 255, 255, 0.08);
     --glass-border: rgba(255, 255, 255, 0.08);
     --glass-border-strong: rgba(255, 255, 255, 0.14);
-    --glass-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
-    --glass-blur: blur(20px) saturate(1.4);
+    --glass-shadow: 0 10px 32px rgba(0, 0, 0, 0.35);
+    /* liquid-glass edge: top light catch + faint inner rim, layered under
+       --glass-shadow on every raised surface */
+    --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      inset 0 0 1px rgba(255, 255, 255, 0.05);
+    --glass-blur: blur(24px) saturate(1.6);
 
     /* OPAQUE equivalents of the old white alphas (0.93 / 0.62 / 0.38 over
        the solid dark canvas). Stroked SVG icons self-overlap where their
@@ -85,9 +89,9 @@
     --red: #f87171;
     --amber: #fbbf24;
 
-    --radius-panel: 16px;
-    --radius-card: 14px;
-    --radius-ctl: 10px;
+    --radius-panel: 24px;
+    --radius-card: 18px;
+    --radius-ctl: 12px;
     --sidebar-w: 200px;
     --sidebar-w-collapsed: 62px;
 
@@ -430,7 +434,7 @@
     background: var(--glass-bg-strong);
     border: 1px solid var(--glass-border-strong);
     border-radius: var(--radius-panel);
-    box-shadow: var(--glass-shadow);
+    box-shadow: var(--glass-edge), var(--glass-shadow);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
   }
@@ -480,7 +484,7 @@
     background: var(--glass-bg);
     border: 1px solid var(--glass-border);
     border-radius: var(--radius-card);
-    box-shadow: var(--glass-shadow);
+    box-shadow: var(--glass-edge), var(--glass-shadow);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
     padding: 18px;
@@ -740,7 +744,7 @@
     border-radius: 999px;
     padding: 5px 12px;
     cursor: pointer;
-    box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    box-shadow: var(--glass-edge), var(--glass-shadow);
     transition: color 120ms ease, border-color 120ms ease;
   }
 
@@ -759,7 +763,7 @@
     background: rgb(30, 30, 30);
     border: 1px solid var(--glass-border-strong);
     border-radius: 12px;
-    box-shadow: var(--glass-shadow);
+    box-shadow: var(--glass-edge), var(--glass-shadow);
     padding: 5px;
     z-index: 40;
   }
@@ -870,6 +874,7 @@
     border-radius: 999px;
     padding: 8px 14px;
     cursor: pointer;
+    box-shadow: var(--glass-edge);
     transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
   }
 
@@ -1145,7 +1150,7 @@
     background: var(--glass-bg);
     border: 1px solid var(--glass-border);
     border-radius: 22px;
-    box-shadow: var(--glass-shadow);
+    box-shadow: var(--glass-edge), var(--glass-shadow);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
     padding: 10px 10px 10px 16px;
@@ -1204,6 +1209,9 @@
     border-radius: 50%;
     background: var(--violet-solid);
     color: #fff;
+    /* glossy violet: top light catch + soft glow */
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25),
+      0 2px 12px rgba(122, 77, 187, 0.4);
     display: grid;
     place-items: center;
     cursor: pointer;
@@ -2329,7 +2337,7 @@
     background: rgb(30, 30, 30);
     border: 1px solid var(--glass-border-strong);
     border-radius: 8px;
-    box-shadow: var(--glass-shadow);
+    box-shadow: var(--glass-edge), var(--glass-shadow);
     padding: 5px 10px;
   }
 
@@ -2367,11 +2375,11 @@
 
   .tt-wrap {
     border: 1px solid var(--glass-border);
-    border-radius: 12px;
+    border-radius: var(--radius-card);
     /* opaque panel — over the flat dark canvas the old 5%-white glass
        read as no panel at all */
     background: var(--bg-raised);
-    box-shadow: var(--glass-shadow);
+    box-shadow: var(--glass-edge), var(--glass-shadow);
     overflow: hidden;
   }
 
@@ -3047,7 +3055,7 @@ pre code.hljs {
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-panel);
-  box-shadow: var(--glass-shadow);
+  box-shadow: var(--glass-edge), var(--glass-shadow);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   padding: 22px 24px;
