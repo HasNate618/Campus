@@ -14,7 +14,7 @@ I built Campus because I was tired of hunting through Brightspace. Files four cl
 ## Preview
 
 <p align="center">
-  <img src="docs/images/chat-citation.png" width="900" alt="Campus — chat with exact citation and audited writes" />
+  <img src="docs/images/hero.png" width="900" alt="Campus — course hub and chat with exact citation" />
 </p>
 
 ## Tech stack

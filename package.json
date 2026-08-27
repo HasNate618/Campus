@@ -1,0 +1,12 @@
+{
+  "name": "campus-demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo:video": "node scripts/demo-video.mjs",
+    "demo:install": "npm i -D playwright && npx playwright install chromium --with-deps"
+  },
+  "devDependencies": {
+    "playwright": "^1.61.1"
+  }
+}
