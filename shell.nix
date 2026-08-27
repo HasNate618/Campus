@@ -7,6 +7,9 @@ pkgs.mkShell {
   packages = [
     pkgs.nodejs_22
     pkgs.ffmpeg
+    pkgs.chromium
+    pkgs.nss
+    pkgs.nspr
     (pkgs.python3.withPackages (ps: [
       ps.playwright
       ps.httpx
@@ -15,5 +18,7 @@ pkgs.mkShell {
   ];
   shellHook = ''
     export PLAYWRIGHT_BROWSERS_PATH="${pkgs.playwright.browsers}"
+    export REMOTION_CHROMIUM_PATH="${pkgs.chromium}/bin/chromium"
+    export PUPPETEER_EXECUTABLE_PATH="${pkgs.chromium}/bin/chromium"
   '';
 }

@@ -4,9 +4,19 @@
   "type": "module",
   "scripts": {
     "demo:video": "node scripts/demo-video.mjs",
-    "demo:install": "npm i -D playwright && npx playwright install chromium --with-deps"
+    "demo:capture": "node scripts/capture-frames.mjs",
+    "demo:install": "npm i -D playwright && npx playwright install chromium --with-deps",
+    "remotion:studio": "remotion studio",
+    "remotion:render": "remotion render CampusDemo out/campus-demo.mp4 --codec=h264 --crf=18 --image-format=jpeg --fps=60 --concurrency=4",
+    "remotion:still": "remotion still CampusDemo out/hero.png --frame=1272"
+  },
+  "dependencies": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "remotion": "^4.0.352"
   },
   "devDependencies": {
+    "@remotion/cli": "^4.0.352",
     "playwright": "^1.61.1"
   }
 }
