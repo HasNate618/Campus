@@ -25,7 +25,7 @@ I built Campus because I was tired of hunting through Brightspace. Files four cl
 | Agent harness | Python, SQLite WAL, embeddings + rerank | The agent queries structured state instead of getting a giant context dump. Keeps answers grounded and auditable |
 | Search | Embeddings with SQLite `instr()` lexical boost | Exact phrases like "late penalty is 10 percent per day" embed poorly at 0.34 vs a 0.48 cutoff. The lexical check pushes verbatim hits to the front |
 | API | FastAPI, SSE, Pydantic | Small typed surface that the web and the agent both call |
-| Web | React 19, TypeScript, Vite, Tailwind | Fast PWA that works offline for the shell, pageless PDF viewer included |
+| Web | React 19, TypeScript, Vite, Tailwind | PWA that installs like a native app and works offline for the shell, pageless PDF viewer included. Add to home screen on iOS/Android and it feels like a real app, not a tab |
 | Infra | Docker, GitHub Actions | One command demo and tests on every push to main |
 
 ## How it works
