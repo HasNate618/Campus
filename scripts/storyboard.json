@@ -1,0 +1,106 @@
+{
+  "meta": {
+    "title": "Campus — 25s polished silent demo",
+    "viewport": { "width": 1920, "height": 1080 },
+    "fps": 60,
+    "crf": 19,
+    "preset": "medium",
+    "description": "Silent, no voiceover. Burned-in pills, auto-zoom on action zones, mocked SSE with tool chips. Reproducible via nix-shell."
+  },
+  "captions": {
+    "style": {
+      "font": "Inter SemiBold",
+      "size": 42,
+      "color": "#FFFFFF",
+      "bg": "rgba(14,14,16,0.76)",
+      "radius": 14,
+      "padding": { "v": 18, "h": 24 }
+    }
+  },
+  "chapters": [
+    {
+      "id": "hook-today",
+      "time": "0.0-2.4",
+      "screen": "Today (digest + next 7 days)",
+      "route": "/",
+      "action": "Load Today, subtle scroll 120px to reveal Next 7 days strip. Cursor rests center.",
+      "caption": "Brightspace is scattered. Campus syncs it offline.",
+      "zoom": { "x": 0.38, "y": 0.42, "from": 1.0, "to": 1.18, "duration": 380 },
+      "cursor": { "from": { "x": 960, "y": 540 }, "to": { "x": 480, "y": 380 }, "duration": 520 }
+    },
+    {
+      "id": "sync-proof",
+      "time": "2.4-5.0",
+      "screen": "Today — sync badge",
+      "action": "Glide cursor to sync badge (✓ 21 tables · sha256), hover tooltip Last sync 2m ago · 3 files changed pops.",
+      "caption": "Offline-first: D2L REST + Playwright MFA → SQLite.",
+      "zoom": { "x": 0.72, "y": 0.78, "from": 1.18, "to": 1.0, "duration": 280 },
+      "cursor": { "from": { "x": 480, "y": 380 }, "to": { "x": 1420, "y": 820 }, "duration": 520 }
+    },
+    {
+      "id": "course-hub",
+      "time": "5.0-9.2",
+      "screen": "Course hub — browsable tree",
+      "route": "/courses/1",
+      "action": "Snap cut to Course hub. Click Modules ▸ Week 4 · Paging, tree expands. Click Lecture 4 — Paging.pdf, preview appears.",
+      "caption": "Every course, browsable — not a file dump.",
+      "zoom": { "x": 0.28, "y": 0.48, "from": 1.0, "to": 1.26, "duration": 320 },
+      "cursor": { "from": { "x": 1420, "y": 820 }, "to": { "x": 540, "y": 520 }, "duration": 500 }
+    },
+    {
+      "id": "pageless-pdf",
+      "time": "9.2-11.6",
+      "screen": "Workspace — pageless PDF",
+      "action": "Drag zoom slider to 125%, pageless reflow animates, click Open in Zen Markdown.",
+      "caption": "Pageless PDF + zen markdown for actual study.",
+      "zoom": { "x": 0.68, "y": 0.5, "from": 1.26, "to": 1.22, "duration": 300 },
+      "cursor": { "from": { "x": 540, "y": 520 }, "to": { "x": 1300, "y": 540 }, "duration": 480 }
+    },
+    {
+      "id": "chat-enter",
+      "time": "11.6-12.8",
+      "screen": "Chat (course-scoped)",
+      "route": "/courses/1 (chat pane)",
+      "action": "Glide to left nav Chat, click, 180ms slide to Chat view. Course pill CS 1100A already selected.",
+      "caption": "Course-scoped chat. Cited, not hallucinated.",
+      "zoom": { "x": 0.5, "y": 0.86, "from": 1.0, "to": 1.24, "duration": 300 },
+      "cursor": { "from": { "x": 1300, "y": 540 }, "to": { "x": 960, "y": 860 }, "duration": 520 }
+    },
+    {
+      "id": "ask-tools",
+      "time": "12.8-16.8",
+      "screen": "Chat — type query + tool chips",
+      "action": "Type 'How did the Aug 19 lecture define thrashing? And move my review to Aug 31.' with jitter. Press Enter at 14.4s. Chips: search_corpus at 14.6s → ✓ 3 sources at 15.2s, mutate at 15.6s → ✓ Aug 31 at 16.2s.",
+      "caption": "Ask anything — watch the tools work.",
+      "zoom": { "x": 0.78, "y": 0.22, "from": 1.24, "to": 1.2, "duration": 400 },
+      "cursor": { "from": { "x": 960, "y": 860 }, "to": { "x": 1500, "y": 240 }, "duration": 460 }
+    },
+    {
+      "id": "answer-audit",
+      "time": "16.8-21.2",
+      "screen": "Chat — streamed answer + audit card",
+      "action": "Mocked SSE streams tokens (18ms/token). Citation [Lecture 4 p.12] fades in. Audit card slides up: before 2025-08-19 → after 2025-08-31 · sha256.",
+      "caption": "Cited answer. Audited mutation. Blind-graded quiz ready.",
+      "zoom": { "x": 0.45, "y": 0.5, "from": 1.2, "to": 1.16, "duration": 400 },
+      "cursor": { "from": { "x": 1500, "y": 240 }, "to": { "x": 860, "y": 540 }, "duration": 500 }
+    },
+    {
+      "id": "close",
+      "time": "21.2-25.0",
+      "screen": "Finale overlay on Today hero",
+      "route": "/",
+      "action": "Ease zoom to 1.0 over 400ms, crossfade finale card over bottom 28%: left stack pills Python · Playwright · FastAPI · SQLite · Docker · PWA, right CTA github.com/HasNate618/Campus + Installable · Works offline badge.",
+      "caption": "Offline-first. Installable. Ships with Docker + CI.",
+      "zoom": { "x": 0.5, "y": 0.5, "from": 1.16, "to": 1.0, "duration": 400 },
+      "cursor": { "from": { "x": 860, "y": 540 }, "to": { "x": 960, "y": 540 }, "duration": 500 }
+    }
+  ],
+  "export": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 60,
+    "crf": 19,
+    "preset": "medium",
+    "maxSizeMB": 30
+  }
+}
