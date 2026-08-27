@@ -13,9 +13,20 @@ I built Campus because I was tired of hunting through Brightspace. Files four cl
 
 ## Preview
 
-| Today / digest | Course hub | Chat with sources |
-| --- | --- | --- |
-| ![Today](docs/images/today.png) | ![Course hub](docs/images/course-hub.png) | ![Chat with citation](docs/images/chat-citation.png) |
+<p align="center">
+  <img src="docs/images/today.png" width="900" alt="Today — digest and next 7 days" />
+</p>
+<p align="center"><em>Today — digest and next 7 days</em></p>
+
+<p align="center">
+  <img src="docs/images/course-hub.png" width="900" alt="Course hub — browsable content tree" />
+</p>
+<p align="center"><em>Course hub — browsable content tree, no Brightspace clicks</em></p>
+
+<p align="center">
+  <img src="docs/images/chat-citation.png" width="900" alt="Chat — exact citation with source" />
+</p>
+<p align="center"><em>Chat — exact line with citation, not a guess, and audited writes</em></p>
 
 ## Tech stack
 
