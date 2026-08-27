@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="web/public/logo-full.svg" width="360" alt="Campus wordmark" />
+  <img src="web/public/logo-full.svg" width="540" alt="Campus wordmark" />
 </p>
 
 # Campus
@@ -7,103 +7,83 @@
 ![CI](https://github.com/HasNate618/Campus/actions/workflows/ci.yml/badge.svg)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 
-A personal AI study system. It syncs a university LMS (Brightspace/D2L) into
-a local knowledge base — SQLite spine plus files on disk — then answers
-questions about your courses through an agent harness with real tool access:
-structured facts, file reads, semantic search, and audited mutations.
+An offline-first study system that syncs Brightspace into a local SQLite + file store and answers questions with an agent that has to show its work.
 
-The agent harness is the product; the web UI is a surface over it.
+I built Campus because I was tired of hunting through Brightspace. Files four clicks deep, due dates split between a dropbox and a line in a PDF, announcements that scroll past and disappear. I wanted one place that felt like my desk. Something that would remember what was due, keep my notes next to the source material, and answer from my actual files instead of guessing.
 
----
+## Preview
 
-## What it does
+| Today / digest | Course hub | Chat with sources |
+| --- | --- | --- |
+| ![Today](docs/images/today.png) | ![Course hub](docs/images/course-hub.png) | ![Chat with citation](docs/images/chat-citation.png) |
 
-- **Deterministic LMS sync** — D2L REST + Playwright/MFA auth. Pulls the
-  content tree, module landing pages, files, dropbox assignments,
-  announcements, and syllabus. sha256 change detection; nothing is scraped
-  in the background, nothing is re-downloaded unchanged.
-- **Course-scoped AI chat** — an agent with 19 tools over your data:
-  assignments/announcements/facts, paginated file reads, grep, semantic
-  search, audited mutations (extend a due date, add a note, write a fact),
-  free-recall quizzes, and web search for outside questions. Every mutation
-  is written to an `audit_log` with before/after JSON.
-- **Semantic + lexical search** — embeddings + rerank over extracted course
-  content, with an exact-phrase lexical boost so "where does it say X"
-  questions find the verbatim answer instead of burying it under paraphrase
-  matches.
-- **A web app that runs anywhere** — Today / Course hub / Timetable /
-  Calendar / Chat, PWA-installable, zen markdown rendering, a vendored
-  pageless PDF viewer, offline-capable assets.
-- **Portable by construction** — every URL, path, and credential is
-  config-driven (`config.yaml` + `CAMPUS_*` env vars). Point it at any
-  Brightspace instance and any OpenAI-compatible model endpoint
-  (OpenAI, OpenRouter, Together, a local gateway — with or without an API
-  key).
+## Tech stack
 
-## Why it's interesting
+| Layer | Choice | Why this one |
+| --- | --- | --- |
+| Sync engine | Python, Playwright, httpx, PyMuPDF | Playwright handles MFA and keeps a token that survives restarts. PyMuPDF pulls text from most PDFs in milliseconds and I only fall back to OCR for scans |
+| Agent harness | Python, SQLite WAL, embeddings + rerank | The agent queries structured state instead of getting a giant context dump. Keeps answers grounded and auditable |
+| Search | Embeddings with SQLite `instr()` lexical boost | Exact phrases like "late penalty is 10 percent per day" embed poorly at 0.34 vs a 0.48 cutoff. The lexical check pushes verbatim hits to the front |
+| API | FastAPI, SSE, Pydantic | Small typed surface that the web and the agent both call |
+| Web | React 19, TypeScript, Vite, Tailwind | Fast PWA that works offline for the shell, pageless PDF viewer included |
+| Infra | Docker, GitHub Actions | One command demo and tests on every push to main |
 
-The AI doesn't get a context dump of your courses. It gets **tools over a
-structured store**:
+## How it works
 
-```
-LMS (Brightspace/D2L)
-   │  sync/  — D2L REST + Playwright/MFA, sha256 change detection
-   ▼
-SQLite spine (21 tables) + files on disk
-   │  agent/ — context builder, 17 tools, audited mutations
-   ▼
-Course-scoped chat (SSE) + search
-   │  api/ + web/
-   ▼
-Browser (PWA)
+The model never gets a dump of your courses. It gets tools over a clean store.
+
+```text
+Brightspace / D2L
+  -> sync/ (D2L REST + Playwright/MFA, sha256 change detection)
+  -> SQLite (21 tables) + files on disk
+  -> agent/ (context builder, 19 tools, audited writes)
+  -> FastAPI + React PWA
+  -> Browser
 ```
 
-Three decisions shape everything:
+What shaped the design:
 
-1. **The AI reads; it doesn't guess.** The system prompt is rebuilt every
-   turn from live state (time, term, course scope, upcoming events, the
-   course memory card). Answers are grounded in synced data or the model
-   says it doesn't know.
-2. **Mutations are audited, not trusted.** The harness can extend a due
-   date, add a note, or write a memory fact — but every write lands in
-   `audit_log` with before/after JSON, and "supersede, never delete" is
-   enforced in the schema (facts flip `is_active = 0` rather than being
-   removed).
-3. **Search is hybrid.** Short exact phrases embed badly (a 0.34 cosine vs
-   a 0.48 cutoff is a real miss), so the pipeline is: embed → cosine top-N →
-   rerank, *plus* a SQLite `instr()` lexical pre-filter that force-promotes
-   verbatim phrase matches to the front of the results. The snippet is
-   windowed around the match so the answer text survives the cut.
-4. **Quiz-me is blind-graded free recall.** The harness starts a quiz over
-   the course's active memory facts; the grading model sees ONLY the answer
-   key and the user's words — never the questions — so it can't flatter or
-   leak the lesson. Recently-quizzed facts are skipped for 7 days so the
-   answers don't sit in chat history.
+- The agent reads, it does not guess. The system prompt is rebuilt every turn from live state: current time, active term, course scope, upcoming events, and the course memory card. If the answer is not in the synced data, it says so.
+- Writes are audited. Extending a due date or saving a fact writes before/after JSON to `audit_log`. Facts are superseded by flipping `is_active` to 0 and inserting a new row, never deleted in place.
+- Quiz is blind graded. The grading model only sees the answer key and what you wrote, not the question text. That keeps it from being nice or leaking the lesson. Recently quizzed facts are skipped for 7 days so chat history does not give away the answer.
+
+More detail lives in `docs/DESIGN.md` and `docs/DATA_MODEL.md`.
 
 ## Project layout
 
-| Path | What |
-| ------ | ------ |
-| `sync/` | LMS sync engine: `config.py` (defaults < yaml < env), `token_store.py`, `auth.py` (Playwright/MFA), `d2l.py` (REST client), `sync.py` (the pipeline), `extract.py` (PDF → markdown), `search.py` (embeddings/rerank/lexical index) |
-| `agent/` | The harness: `context.py` (system prompt from live state), `tools.py` (17 tools + security blocklist), `chat.py` (tool-calling loop, SSE), `memory.py` (memory card + supersede), `quiz.py` (blind-graded self-tests), `mcp.py` (minimal MCP client for web tools) |
-| `api/` | FastAPI backend: `routers/courses.py`, `data.py`, `sync.py`, `digest.py`, `chat.py` (SSE), `services.py` (read layer), SPA serving |
-| `web/` | React/TS PWA (Vite + Tailwind): Today / Course hub / Timetable / Calendar / Chat / Workspace, zen markdown, vendored PDF viewer |
-| `seed/` | `courses.example.json` (sample data shipped in the repo) + `courses.local.json` (gitignored real enrollments); `sample.ics` timetable feed |
-| `tools/` | One-off ops: `ics_import.py`, `cache_images.py`, `digest_backfill.py`, `dedupe_files.py`, ... |
-| `tests/` | 25 pytest units (see Tests) |
-| `docs/` | `DESIGN.md` (architecture), `DATA_MODEL.md` (schema + write rules), `HANDOFF.md` (implementation brief) |
+| Path | Contains |
+| --- | --- |
+| `sync/` | LMS sync. Config with defaults then yaml then env, token store, Playwright auth, D2L REST client, pipeline, PDF to markdown, search index |
+| `agent/` | Harness. Context builder, tool definitions with blocklist, tool calling loop over SSE, memory card, blind graded quiz, small MCP client |
+| `api/` | FastAPI. Routers for courses, data, sync, digest, and chat, plus services and SPA serving |
+| `web/` | React and TypeScript PWA. Today, Course hub, Timetable, Calendar, Chat, Workspace, zen markdown, vendored PDF viewer |
+| `seed/` | `courses.example.json` ships sample data, `courses.local.json` is gitignored for real enrollments, `sample.ics` for timetable |
+| `tools/` | One off scripts like `ics_import.py` and `digest_backfill.py` |
+| `tests/` | 25 pytest units. Config, seed round trips, search, security blocklist |
+| `docs/` | DESIGN, DATA_MODEL, HANDOFF |
 
-## Quickstart (demo, no credentials)
+## What I learned
+
+This is the largest thing I have shipped end to end and it changed how I think about building with an agent in the loop.
+
+The sync and the store are the product, not the prompt. When the data is clean and queryable, the agent can stay simple and still look smart. When the data is messy, no prompt fixes it. The sha256 check that skips unchanged files and the deterministic delete and reinsert for timetable imports both started as small reliability wins and ended up being the reason the app feels trustworthy.
+
+Portability was worth the extra config layer. Defaults then yaml then env felt fussy at first, but it means a fresh clone runs with no secrets and a prod deploy only needs env vars. Same pattern made Docker work without special casing.
+
+Search humbled me. I assumed embeddings would just work. Then a short exact phrase failed at 0.34 cosine against a 0.48 cutoff and buried the right slide. Adding a SQLite `instr()` lexical pre filter felt almost too simple, but it fixed the exact questions a student actually asks, and windowing the snippet around that match kept the answer text from getting cut.
+
+Tradeoffs I made on purpose: SQLite WAL for portability over Postgres, polling style sync you trigger instead of background scraping that would fight MFA, polling for search rerank that is good enough for one user before I add heavier infra.
+
+Next I want to add tracing around the agent loop and a heavier test around the timetable generation.
+
+## Run it
+
+Prerequisites: Docker, or Python 3.12 and Node 22 if you run outside Docker.
 
 ```bash
 docker compose up --build
 # open http://localhost:8087
 ```
-
-The container seeds itself with sample courses (CS 1100A, MATH 1600A, …) and
-a sample timetable — everything renders without an LMS account. Chat needs
-an LLM endpoint; set `CAMPUS_LLM_URL` / `CAMPUS_LLM_MODEL` / `CAMPUS_LLM_API_KEY`
-in `docker-compose.yml` if you want to talk to your courses.
 
 Without Docker:
 
@@ -111,88 +91,61 @@ Without Docker:
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt -r api/requirements.txt
 cd web && npm ci && cd ..
 cp config.example.yaml config.yaml
-python3 seed/seed.py                        # sample courses
-python3 tools/ics_import.py seed/sample.ics # sample timetable
+python3 seed/seed.py
+python3 tools/ics_import.py seed/sample.ics
 .venv/bin/python -m uvicorn api.main:app --port 8000
 ```
 
-## Real deployment
-
-Everything environment-specific lives in `config.yaml` (gitignored) or
-`CAMPUS_*` env vars — the repo itself carries zero personal configuration.
-
-| Config key | Env var | Purpose |
-| ----------- | --------- | --------- |
-| `base_url` | `CAMPUS_BASE_URL` | LMS instance (any Brightspace/D2L) |
-| `username` | `CAMPUS_USERNAME` | LMS username; password via `CAMPUS_BRIGHTSPACE_PASSWORD` |
-| `llm_url` / `llm_model` / `llm_api_key` | `CAMPUS_LLM_*` | Any OpenAI-compatible `/v1` endpoint; Bearer key optional |
-| `data_root` | `CAMPUS_DATA_ROOT` | Where course content lands (`{term}/{code}/…`) |
-| `token_dir` | `CAMPUS_TOKEN_DIR` | MFA token + browser profile |
-| `institution` | — | Label in the system prompt |
-| `brightspace_hosts` / `brightspace_base_url` | `CAMPUS_BRIGHTSPACE_*` | Content proxy allowlist + link rebasing (Brightspace-only features) |
-| `term_dates` | — | Anchors computed class events |
-| `timezone` | `CAMPUS_TIMEZONE` | User-facing datetimes + prompt clock |
-| `web_password` | `CAMPUS_WEB_PASSWORD` | Optional single password for the web API; empty = open demo |
-
-### Authentication
-
-The web UI is open by default (zero-config demo). Set `CAMPUS_WEB_PASSWORD`
-(or `web_password` in `config.yaml`) to require a password for every `/api/*`
-route — static assets stay public so the login screen can load. Sessions are
-in-memory with a 30-day sliding expiry; restarting the server logs everyone
-out.
+Try this once it is running:
 
 ```bash
-python3 -m sync auth        # MFA push → token stored (1h TTL)
-python3 -m sync sync        # full sync + AI digest + notification
-python3 -m sync models      # list models from the LLM endpoint
-python3 -m sync extract --code "CS 1100A"   # PDF → markdown queue
-python3 -m agent            # CLI chat (REPL)
+# CLI chat over your local data, no browser needed
 python3 -m agent --one "What's due this week?" --course "CS 1100A"
 ```
 
-Your real enrollments go in `seed/courses.local.json` (gitignored) — the
-repo only ever ships sample data. Course content and secrets never touch git.
+Chat needs a model endpoint. Set `CAMPUS_LLM_URL`, `CAMPUS_LLM_MODEL`, and `CAMPUS_LLM_API_KEY` in `docker-compose.yml` or `config.yaml`. Any OpenAI compatible `/v1` endpoint works.
 
-## Design decisions worth knowing
+## Configuration
 
-- **Memory card per course** — a ~2-3KB markdown snapshot (deadlines, facts,
-  recent sync activity) regenerated on sync deltas and injected into the
-  system prompt. Structured rows beat free-form facts; time-sensitive facts
-  expire after 30 days; facts from ended terms become history.
-- **Digest time rules** — relative dates ("tomorrow", "next week") are
-  resolved to absolute before facts are stored, so memory doesn't fill with
-  time-bombs.
-- **Notes are files, not DB rows** — prose lives in `notes/*.md`; the
-  harness writes them through an audited tool. `content/` is read-only.
-- **`digested_at` one-time backfill** — announcements are digested exactly
-  once, then marked; re-runs stay quiet. Same pattern for any "ingest this
-  historical backlog" job.
-- **ICS timetable import** — `tools/ics_import.py` maps any weekly
-  `.ics` feed (university calendar export) into `course_sessions`, the same
-  deterministic delete-and-reinsert the seed uses.
-- **Extraction fast path** — PDFs with an embedded text layer extract in
-  milliseconds via PyMuPDF; only scanned PDFs fall through to the
-  OCR/VLM engine, and long scans are skipped by default.
-- **Security blocklist** — the `terminal_run` tool runs inside a jailed
-  container with a regex blocklist (sudo, docker, systemctl, token paths,
-  config.yaml, `rm -rf /`), audited every invocation.
+All personal values live in `config.yaml` (gitignored) or `CAMPUS_*` env vars. The repo ships with no secrets.
 
-## Tests & CI
+| Key | Env var | Purpose |
+| --- | --- | --- |
+| `base_url` | `CAMPUS_BASE_URL` | Your Brightspace instance |
+| `username` | `CAMPUS_USERNAME` | LMS username, password via `CAMPUS_BRIGHTSPACE_PASSWORD` |
+| `llm_url`, `llm_model`, `llm_api_key` | `CAMPUS_LLM_*` | Any OpenAI compatible endpoint, key is optional for local gateways |
+| `data_root` | `CAMPUS_DATA_ROOT` | Where course files land as `{term}/{code}/...` |
+| `token_dir` | `CAMPUS_TOKEN_DIR` | MFA token and browser profile |
+| `web_password` | `CAMPUS_WEB_PASSWORD` | Single password for `/api/*` routes, empty means open demo |
+| `timezone` | `CAMPUS_TIMEZONE` | Dates you see and the clock in the prompt |
+| `term_dates` | n/a | Start and end dates that anchor class events |
+
+Common commands once configured for a real term:
+
+```bash
+python3 -m sync auth        # MFA push, stores token with 1h TTL
+python3 -m sync sync        # full sync, AI digest, notification
+python3 -m sync extract --code "CS 1100A"
+python3 -m agent            # REPL chat
+```
+
+Your real enrollments go in `seed/courses.local.json`. Course content and secrets never get committed.
+
+## Tests and CI
 
 ```bash
 pip install -r requirements-dev.txt
-pytest    # 25 unit tests
+pytest    # 25 tests
 ```
 
-Coverage: config portability (empty defaults, env overrides, legacy names
-gone), seed + ICS import round-trips, the schedule API contract the
-frontend depends on, search (lexical phrase hits, snippet windowing,
-chunking, cosine), and the agent security blocklist.
+Covers config portability with env overrides, seed and ICS import round trips, the schedule contract the frontend relies on, search behavior with lexical hits and snippet windowing and chunking, and the agent security blocklist.
 
-GitHub Actions runs the backend tests on Python 3.12 and the web
-type-check + production build on Node 22 for every push to `main`.
+GitHub Actions runs backend tests on Python 3.12 and the web typecheck plus production build on Node 22 for every push to main.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See LICENSE.
+
+---
+
+I am Nate, a software engineering student looking for internships and new grad roles. I like boring reliability work: hash checks, audit logs, deterministic imports, the things that make a system trustworthy when AI is in the loop. If this kind of work is interesting to your team, I would love to talk.
