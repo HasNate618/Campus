@@ -17,6 +17,8 @@
   },
   "devDependencies": {
     "@remotion/cli": "^4.0.352",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
     "playwright": "^1.61.1"
   }
 }
