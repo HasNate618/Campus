@@ -917,10 +917,15 @@ TOOLS = {
 }
 
 
-def _mcp_handler(name: str, url: str | None = None):
-    """Closure: dispatch a discovered MCP tool by name. If ``url`` is given it
-    is used directly (the server this tool was discovered from); otherwise the
-    live cfg.mcp_endpoints() are tried in order (failover)."""
+def _mcp_handler(agent_name: str, raw_name: str, url: str | None = None):
+    """Closure: dispatch a discovered MCP tool by name.
+
+    ``agent_name`` is the (prefixed) name the agent sees; ``raw_name`` is the
+    tool's original name on the server (what ``tools/call`` must send — the
+    server does not know the agent-side prefix). ``url`` is the server this
+    tool was discovered from; when None, cfg.mcp_endpoints() are tried in
+    order (failover).
+    """
     def handler(db: DB, cfg: Config, args: dict) -> dict:
         from .mcp import MCPClient
         if url:
@@ -928,19 +933,19 @@ def _mcp_handler(name: str, url: str | None = None):
         else:
             urls = cfg.mcp_endpoints()
         if not urls:
-            return {"error": f"MCP tool '{name}' unavailable: no mcp_url configured"}
+            return {"error": f"MCP tool '{agent_name}' unavailable: no mcp_url configured"}
         last_err = None
         for u in urls:
             try:
                 client = MCPClient(u)
                 client.connect()
                 try:
-                    return client.call_tool(name, args)
+                    return client.call_tool(raw_name, args)
                 finally:
                     client.close()
             except Exception as e:
                 last_err = e
-        return {"error": f"mcp {name} failed: {last_err}"}
+        return {"error": f"mcp {agent_name} failed: {last_err}"}
     return handler
 
 
@@ -961,10 +966,14 @@ def _mcp_tool_entry(t: dict, url: str, prefix: str | None = None) -> tuple[str, 
     props = dict(schema.get("properties") or {})
     required = [r for r in (schema.get("required") or []) if r in props]
     description = (t.get("description") or f"MCP tool '{raw}'").strip()
-    entry = _tool(name, description, _mcp_handler(name, url),
+    # The agent sees the (prefixed) `name`; the handler must call the server
+    # with the ORIGINAL `raw` name it actually exposes.
+    entry = _tool(name, description, _mcp_handler(name, raw, url),
                   required=required or None, **props)
-    # remember the source server so the handler calls the right endpoint
+    # remember the source server + original tool name so the handler calls
+    # the right endpoint with the right (un-prefixed) name
     entry["_mcp_url"] = url
+    entry["_mcp_raw_name"] = raw
     return name, entry
 
 
