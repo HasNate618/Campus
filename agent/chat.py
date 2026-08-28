@@ -33,72 +33,87 @@ def llm_headers(cfg: Config) -> dict:
 
 def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
                 on_token=None, on_reasoning=None) -> tuple[dict, dict | None]:
-    """Streaming chat completion. Accumulates content + tool_calls from SSE
-    deltas; on_token(text) fires per content token and on_reasoning(text)
-    per chain-of-thought chunk (both used by the web SSE). Returns
-    (message, usage) — usage comes in the final chunk of the stream."""
-    with httpx.stream(
-        "POST",
-        f"{cfg.llm_url}/chat/completions",
-        headers=llm_headers(cfg),
-        json={
-            "model": model or cfg.llm_model,
-            "messages": messages,
-            "tools": TOOL_SCHEMAS,
-            "tool_choice": "auto",
-            "max_tokens": 2000,
-            "stream": True,
-        },
-        timeout=300,
-    ) as r:
-        r.raise_for_status()
-        content = ""
-        reasoning = ""
-        tool_calls: dict[int, dict] = {}
-        usage: dict | None = None
-        for line in r.iter_lines():
-            if not line or not line.startswith("data:"):
-                continue
-            data = line[5:].strip()
-            if data == "[DONE]":
-                break
-            chunk = json.loads(data)
-            if chunk.get("usage"):
-                usage = chunk["usage"]
-            delta = chunk.get("choices", [{}])[0].get("delta", {})
-            if delta.get("content"):
-                content += delta["content"]
-                if on_token:
-                    on_token(delta["content"])
-            # chain-of-thought: some endpoints stream it as delta['reasoning'];
-            # deepseek's native thinking mode uses reasoning_content. Surface
-            # both live and keep them on the message (reasoning_content MUST be
-            # passed back to the API on subsequent calls or it 400s).
-            rchunk = delta.get("reasoning") or delta.get("reasoning_content")
-            if rchunk:
-                reasoning += rchunk
-                if on_reasoning:
-                    on_reasoning(rchunk)
-            for tc in delta.get("tool_calls", []):
-                idx = tc.get("index", 0)
-                entry = tool_calls.setdefault(idx, {"id": "", "name": "", "arguments": ""})
-                if tc.get("id"):
-                    entry["id"] = tc["id"]
-                fn = tc.get("function", {})
-                if fn.get("name") and not entry["name"]:
-                    entry["name"] = fn["name"]
-                if fn.get("arguments"):
-                    entry["arguments"] += fn["arguments"]
-    msg: dict = {"role": "assistant", "content": content}
-    if reasoning:
-        msg["reasoning"] = reasoning
-        msg["reasoning_content"] = reasoning  # provider passback requirement
-    if tool_calls:
-        msg["tool_calls"] = [
-            {"id": e["id"], "type": "function",
-             "function": {"name": e["name"], "arguments": e["arguments"]}}
-            for e in tool_calls.values()]
-    return msg, usage
+    """Streaming chat completion with LLM failover.
+
+    Tries each URL in ``cfg.llm_endpoints()`` (llm_urls / CAMPUS_LLM_URLS,
+    falling back to the single llm_url). A connection/timeout/HTTP error on one
+    endpoint fails over to the next; only if every endpoint fails do we raise.
+    Accumulates content + tool_calls from SSE deltas; on_token(text) fires per
+    content token and on_reasoning(text) per chain-of-thought chunk. Returns
+    (message, usage).
+    """
+    endpoints = cfg.llm_endpoints()
+    if not endpoints:
+        raise RuntimeError("no LLM endpoint configured")
+    last_err: Exception | None = None
+    for url in endpoints:
+        try:
+            with httpx.stream(
+                "POST",
+                f"{url}/chat/completions",
+                headers=llm_headers(cfg),
+                json={
+                    "model": model or cfg.llm_model,
+                    "messages": messages,
+                    "tools": TOOL_SCHEMAS,
+                    "tool_choice": "auto",
+                    "max_tokens": 2000,
+                    "stream": True,
+                },
+                timeout=300,
+            ) as r:
+                r.raise_for_status()
+                content = ""
+                reasoning = ""
+                tool_calls: dict[int, dict] = {}
+                usage: dict | None = None
+                for line in r.iter_lines():
+                    if not line or not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    chunk = json.loads(data)
+                    if chunk.get("usage"):
+                        usage = chunk["usage"]
+                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    if delta.get("content"):
+                        content += delta["content"]
+                        if on_token:
+                            on_token(delta["content"])
+                    # chain-of-thought: some endpoints stream it as delta['reasoning'];
+                    # deepseek's native thinking mode uses reasoning_content. Surface
+                    # both live and keep them on the message (reasoning_content MUST be
+                    # passed back to the API on subsequent calls or it 400s).
+                    rchunk = delta.get("reasoning") or delta.get("reasoning_content")
+                    if rchunk:
+                        reasoning += rchunk
+                        if on_reasoning:
+                            on_reasoning(rchunk)
+                    for tc in delta.get("tool_calls", []):
+                        idx = tc.get("index", 0)
+                        entry = tool_calls.setdefault(idx, {"id": "", "name": "", "arguments": ""})
+                        if tc.get("id"):
+                            entry["id"] = tc["id"]
+                        fn = tc.get("function", {})
+                        if fn.get("name") and not entry["name"]:
+                            entry["name"] = fn["name"]
+                        if fn.get("arguments"):
+                            entry["arguments"] += fn["arguments"]
+            msg: dict = {"role": "assistant", "content": content}
+            if reasoning:
+                msg["reasoning"] = reasoning
+                msg["reasoning_content"] = reasoning  # provider passback requirement
+            if tool_calls:
+                msg["tool_calls"] = [
+                    {"id": e["id"], "type": "function",
+                     "function": {"name": e["name"], "arguments": e["arguments"]}}
+                    for e in tool_calls.values()]
+            return msg, usage
+        except (httpx.TransportError, httpx.TimeoutException, httpx.HTTPStatusError) as e:
+            last_err = e
+            continue
+    raise last_err or RuntimeError("all LLM endpoints failed")
 
 
 def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = None,
@@ -115,9 +130,9 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
     """
     # Preflight: chat needs an LLM endpoint + model. Fail clearly instead of
     # letting httpx raise an opaque connection error at request time.
-    if not cfg.llm_url:
-        msg = ("No LLM endpoint configured. Set llm_url (and llm_model) in "
-               "config.yaml or CAMPUS_LLM_URL / CAMPUS_LLM_MODEL, then retry. "
+    if not cfg.llm_endpoints():
+        msg = ("No LLM endpoint configured. Set llm_url/llm_urls (and llm_model) in "
+               "config.yaml or CAMPUS_LLM_URL/CAMPUS_LLM_URLS, then retry. "
                "Sync, browse, and corpus search work without an LLM.")
         if emit:
             emit("done", {"answer": msg, "model": None, "usage": None})

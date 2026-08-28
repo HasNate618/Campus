@@ -28,12 +28,17 @@ token_ttl: 3600
 web_password: ""
 
 # services — all optional; empty = feature disabled.
-# LLM endpoint: any OpenAI-compatible /v1 base URL. Empty = no chat/digest
+# LLM endpoint(s): any OpenAI-compatible /v1 base URL. Empty = no chat/digest
 # (sync + browse + lexical search still work). Examples:
 #   OpenAI:      llm_url: "https://api.openai.com/v1"
 #   OpenRouter:  llm_url: "https://openrouter.ai/api/v1"
 #   local (Ollama): llm_url: "http://localhost:11434/v1"
+# Give a LIST to fail over if one endpoint is down (or set CAMPUS_LLM_URLS):
+#   llm_urls:
+#     - "https://api.openai.com/v1"
+#     - "http://localhost:11434/v1"
 llm_url: ""
+llm_urls: []                  # optional failover list; empty => [llm_url]
 llm_model: ""                 # pick from: python -m sync models  (required for chat/digest)
 llm_api_key: ""               # env CAMPUS_LLM_API_KEY; Bearer auth when set (OpenAI, OpenRouter, ...)
 # PDF extraction: empty = local PyMuPDF (digital PDFs instant, scanned stay
@@ -44,8 +49,13 @@ llm_api_key: ""               # env CAMPUS_LLM_API_KEY; Bearer auth when set (Op
 # ntfy_url: "https://ntfy.sh/campus-yourtopic"
 # External tools: any streamable-HTTP MCP server exposing tools (web search,
 # read, ...). Its tools are discovered at startup and added to the agent.
-# Empty = no external MCP tools.
+# Empty = no external MCP tools. Give a LIST to merge tools from several
+# servers (or set CAMPUS_MCP_URLS). With several, tools are namespaced
+# mcp1_*, mcp2_*, ... so they stay distinguishable.
 # mcp_url: "http://localhost:11236/mcp"
+# mcp_urls:
+#   - "http://localhost:11236/mcp"
+#   - "http://localhost:8000/mcp"
 
 # Semantic corpus search is OPT-IN (most /v1 endpoints don't serve embeddings
 # or rerank). Leave empty to use the lexical ranker (no extra model). Set both
