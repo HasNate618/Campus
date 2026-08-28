@@ -183,14 +183,33 @@ All personal values live in `config.yaml` (gitignored) or `CAMPUS_*` env vars. T
 
 | Key | Env var | Purpose |
 | --- | --- | --- |
-| `base_url` | `CAMPUS_BASE_URL` | Your Brightspace instance |
-| `username` | `CAMPUS_USERNAME` | LMS username, password via `CAMPUS_BRIGHTSPACE_PASSWORD` |
-| `llm_url`, `llm_model`, `llm_api_key` | `CAMPUS_LLM_*` | Any OpenAI compatible endpoint, key is optional for local gateways |
-| `data_root` | `CAMPUS_DATA_ROOT` | Where course files land as `{term}/{code}/...` |
-| `token_dir` | `CAMPUS_TOKEN_DIR` | MFA token and browser profile |
-| `web_password` | `CAMPUS_WEB_PASSWORD` | Single password for `/api/*` routes, empty means open demo |
-| `timezone` | `CAMPUS_TIMEZONE` | Dates you see and the clock in the prompt |
-| `term_dates` | n/a | Start and end dates that anchor class events |
+| `base_url` | `CAMPUS_BASE_URL` | Your LMS (Brightspace/D2L). **Leave empty** unless you want automated sync from a Brightspace/D2L school — it's the only LMS Campus pulls from automatically |
+| `username` | `CAMPUS_USERNAME` | LMS username; password via `CAMPUS_BRIGHTSPACE_PASSWORD` |
+| `institution` | — | Label in the system prompt, e.g. `"Your University"` |
+| `llm_url`, `llm_model`, `llm_api_key` | `CAMPUS_LLM_*` / `OPENAI_*` | Any OpenAI-compatible endpoint; key optional for local gateways. Empty = no chat/digest (browse + search still work) |
+| `data_root` | `CAMPUS_DATA_ROOT` | Where course files live as `{term}/{code}/...`; if you're not syncing, drop your own materials here |
+| `token_dir` | `CAMPUS_TOKEN_DIR` | MFA token + browser profile (used only for Brightspace sync) |
+| `web_password` | `CAMPUS_WEB_PASSWORD` | Single password for `/api/*` routes; empty = open demo |
+| `timezone` | `CAMPUS_TIMEZONE` | Dates you see and the clock in the prompt; empty = host local time |
+| `term_dates` | n/a | Start/end dates that anchor class events |
+
+### Not at Western University?
+
+Campus was built around Western's Brightspace/D2L deployment, but only the
+**automated sync** is LMS-specific. The rest — browsing, corpus search, chat,
+MCP web tools, PDF reading — is LMS-agnostic and runs on whatever files are in
+`data_root`.
+
+- **Your school is Brightspace/D2L:** set `base_url` + `username`/password and
+  `python3 -m sync sync` pulls your courses.
+- **Your school is Canvas/Moodle, or you're not a student:** leave `base_url`
+  empty. Drop your course materials under `data_root` as `{term}/{code}/...`
+  (lecture PDFs, notes, assignments) and browse + search + chat just work on
+  those files. Automated pull isn't available for non-D2L LMSes yet.
+- **To enable chat + the AI digest** you need one OpenAI-compatible endpoint:
+  set `llm_url` (and `llm_model`; `llm_api_key` only if the endpoint requires
+  auth). Everything else is optional — sample data seeds in with no config, so
+  you can try the UI immediately.
 
 Common commands once configured for a real term:
 
