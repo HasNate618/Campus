@@ -107,3 +107,28 @@ def test_multiple_mcp_endpoints_merged(monkeypatch):
     monkeypatch.delenv("CAMPUS_MCP_URLS", raising=False)
     cfg2 = Config.load()
     assert cfg2.mcp_endpoints() == ["http://single/mcp"]
+
+
+def test_standard_openai_env_naming(monkeypatch):
+    """Outsiders can configure Campus with conventional OPENAI_* names; the
+    api key is sent as a Bearer token. CAMPUS_* overrides OPENAI_* when both
+    are set."""
+    from sync.config import Config
+    from agent.chat import llm_headers
+
+    monkeypatch.setenv("OPENAI_ENDPOINT", "https://api.openai.com/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-4o-mini")
+    cfg = Config.load()
+    assert cfg.llm_endpoints() == ["https://api.openai.com/v1"]
+    assert cfg.llm_model == "gpt-4o-mini"
+    assert llm_headers(cfg)["Authorization"] == "Bearer sk-test"
+
+    # plural form
+    monkeypatch.delenv("OPENAI_ENDPOINT", raising=False)
+    monkeypatch.setenv("OPENAI_ENDPOINTS", "https://a/v1, https://b/v1")
+    assert Config.load().llm_endpoints() == ["https://a/v1", "https://b/v1"]
+
+    # CAMPUS_* wins when both present
+    monkeypatch.setenv("CAMPUS_LLM_URLS", "http://bifrost:8080/v1")
+    assert Config.load().llm_endpoints() == ["http://bifrost:8080/v1"]

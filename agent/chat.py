@@ -111,7 +111,16 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
                     for e in tool_calls.values()]
             return msg, usage
         except (httpx.TransportError, httpx.TimeoutException, httpx.HTTPStatusError) as e:
-            last_err = e
+            # Surface the upstream error body — a 400 often explains the cause
+            # (malformed tool schema, unsupported field, …) and is invisible
+            # otherwise.
+            body = ""
+            if isinstance(e, httpx.HTTPStatusError):
+                try:
+                    body = (e.response.text or "")[:1000]
+                except Exception:
+                    body = ""
+            last_err = e if not body else RuntimeError(f"{e} | body: {body}")
             continue
     raise last_err or RuntimeError("all LLM endpoints failed")
 

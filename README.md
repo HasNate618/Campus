@@ -130,7 +130,7 @@ Everything environment-specific lives in `config.yaml` (gitignored) or
 | ----------- | --------- | --------- |
 | `base_url` | `CAMPUS_BASE_URL` | LMS instance (any Brightspace/D2L) |
 | `username` | `CAMPUS_USERNAME` | LMS username; password via `CAMPUS_BRIGHTSPACE_PASSWORD` |
-| `llm_url` / `llm_urls` / `llm_model` / `llm_api_key` | `CAMPUS_LLM_*` / `CAMPUS_LLM_URLS` | Any OpenAI-compatible `/v1` endpoint (tool-calling required for chat); Bearer key optional. `llm_urls` (or `CAMPUS_LLM_URLS`, comma-separated) is a failover list tried in order. Empty = no chat/digest (sync + browse + search still work) |
+| `llm_url` / `llm_urls` / `llm_model` / `llm_api_key` | `CAMPUS_LLM_*` / `CAMPUS_LLM_URLS` / `OPENAI_ENDPOINT` / `OPENAI_ENDPOINTS` / `OPENAI_API_KEY` / `OPENAI_MODEL` | Any OpenAI-compatible `/v1` endpoint (tool-calling required for chat); Bearer key optional (yours is keyless — set `llm_api_key`/`OPENAI_API_KEY` for endpoints that need one). `llm_urls` (or `CAMPUS_LLM_URLS`/`OPENAI_ENDPOINTS`, comma-separated) is a failover list tried in order. Empty = no chat/digest (sync + browse + search still work). `CAMPUS_*` overrides `OPENAI_*` when both are set. |
 | `embed_model` / `rerank_model` | `CAMPUS_EMBED/RERANK_MODEL` | Optional OpenAI-compatible `/embeddings` + `/rerank` models. Empty = lexical corpus search (no embeddings needed). A 404 on either degrades to lexical |
 | `pdf_extractor_url` | `CAMPUS_PDF_EXTRACTOR_URL` | Optional parser endpoint (Cohere Parse, Docling, …) for ALL PDFs; empty = local PyMuPDF (digital PDFs instant) |
 | `ntfy_url` | `CAMPUS_NTFY_URL` | Optional ntfy topic for sync pings; empty = disabled |

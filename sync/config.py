@@ -103,28 +103,44 @@ class Config:
             for k, v in data.items():
                 if hasattr(cfg, k) and v is not None:
                     setattr(cfg, k, v)
-        # env overrides
-        cfg.username = os.environ.get("CAMPUS_USERNAME", cfg.username)
-        cfg.password = os.environ.get("CAMPUS_BRIGHTSPACE_PASSWORD", cfg.password)
-        for env_key, attr in [
+        # env overrides. Two naming conventions are supported so the project
+        # is portable: the conventional OpenAI-compatible names (OPENAI_*) any
+        # outsider already knows, and the Campus-specific CAMPUS_* names used by
+        # the homelab deployment. CAMPUS_* wins when both are set (explicit
+        # deployment override). Single + plural (comma-separated) forms both work.
+        overrides = [
+            ("OPENAI_ENDPOINT", "llm_url"),
+            ("OPENAI_ENDPOINTS", "llm_urls_csv"),
+            ("OPENAI_API_KEY", "llm_api_key"),
+            ("OPENAI_MODEL", "llm_model"),
             ("CAMPUS_BASE_URL", "base_url"),
             ("CAMPUS_DATA_ROOT", "data_root"),
             ("CAMPUS_DB_PATH", "db_path"),
             ("CAMPUS_TOKEN_DIR", "token_dir"),
             ("CAMPUS_LLM_URL", "llm_url"),
+            ("CAMPUS_LLM_URLS", "llm_urls_csv"),
             ("CAMPUS_LLM_MODEL", "llm_model"),
             ("CAMPUS_LLM_API_KEY", "llm_api_key"),
             ("CAMPUS_TIMEZONE", "timezone"),
             ("CAMPUS_PDF_EXTRACTOR_URL", "pdf_extractor_url"),
             ("CAMPUS_NTFY_URL", "ntfy_url"),
             ("CAMPUS_MCP_URL", "mcp_url"),
+            ("CAMPUS_MCP_URLS", "mcp_urls_csv"),
             ("CAMPUS_EMBED_MODEL", "embed_model"),
             ("CAMPUS_RERANK_MODEL", "rerank_model"),
             ("CAMPUS_BRIGHTSPACE_BASE_URL", "brightspace_base_url"),
             ("CAMPUS_WEB_PASSWORD", "web_password"),
-        ]:
-            if os.environ.get(env_key):
-                setattr(cfg, attr, os.environ[env_key])
+        ]
+        for env_key, attr in overrides:
+            val = os.environ.get(env_key)
+            if not val:
+                continue
+            if attr.endswith("_csv"):  # comma-separated list -> list field
+                setattr(cfg, attr[:-4], [u.strip() for u in val.split(",") if u.strip()])
+            else:
+                setattr(cfg, attr, val)
+        cfg.username = os.environ.get("CAMPUS_USERNAME", cfg.username)
+        cfg.password = os.environ.get("CAMPUS_BRIGHTSPACE_PASSWORD", cfg.password)
         if os.environ.get("CAMPUS_BRIGHTSPACE_HOSTS"):
             cfg.brightspace_hosts = [
                 h.strip() for h in os.environ["CAMPUS_BRIGHTSPACE_HOSTS"].split(",") if h.strip()
