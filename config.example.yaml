@@ -33,14 +33,19 @@ web_password: ""
 #   OpenAI:      llm_url: "https://api.openai.com/v1"
 #   OpenRouter:  llm_url: "https://openrouter.ai/api/v1"
 #   local (Ollama): llm_url: "http://localhost:11434/v1"
-# Give a LIST to fail over if one endpoint is down (or set CAMPUS_LLM_URLS):
+# Standard env names (any outsider knows these): OPENAI_ENDPOINT,
+# OPENAI_ENDPOINTS (comma-separated failover list), OPENAI_API_KEY, OPENAI_MODEL.
+# Campus deployment names (override the above when both set): CAMPUS_LLM_URL,
+# CAMPUS_LLM_URLS, CAMPUS_LLM_API_KEY, CAMPUS_LLM_MODEL. A Bearer key is
+# optional — most local gateways (and yours) need none; set it for hosted APIs.
+# Give a LIST to fail over if one endpoint is down:
 #   llm_urls:
 #     - "https://api.openai.com/v1"
 #     - "http://localhost:11434/v1"
 llm_url: ""
 llm_urls: []                  # optional failover list; empty => [llm_url]
 llm_model: ""                 # pick from: python -m sync models  (required for chat/digest)
-llm_api_key: ""               # env CAMPUS_LLM_API_KEY; Bearer auth when set (OpenAI, OpenRouter, ...)
+llm_api_key: ""               # Bearer auth when set (OpenAI, OpenRouter, ...); empty = no auth
 # PDF extraction: empty = local PyMuPDF (digital PDFs instant, scanned stay
 # viewable). Set to a parser endpoint (Cohere Parse, Unstructured, Docling,
 # ...) to route ALL PDFs through it.
