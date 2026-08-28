@@ -58,6 +58,12 @@ class Config:
     llm_urls: list = field(default_factory=list)  # failover list; empty => [llm_url]
     llm_model: str = ""  # pick from: python -m sync models  (required for chat/digest)
     llm_api_key: str = ""  # env OPENAI_API_KEY; Bearer auth when set
+    # Optional OpenAI-style `tool_choice` sent to the model. `None` (default) =
+    # omit it, so the provider defaults to "auto" (model may call tools). Some
+    # endpoints REQUIRE it (set "auto" or {"type":"function",...}); Cohere
+    # Command REJECTS it ("tool_choice is not supported for this model") — so
+    # leave this empty for Cohere.
+    llm_tool_choice: str | None | dict = None
     pdf_extractor_url: str = ""  # empty = PyMuPDF only; set to a parser endpoint (e.g. Cohere Parse) to route all PDFs through it
     # ntfy publish URL for sync notifications; empty = notifications disabled.
     ntfy_url: str = ""

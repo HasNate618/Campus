@@ -199,7 +199,7 @@ All personal values live in `config.yaml` (gitignored) or `CAMPUS_*` env vars. T
 | `base_url` | `CAMPUS_BASE_URL` | Your LMS (Brightspace/D2L). **Leave empty** unless you want automated sync from a Brightspace/D2L school — it's the only LMS Campus pulls from automatically |
 | `username` | `CAMPUS_USERNAME` | LMS username; password via `CAMPUS_BRIGHTSPACE_PASSWORD` |
 | `institution` | — | Label in the system prompt, e.g. `"Your University"` |
-| `llm_url`, `llm_model`, `llm_api_key` | `OPENAI_*` | Any OpenAI-compatible endpoint; key optional for local gateways. Empty = no chat/digest (browse + search still work) |
+| `llm_url`, `llm_model`, `llm_api_key` | `OPENAI_*` | Any OpenAI-compatible endpoint; key optional for local gateways. Empty = no chat/digest (browse + search still work). `llm_tool_choice` optional — leave empty (Cohere Command rejects `tool_choice`) |
 | `data_root` | `CAMPUS_DATA_ROOT` | Where course files live as `{term}/{code}/...`; if you're not syncing, drop your own materials here |
 | `token_dir` | `CAMPUS_TOKEN_DIR` | MFA token + browser profile (used only for Brightspace sync) |
 | `web_password` | `CAMPUS_WEB_PASSWORD` | Single password for `/api/*` routes; empty = open demo |

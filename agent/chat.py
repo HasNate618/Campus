@@ -56,9 +56,10 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
                     "model": model or cfg.llm_model,
                     "messages": messages,
                     "tools": TOOL_SCHEMAS,
-                    "tool_choice": "auto",
                     "max_tokens": 2000,
                     "stream": True,
+                    **({"tool_choice": cfg.llm_tool_choice}
+                       if cfg.llm_tool_choice is not None else {}),
                 },
                 timeout=300,
             ) as r:
