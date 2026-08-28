@@ -18,8 +18,11 @@ from agent.chat import llm_headers
 
 
 def _complete(cfg, messages: list[dict], max_tokens: int = 300) -> str:
+    endpoints = cfg.llm_endpoints()
+    if not endpoints:
+        raise RuntimeError("no LLM endpoint configured")
     r = httpx.post(
-        f"{cfg.llm_url}/chat/completions",
+        f"{endpoints[0]}/chat/completions",
         headers=llm_headers(cfg),
         json={"model": cfg.llm_model, "messages": messages, "max_tokens": max_tokens},
         timeout=120,

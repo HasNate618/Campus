@@ -303,25 +303,36 @@ def delete_session(sid: int):
 
 @router.get("/models")
 def list_models():
-    """LLM model list for the UI model selector (OpenAI-compatible /models)."""
+    """LLM model list for the UI model selector (OpenAI-compatible /models).
+
+    Tries each configured endpoint in cfg.llm_endpoints() order and returns
+    the first that answers; this supports both a single llm_url and a
+    failover llm_urls list. Falls back to an empty list (with the error) if
+    no endpoint is reachable.
+    """
     from api.config import cfg
     from agent.chat import llm_headers
     import httpx
-    try:
-        r = httpx.get(f"{cfg.llm_url}/models", headers=llm_headers(cfg), timeout=15)
-        r.raise_for_status()
-        data = r.json()
-        models = []
-        contexts: dict[str, int] = {}
-        for m in data.get("data", []):
-            mid = m.get("id")
-            if mid:
-                models.append(mid)
-                if m.get("context_length"):
-                    contexts[mid] = int(m["context_length"])
-        return {"models": sorted(models), "contexts": contexts}
-    except Exception as e:
-        return {"models": [], "error": str(e)}
+
+    endpoints = cfg.llm_endpoints()
+    last_err: str | None = None
+    for url in endpoints:
+        try:
+            r = httpx.get(f"{url}/models", headers=llm_headers(cfg), timeout=15)
+            r.raise_for_status()
+            data = r.json()
+            models = []
+            contexts: dict[str, int] = {}
+            for m in data.get("data", []):
+                mid = m.get("id")
+                if mid:
+                    models.append(mid)
+                    if m.get("context_length"):
+                        contexts[mid] = int(m["context_length"])
+            return {"models": sorted(models), "contexts": contexts}
+        except Exception as e:
+            last_err = str(e)
+    return {"models": [], "error": last_err or "no LLM endpoint configured"}
 
 
 def _do_turn(req: ChatRequest, emit) -> None:

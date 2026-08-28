@@ -55,18 +55,22 @@ def _chunk(text: str, size: int = CHUNK_CHARS) -> list[str]:
 
 
 def _embed(cfg, texts: list[str]) -> list[list[float]]:
-    """Embed via cfg.llm_url /embeddings using cfg.embed_model. Raises
+    """Embed via cfg.llm_endpoints()[0] /embeddings using cfg.embed_model. Raises
     ModelUnavailable if the endpoint 404s or otherwise lacks embeddings so the
     caller can fall back to lexical ranking."""
     if not cfg.embed_model:
         raise ModelUnavailable("embed_model not configured")
+    endpoints = cfg.llm_endpoints()
+    if not endpoints:
+        raise ModelUnavailable("no LLM endpoint configured")
+    base = endpoints[0]
     out: list[list[float]] = []
     with httpx.Client(timeout=90) as client:
         for i in range(0, len(texts), BATCH):
             batch = texts[i:i + BATCH]
             try:
                 r = client.post(
-                    f"{cfg.llm_url}/embeddings",
+                    f"{base}/embeddings",
                     headers=llm_headers(cfg),
                     json={"model": cfg.embed_model, "input": batch},
                 )
@@ -78,7 +82,7 @@ def _embed(cfg, texts: list[str]) -> list[list[float]]:
                 raise ModelUnavailable(f"embeddings request failed: {e}") from e
             data = r.json()["data"]
             data.sort(key=lambda d: d["index"])
-            out.extend(d["embedding"] for d in data)
+            out.extend([d["embedding"] for d in data])
     return out
 
 
@@ -90,10 +94,14 @@ def _rerank_scores(cfg, query: str, docs: list[str]) -> list[float]:
         return []
     if not cfg.rerank_model:
         raise ModelUnavailable("rerank_model not configured")
+    endpoints = cfg.llm_endpoints()
+    if not endpoints:
+        raise ModelUnavailable("no LLM endpoint configured")
+    base = endpoints[0]
     with httpx.Client(timeout=90) as client:
         try:
             r = client.post(
-                f"{cfg.llm_url}/rerank",
+                f"{base}/rerank",
                 headers=llm_headers(cfg),
                 json={
                     "model": cfg.rerank_model,
