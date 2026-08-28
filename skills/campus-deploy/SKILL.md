@@ -156,7 +156,7 @@ host first (`make build-web`).
 - **Stale web UI.** In a repo-mount deploy, editing `web/src` without `make build-web` leaves the browser running old JS silently. Rebuild after every frontend change.
 - **`web/dist` missing = 404 shell.** If you get `{"detail":"Frontend not built"}`, the UI was never built (bare-metal / repo-mount). Run `make build-web` or `docker compose build` (demo).
 - **Chat "no endpoint" is not a crash.** Without `OPENAI_*`, chat returns a friendly notice; browse/search/sync keep working. Don't tell the user the app is broken.
-- **Tool-calling required.** A plain completions endpoint won't drive the agent; it must serve `/chat/completions` with `tools`/`tool_choice`. Verify with `python -m sync models` + a test call.
+- **Tool-calling required.** A plain completions endpoint won't drive the agent; it must serve `/chat/completions` with `tools`. The harness omits `tool_choice` by default (provider default = "auto"); Cohere Command REJECTS `tool_choice` ("tool_choice is not supported for this model") — if you hit that, leave `llm_tool_choice` empty. Set `llm_tool_choice: "auto"` only for endpoints that require it.
 - **`pilot_only: true` by default.** Sync only pulls `is_pilot` courses; set `pilot_only: false` (config) for all courses.
 - **ntfy/trawl/MCP are generic.** Refer to them as "an MCP server you provide" / "your OpenAI-compatible endpoint" — don't assume a specific homelab service.
 

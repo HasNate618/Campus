@@ -49,6 +49,10 @@ web_password: ""
 # Standard env names (any outsider knows these): OPENAI_ENDPOINT,
 # OPENAI_ENDPOINTS (comma-separated failover list), OPENAI_API_KEY, OPENAI_MODEL.
 # These are the ONLY env names for the LLM — there are no CAMPUS_LLM_* aliases.
+# tool_choice: leave empty (default). Most endpoints default to "auto" when
+# tools are present. Cohere Command REJECTS tool_choice — so keep it empty there.
+# Set it (e.g. "auto") only if your endpoint requires it.
+# llm_tool_choice: ""
 # A Bearer key is optional — most local gateways (and yours) need none; set it
 # for hosted APIs.
 # Give a LIST to fail over if one endpoint is down:
