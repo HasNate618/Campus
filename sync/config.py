@@ -77,8 +77,10 @@ class Config:
     embed_model: str = ""  # e.g. "cohere/embed-english-v3.0" or "text-embedding-3-small"
     rerank_model: str = ""  # e.g. "cohere/rerank-english-v3.0"
 
-    # timezone for user-facing datetimes + the system prompt clock
-    timezone: str = "America/Toronto"
+    # timezone for user-facing datetimes + the system prompt clock.
+    # Empty = the host's local time (portable default). Set e.g. "America/Toronto"
+    # if you want a fixed zone regardless of where the server runs.
+    timezone: str = ""
 
     # sync scope
     pilot_only: bool = True  # H1: only sync is_pilot courses

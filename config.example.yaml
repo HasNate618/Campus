@@ -5,21 +5,34 @@
 # config.yaml the harness still runs — sample data seeds in, you can browse
 # courses, and the corpus search uses a built-in lexical ranker (no embeddings
 # model needed). Only set what you have.
+#
+# ── Not at Western University? ───────────────────────────────────────────────
+# Campus's *automated sync* targets Brightspace/D2L (that's what Western runs).
+# Everything else — browse, corpus search, chat, MCP web tools, PDF reading —
+# is LMS-agnostic and works on whatever files sit in data_root. So:
+#   • If your school uses Canvas/Moodle (or you're not a student): leave
+#     base_url empty and just drop your course materials under data_root
+#     ({term}/{code}/…). Browse + search + chat work on those files.
+#   • If your school IS Brightspace/D2L: set base_url + credentials and sync
+#     pulls automatically (see the Brightspace-only block below).
+# You only NEED an LLM endpoint (llm_url) to enable chat + the AI digest;
+# sync/browse/search work without one.
 
-# Your institution's LMS (Brightspace/D2L-compatible) instance.
+# Your institution's LMS (Brightspace/D2L-compatible) instance. Leave empty
+# unless you want automated sync from a Brightspace/D2L school.
 base_url: ""                      # e.g. "https://your-university.brightspace.com"
 username: ""                      # or env CAMPUS_USERNAME
 # password: ""                   # use env CAMPUS_BRIGHTSPACE_PASSWORD instead
 
-# Brightspace-only features (content proxy + link rebasing). Leave empty for
-# a non-Brightspace deployment; the proxy/sanitizer simply stays disabled.
+# Brightspace/D2L-only features (content proxy + link rebasing). Leave empty
+# for a non-Brightspace deployment; the proxy/sanitizer simply stays disabled.
 # brightspace_hosts: []           # e.g. ["your-university.brightspace.com", "s.brightspace.com"]
 # brightspace_base_url: ""        # e.g. "https://your-university.brightspace.com"
 
 # paths
-data_root: "./school"             # prod example: an absolute path on your server
+data_root: "./school"             # where course files live as {term}/{code}/…; prod: an absolute path
 db_path: "data/harness.db"
-token_dir: "~/.campus"            # prod example: ~/.hippocampus
+token_dir: "~/.campus"            # MFA token + browser profile (used only for Brightspace sync)
 
 # auth
 token_ttl: 3600
@@ -53,10 +66,10 @@ llm_api_key: ""               # Bearer auth when set (OpenAI, OpenRouter, ...); 
 # Sync notifications: empty = disabled. Set to an ntfy URL to get pings.
 # ntfy_url: "https://ntfy.sh/campus-yourtopic"
 # External tools: any streamable-HTTP MCP server exposing tools (web search,
-# read, ...). Its tools are discovered at startup and added to the agent.
-# Empty = no external MCP tools. Give a LIST to merge tools from several
-# servers (or set CAMPUS_MCP_URLS). With several, tools are namespaced
-# mcp1_*, mcp2_*, ... so they stay distinguishable.
+# read, ...). Its tools are auto-discovered and namespaced by the server's own
+# name (trawl's `search` -> `trawl_search`). Empty = no external MCP tools.
+# Give a LIST to merge tools from several servers (or set CAMPUS_MCP_URLS);
+# servers with no name fall back to mcp1_*, mcp2_*, … .
 # mcp_url: "http://localhost:11236/mcp"
 # mcp_urls:
 #   - "http://localhost:11236/mcp"
