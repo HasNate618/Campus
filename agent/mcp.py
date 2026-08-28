@@ -1,7 +1,9 @@
-"""Minimal MCP streamable-HTTP client for talking to trawl from the agent.
+"""Minimal MCP streamable-HTTP client for the agent.
 
-trawl serves search (SearXNG) + read (crawl4ai) + friends over MCP at
-127.0.0.1:11236/mcp (host) or trawl:8000/mcp (container).
+Generic: talks to ANY streamable-HTTP MCP server (trawl/SearXNG+crawl4ai,
+Firecrawl, …) at a configured ``mcp_url``. The agent discovers whatever
+tools the server exposes (``tools/list``) and dispatches calls through
+``call_tool`` — no tool names are hardcoded here.
 """
 from __future__ import annotations
 
@@ -33,12 +35,24 @@ class MCPClient:
         sid = r.headers.get("mcp-session-id")
         if sid:
             self.session_id = sid
-        # response is SSE: parse the last data: line
-        data = None
+        # The MCP streamable-HTTP transport answers with SSE: one or more
+        # `data:` lines (or, for some servers, a bare JSON body). Find the
+        # last data payload and JSON-decode it. Tolerate a leading "data:"
+        # prefix and plain-JSON (non-SSE) responses.
+        data: str | None = None
         for line in r.text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
             if line.startswith("data:"):
                 data = line[5:].strip()
-        if data:
+            elif line.startswith("{"):
+                data = line
+        if not data:
+            data = r.text.strip()
+        if data.startswith("data:"):
+            data = data[5:].strip()
+        if data and data.startswith("{"):
             return json.loads(data)
         return {}
 
@@ -48,16 +62,43 @@ class MCPClient:
             "clientInfo": {"name": "campus-agent", "version": "0.1"}}})
         self._post({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
 
+    def list_tools(self) -> list[dict]:
+        """Return the list of tools the server exposes (``tools/list``)."""
+        resp = self._post({"jsonrpc": "2.0", "id": 3, "method": "tools/list", "params": {}})
+        if resp.get("error"):
+            raise MCPError(str(resp["error"]))
+        return resp.get("result", {}).get("tools", [])
+
     def call_tool(self, name: str, arguments: dict | None = None) -> dict:
         resp = self._post({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
                            "params": {"name": name, "arguments": arguments or {}}})
         if resp.get("error"):
             raise MCPError(str(resp["error"]))
-        result = resp.get("result", {})
+        result = resp.get("result", {}) or {}
         if result.get("isError"):
-            return {"error": result.get("content")}
-        texts = [c.get("text", "") for c in result.get("content", []) if c.get("type") == "text"]
-        return {"content": "\n".join(texts)}
+            content = result.get("content") or []
+            texts = [c.get("text", "") for c in content
+                     if isinstance(c, dict) and c.get("type") == "text"]
+            return {"error": "\n".join(t for t in texts if t) or "tool reported an error"}
+        # Standard MCP: content is a list of {type, text} blocks.
+        content = result.get("content")
+        if isinstance(content, list):
+            texts = [c.get("text", "") for c in content
+                     if isinstance(c, dict) and c.get("type") == "text"]
+            joined = "\n".join(t for t in texts if t)
+            if joined:
+                # If the single text block is JSON, surface it parsed so the
+                # model receives structured data instead of a string blob.
+                try:
+                    return {"content": json.loads(joined)}
+                except (json.JSONDecodeError, ValueError):
+                    return {"content": joined}
+            # Non-text content (images, etc.) — return the raw structure.
+            return {"content": content}
+        # Tolerate a server that returns plain JSON (no content[] wrapper).
+        if "content" not in result and result:
+            return {"content": result}
+        return {"content": ""}
 
     def close(self) -> None:
         self._client.close()

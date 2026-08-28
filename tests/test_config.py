@@ -32,6 +32,16 @@ def test_defaults_are_portable():
     assert cfg.llm_api_key == ""
     assert cfg.institution == ""
     assert str(cfg.data_root).endswith("school")  # ./school, not /srv/homelab
+    # No homelab-specific service defaults leak into a fresh checkout:
+    assert cfg.llm_url == ""           # empty = harness runs without an LLM
+    assert cfg.llm_model == ""         # empty = must be set to chat
+    assert cfg.ntfy_url == ""          # empty = notifications disabled
+    assert cfg.mcp_url == ""           # empty = no external MCP tools
+    assert cfg.embed_model == ""       # empty = lexical corpus search (no embed model)
+    assert cfg.rerank_model == ""      # empty = no rerank (most endpoints lack it)
+    assert "18081" not in str(cfg.llm_url)   # bifrost port must not be a default
+    assert "11236" not in str(cfg.mcp_url)   # trawl port must not be a default
+    assert "8085" not in str(cfg.ntfy_url)   # ntfy port must not be a default
 
 
 def test_env_overrides(monkeypatch):

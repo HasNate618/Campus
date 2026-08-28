@@ -13,11 +13,17 @@ from pathlib import Path
 from sync.config import Config
 from sync.db import DB
 
-TZ_NAME = "America/Toronto"  # fallback; overridden by cfg.timezone in callers
-
-
 def _tz(cfg: Config | None = None) -> str:
-    return getattr(cfg, "timezone", None) or TZ_NAME
+    """System local time when unset; empty default avoids leaking a
+    deployer-specific timezone into a fresh checkout."""
+    tz = getattr(cfg, "timezone", None)
+    if tz:
+        return tz
+    try:
+        from time import localtime, tzname
+        return tzname[localtime().tm_isdst] or "local"
+    except Exception:
+        return "local"
 
 
 def _now(cfg: Config | None = None) -> datetime.datetime:
@@ -165,7 +171,8 @@ RULES:
 4. To change something (extend a due date, write a note, add a fact/event),
    use the mutate_* / file_write tools. All mutations are audited automatically.
 5. If you don't know or the data is missing, say so plainly.
-6. web_search / web_read are for outside-the-harness questions only; prefer
+6. web search / read tools (e.g. trawl's search/read, discovered from the
+   configured MCP server) are for outside-the-harness questions only; prefer
    harness data for course questions.
 7. Keep answers concise and direct. No fluff, no "Lesson:"-style closers.
 8. Read efficiently: prefer ONE large content_read_file call (offset/limit,

@@ -4,7 +4,8 @@ Families per DESIGN.md:
   harness_*   structured DB reads (dates, deadlines, facts)
   content_*   file access over the synced corpus (read, grep)
   mutate_*    audited actions (every write logs before/after to audit_log)
-  web_search  SearXNG for outside-the-harness questions
+  <mcp>       tools discovered at runtime from the configured MCP server
+              (cfg.mcp_url) — e.g. trawl's search/read. None when mcp_url empty.
 """
 from __future__ import annotations
 
@@ -618,18 +619,6 @@ def file_write(db: DB, cfg: Config, args: dict) -> dict:
             "note": "writes are audited (audit_log, actor=ai)"}
 
 
-def _trawl_call(cfg: Config, tool: str, args: dict) -> dict:
-    from .mcp import MCPClient
-    client = MCPClient(cfg.trawl_url)
-    try:
-        client.connect()
-        return client.call_tool(tool, args)
-    except Exception as e:
-        return {"error": f"trawl {tool} failed: {e}"}
-    finally:
-        client.close()
-
-
 # ── terminal ────────────────────────────────────────────────────────────
 # Runs inside the campus container (the jail): no docker socket, no host
 # secrets, no /etc/nixos, no mounts outside the workspace. Blocklist +
@@ -697,28 +686,6 @@ def terminal_run(db: DB, cfg: Config, args: dict) -> dict:
         return {"error": f"timed out after {timeout}s"}
     except Exception as e:
         return {"error": f"terminal failed: {e}"}
-
-
-def web_search(db: DB, cfg: Config, args: dict) -> dict:
-    result = _trawl_call(cfg, "search", {"query": args.get("query", ""),
-                                         "max_results": int(args.get("max_results", 5))})
-    if "error" in result:
-        return result
-    # trawl returns results as text; try to parse JSON, else return raw
-    import json as _json
-    try:
-        parsed = _json.loads(result["content"])
-        return {"results": parsed.get("results", parsed)[:8]}
-    except _json.JSONDecodeError:
-        return {"content": result["content"][:4000]}
-
-
-def web_read(db: DB, cfg: Config, args: dict) -> dict:
-    result = _trawl_call(cfg, "read", {"url": args.get("url", ""),
-                                       "mode": args.get("mode", "fit")})
-    if "error" in result:
-        return result
-    return {"content": result["content"][:8000]}
 
 
 def course_map(db: DB, cfg: Config, args: dict) -> dict:
@@ -901,7 +868,7 @@ TOOLS = {
     ),
     "search_corpus": _tool(
         "search_corpus",
-        "Semantic search over the course corpus (extracted lecture content, notes, work files, assignment attachments, announcements, syllabus, active facts). Embeddings + rerank via the configured LLM endpoint — understands paraphrase, not just keywords. Returns top cited passages with file refs; follow up with content_read_file on the best ref for full context. Use when a question references specific material ('which lecture covered X', 'where does it say Y') that you can't locate by browsing.",
+        "Search over the course corpus (extracted lecture content, notes, work files, assignment attachments, announcements, syllabus, active facts). Lexical (substring + term-overlap) by default — no embeddings model needed; if embed_model/rerank_model are configured it ranks semantically and understands paraphrase. Returns top cited passages with file refs; follow up with content_read_file on the best ref for full context. Use when a question references specific material ('which lecture covered X', 'where does it say Y') that you can't locate by browsing.",
         search_corpus,
         required=["query"],
         query={"type": "string", "description": "the question or topic to find in the course material"},
@@ -946,23 +913,93 @@ TOOLS = {
         workdir={"type": "string", "description": "must be under data_root"},
         timeout_s={"type": "integer", "description": "1-120, default 30"},
     ),
-    "web_search": _tool(
-        "web_search",
-        "Web search (via trawl/SearXNG) for questions outside the synced course data. Returns results with title/url/snippet.",
-        web_search,
-        required=["query"],
-        query={"type": "string"},
-        max_results={"type": "integer", "description": "default 5"},
-    ),
-    "web_read": _tool(
-        "web_read",
-        "Fetch a URL and extract its content as markdown (via trawl/crawl4ai). Use after web_search to read a promising page.",
-        web_read,
-        required=["url"],
-        url={"type": "string"},
-        mode={"type": "string", "enum": ["fit", "raw"], "description": "default fit (readability)"},
-    ),
 }
+
+
+def _mcp_handler(name: str):
+    """Closure: dispatch a discovered MCP tool by name using the live cfg
+    (``mcp_url`` is read at call time, never cached at discovery)."""
+    def handler(db: DB, cfg: Config, args: dict) -> dict:
+        if not cfg.mcp_url:
+            return {"error": f"MCP tool '{name}' unavailable: mcp_url not configured"}
+        from .mcp import MCPClient
+        client = MCPClient(cfg.mcp_url)
+        try:
+            client.connect()
+            return client.call_tool(name, args)
+        except Exception as e:
+            return {"error": f"mcp {name} failed: {e}"}
+        finally:
+            client.close()
+    return handler
+
+
+def _mcp_tool_entry(t: dict) -> tuple[str, dict]:
+    """Build a TOOLS entry from one tools/list tool dict. Returns
+    (resolved_name, entry). A name clashing with a built-in is prefixed
+    ``mcp_`` to avoid shadowing it."""
+    raw = t.get("name") or ""
+    if not raw:
+        raise ValueError("MCP tool missing 'name'")
+    name = raw
+    if name in TOOLS or name in BUILTIN_TOOL_NAMES:
+        name = f"mcp_{raw}"
+    schema = t.get("inputSchema") or t.get("schema") or {"type": "object", "properties": {}}
+    props = dict(schema.get("properties") or {})
+    required = [r for r in (schema.get("required") or []) if r in props]
+    description = (t.get("description") or f"MCP tool '{raw}'").strip()
+    return name, _tool(name, description, _mcp_handler(name),
+                       required=required or None, **props)
+
+
+def load_mcp_tools(cfg: Config) -> dict[str, dict]:
+    """Discover tools exposed by a configured MCP server and wrap each as a
+    tool entry for the agent.
+
+    Returns ``{}`` when ``mcp_url`` is empty (no external tools, zero network
+    calls). Any discovery failure is logged and swallowed — a dead/unreachable
+    MCP server must never break the agent; the built-in tools still work.
+    """
+    if not cfg.mcp_url:
+        return {}
+    from .mcp import MCPClient
+    client = MCPClient(cfg.mcp_url)
+    try:
+        client.connect()
+        remote = client.list_tools()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            "MCP tool discovery failed for %r: %s", cfg.mcp_url, e)
+        return {}
+    finally:
+        client.close()
+    out: dict[str, dict] = {}
+    for t in remote:
+        try:
+            n, entry = _mcp_tool_entry(t)
+            out[n] = entry
+        except Exception as e:  # skip a malformed tool def rather than crash
+            import logging
+            logging.getLogger(__name__).warning("skipping MCP tool %r: %s", t.get("name"), e)
+    return out
+
+
+# Names of built-in tools — used to de-conflict with discovered MCP tool
+# names so an MCP server can't shadow a harness tool.
+BUILTIN_TOOL_NAMES = set(TOOLS.keys())
+
+
+# ── dynamic MCP tools ──────────────────────────────────────────────────────
+# Discovered at startup from cfg.mcp_url. With no mcp_url configured this
+# contributes nothing and makes no network calls — the built-in harness tools
+# above are the entire surface. Discovery failures are swallowed so a dead MCP
+# server never breaks the agent.
+try:
+    TOOLS.update(load_mcp_tools(Config.load()))
+except Exception:
+    import logging
+    logging.getLogger(__name__).warning("MCP startup discovery failed", exc_info=True)
 
 TOOL_SCHEMAS = [t["schema"] for t in TOOLS.values()]
 
