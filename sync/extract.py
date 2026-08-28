@@ -13,12 +13,16 @@ def list_models() -> int:
     from agent.chat import llm_headers
 
     cfg = Config.load()
+    endpoints = cfg.llm_endpoints()
+    if not endpoints:
+        print("No LLM endpoint configured (set llm_url / llm_urls).")
+        return 1
     try:
-        r = httpx.get(cfg.llm_url + "/models", headers=llm_headers(cfg), timeout=15)
+        r = httpx.get(endpoints[0] + "/models", headers=llm_headers(cfg), timeout=15)
         r.raise_for_status()
         ids = sorted(m["id"] for m in r.json().get("data", []))
     except Exception as e:
-        print(f"Failed to list models from {cfg.llm_url}: {e}")
+        print(f"Failed to list models from {endpoints[0]}: {e}")
         return 1
     print(f"Available models ({len(ids)}):")
     for mid in ids:

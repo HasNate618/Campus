@@ -1129,7 +1129,10 @@ class SyncEngine:
                 f"{json.dumps(chats, indent=1)}"
             )
         try:
-            r = httpx.post(f"{self.cfg.llm_url}/chat/completions",
+            endpoints = self.cfg.llm_endpoints()
+            if not endpoints:
+                raise RuntimeError("no LLM endpoint configured")
+            r = httpx.post(f"{endpoints[0]}/chat/completions",
                            headers=llm_headers(self.cfg),
                            json={"model": self.model,
                                  "messages": [{"role": "user", "content": prompt}]},
