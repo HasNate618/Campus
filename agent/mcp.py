@@ -8,6 +8,7 @@ tools the server exposes (``tools/list``) and dispatches calls through
 from __future__ import annotations
 
 import json
+import re
 
 import httpx
 
@@ -57,10 +58,28 @@ class MCPClient:
         return {}
 
     def connect(self) -> None:
-        self._post({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+        init = self._post({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
             "protocolVersion": "2025-03-26", "capabilities": {},
             "clientInfo": {"name": "campus-agent", "version": "0.1"}}})
+        # Remember the server's self-reported name so discovered tools can be
+        # namespaced (e.g. trawl's `search` -> `trawl_search`) — the standard
+        # harness convention for merging tools from multiple MCP servers.
+        info = (init.get("result") or {}).get("serverInfo") or {}
+        self.server_name = (info.get("name") or "").strip()
         self._post({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
+
+    @staticmethod
+    def tool_prefix(server_name: str) -> str | None:
+        """A safe MCP tool prefix from a server name, or None if blank.
+
+        Lowercased, non-alphanumeric stripped: ``Trawl MCP`` -> ``trawl`` ->
+        tools become ``trawl_search`` etc. Returns None when the server
+        reports no name (caller then falls back to an index prefix).
+        """
+        if not server_name:
+            return None
+        slug = re.sub(r"[^a-z0-9]+", "", server_name.lower())
+        return slug + "_" if slug else None
 
     def list_tools(self) -> list[dict]:
         """Return the list of tools the server exposes (``tools/list``)."""
