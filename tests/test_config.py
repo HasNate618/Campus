@@ -77,3 +77,33 @@ def test_config_yaml_not_required(tmp_path, monkeypatch):
     monkeypatch.setenv("CAMPUS_LLM_MODEL", "some-model")
     cfg = Config.load()
     assert cfg.llm_model == "some-model"
+
+
+def test_multiple_llm_endpoints_failover(monkeypatch):
+    """llm_urls / CAMPUS_LLM_URLS build an ordered failover list; llm_url is
+    the single-entry alias. llm_endpoints() collapses to one source."""
+    from sync.config import Config
+
+    monkeypatch.setenv("CAMPUS_LLM_URLS", "https://a/v1, https://b/v1")
+    cfg = Config.load()
+    assert cfg.llm_endpoints() == ["https://a/v1", "https://b/v1"]
+
+    monkeypatch.setenv("CAMPUS_LLM_URL", "https://single/v1")
+    monkeypatch.delenv("CAMPUS_LLM_URLS", raising=False)
+    cfg2 = Config.load()
+    assert cfg2.llm_endpoints() == ["https://single/v1"]
+
+
+def test_multiple_mcp_endpoints_merged(monkeypatch):
+    """mcp_urls / CAMPUS_MCP_URLS merge several servers; mcp_url is the
+    single-entry alias. mcp_endpoints() collapses to one source."""
+    from sync.config import Config
+
+    monkeypatch.setenv("CAMPUS_MCP_URLS", "http://s1/mcp, http://s2/mcp")
+    cfg = Config.load()
+    assert cfg.mcp_endpoints() == ["http://s1/mcp", "http://s2/mcp"]
+
+    monkeypatch.setenv("CAMPUS_MCP_URL", "http://single/mcp")
+    monkeypatch.delenv("CAMPUS_MCP_URLS", raising=False)
+    cfg2 = Config.load()
+    assert cfg2.mcp_endpoints() == ["http://single/mcp"]

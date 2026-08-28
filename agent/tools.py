@@ -4,8 +4,9 @@ Families per DESIGN.md:
   harness_*   structured DB reads (dates, deadlines, facts)
   content_*   file access over the synced corpus (read, grep)
   mutate_*    audited actions (every write logs before/after to audit_log)
-  <mcp>       tools discovered at runtime from the configured MCP server
-              (cfg.mcp_url) — e.g. trawl's search/read. None when mcp_url empty.
+  <mcp>       tools discovered at runtime from the configured MCP server(s)
+              (cfg.mcp_endpoints()) — e.g. trawl's search/read. None when no
+              mcp_url/mcp_urls configured.
 """
 from __future__ import annotations
 
@@ -916,72 +917,95 @@ TOOLS = {
 }
 
 
-def _mcp_handler(name: str):
-    """Closure: dispatch a discovered MCP tool by name using the live cfg
-    (``mcp_url`` is read at call time, never cached at discovery)."""
+def _mcp_handler(name: str, url: str | None = None):
+    """Closure: dispatch a discovered MCP tool by name. If ``url`` is given it
+    is used directly (the server this tool was discovered from); otherwise the
+    live cfg.mcp_endpoints() are tried in order (failover)."""
     def handler(db: DB, cfg: Config, args: dict) -> dict:
-        if not cfg.mcp_url:
-            return {"error": f"MCP tool '{name}' unavailable: mcp_url not configured"}
         from .mcp import MCPClient
-        client = MCPClient(cfg.mcp_url)
-        try:
-            client.connect()
-            return client.call_tool(name, args)
-        except Exception as e:
-            return {"error": f"mcp {name} failed: {e}"}
-        finally:
-            client.close()
+        if url:
+            urls = [url]
+        else:
+            urls = cfg.mcp_endpoints()
+        if not urls:
+            return {"error": f"MCP tool '{name}' unavailable: no mcp_url configured"}
+        last_err = None
+        for u in urls:
+            try:
+                client = MCPClient(u)
+                client.connect()
+                try:
+                    return client.call_tool(name, args)
+                finally:
+                    client.close()
+            except Exception as e:
+                last_err = e
+        return {"error": f"mcp {name} failed: {last_err}"}
     return handler
 
 
-def _mcp_tool_entry(t: dict) -> tuple[str, dict]:
+def _mcp_tool_entry(t: dict, url: str, prefix: str | None = None) -> tuple[str, dict]:
     """Build a TOOLS entry from one tools/list tool dict. Returns
-    (resolved_name, entry). A name clashing with a built-in is prefixed
-    ``mcp_`` to avoid shadowing it."""
+    (resolved_name, entry). A name clashing with a built-in (or another MCP
+    server's tool when merging) is prefixed to avoid shadowing it. ``prefix``
+    (e.g. ``mcp2_``) is prepended when several MCP servers are configured so
+    their tools stay distinguishable.
+    """
     raw = t.get("name") or ""
     if not raw:
         raise ValueError("MCP tool missing 'name'")
-    name = raw
+    name = f"{prefix}{raw}" if prefix else raw
     if name in TOOLS or name in BUILTIN_TOOL_NAMES:
-        name = f"mcp_{raw}"
+        name = f"mcp_{raw}" if not prefix else f"{prefix}{raw}_"
     schema = t.get("inputSchema") or t.get("schema") or {"type": "object", "properties": {}}
     props = dict(schema.get("properties") or {})
     required = [r for r in (schema.get("required") or []) if r in props]
     description = (t.get("description") or f"MCP tool '{raw}'").strip()
-    return name, _tool(name, description, _mcp_handler(name),
-                       required=required or None, **props)
+    entry = _tool(name, description, _mcp_handler(name, url),
+                  required=required or None, **props)
+    # remember the source server so the handler calls the right endpoint
+    entry["_mcp_url"] = url
+    return name, entry
 
 
 def load_mcp_tools(cfg: Config) -> dict[str, dict]:
-    """Discover tools exposed by a configured MCP server and wrap each as a
-    tool entry for the agent.
+    """Discover tools exposed by the configured MCP server(s) and wrap each as
+    a tool entry for the agent.
 
-    Returns ``{}`` when ``mcp_url`` is empty (no external tools, zero network
-    calls). Any discovery failure is logged and swallowed — a dead/unreachable
-    MCP server must never break the agent; the built-in tools still work.
+    Iterates every URL in ``cfg.mcp_endpoints()`` (single ``mcp_url`` or a
+    list via ``mcp_urls``). With several servers, tools are prefixed
+    ``mcp1_``, ``mcp2_``, … to keep them distinguishable. Returns ``{}`` when
+    no MCP URL is configured (no external tools, zero network calls). Any
+    discovery failure is logged and swallowed — a dead/unreachable MCP server
+    must never break the agent; the built-in tools still work.
     """
-    if not cfg.mcp_url:
+    urls = cfg.mcp_endpoints()
+    if not urls:
         return {}
-    from .mcp import MCPClient
-    client = MCPClient(cfg.mcp_url)
-    try:
-        client.connect()
-        remote = client.list_tools()
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(
-            "MCP tool discovery failed for %r: %s", cfg.mcp_url, e)
-        return {}
-    finally:
-        client.close()
     out: dict[str, dict] = {}
-    for t in remote:
+    multi = len(urls) > 1
+    for idx, url in enumerate(urls, start=1):
+        prefix = f"mcp{idx}_" if multi else None
+        from .mcp import MCPClient
+        client = MCPClient(url)
         try:
-            n, entry = _mcp_tool_entry(t)
-            out[n] = entry
-        except Exception as e:  # skip a malformed tool def rather than crash
+            client.connect()
+            remote = client.list_tools()
+        except Exception as e:
             import logging
-            logging.getLogger(__name__).warning("skipping MCP tool %r: %s", t.get("name"), e)
+            logging.getLogger(__name__).warning(
+                "MCP tool discovery failed for %r: %s", url, e)
+            continue
+        finally:
+            client.close()
+        for t in remote:
+            try:
+                n, entry = _mcp_tool_entry(t, url, prefix)
+                out[n] = entry
+            except Exception as e:  # skip a malformed tool def rather than crash
+                import logging
+                logging.getLogger(__name__).warning(
+                    "skipping MCP tool %r: %s", t.get("name"), e)
     return out
 
 
@@ -991,10 +1015,10 @@ BUILTIN_TOOL_NAMES = set(TOOLS.keys())
 
 
 # ── dynamic MCP tools ──────────────────────────────────────────────────────
-# Discovered at startup from cfg.mcp_url. With no mcp_url configured this
-# contributes nothing and makes no network calls — the built-in harness tools
-# above are the entire surface. Discovery failures are swallowed so a dead MCP
-# server never breaks the agent.
+# Discovered at startup from cfg.mcp_endpoints() (mcp_url or mcp_urls list).
+# With no MCP URL configured this contributes nothing and makes no network
+# calls — the built-in harness tools above are the entire surface. Discovery
+# failures are swallowed so a dead MCP server never breaks the agent.
 try:
     TOOLS.update(load_mcp_tools(Config.load()))
 except Exception:

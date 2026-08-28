@@ -47,22 +47,28 @@ class Config:
     web_password: str = ""
 
     # services (docker network names; host-mapped ports when run on host)
-    # LLM endpoint: ANY OpenAI-compatible /v1 base URL (OpenAI, OpenRouter,
+    # LLM endpoint(s): ANY OpenAI-compatible /v1 base URL (OpenAI, OpenRouter,
     # Together, a local gateway like Ollama, ...). `llm_api_key` is sent as a
     # Bearer token when set; empty = the endpoint needs no auth. Empty by
     # default — the harness runs without an LLM (sync, browse, search still
-    # work); set this to enable chat + AI digest.
+    # work); set this to enable chat + AI digest. Multiple endpoints may be
+    # given (llm_urls / CAMPUS_LLM_URLS, comma-separated) for failover if one
+    # is down; llm_url / CAMPUS_LLM_URL is a single-entry alias.
     llm_url: str = ""  # e.g. "https://api.openai.com/v1" or "http://localhost:11434/v1"
+    llm_urls: list = field(default_factory=list)  # failover list; empty => [llm_url]
     llm_model: str = ""  # pick from: python -m sync models  (required for chat/digest)
     llm_api_key: str = ""  # env CAMPUS_LLM_API_KEY; Bearer auth when set
     pdf_extractor_url: str = ""  # empty = PyMuPDF only; set to a parser endpoint (e.g. Cohere Parse) to route all PDFs through it
     # ntfy publish URL for sync notifications; empty = notifications disabled.
     ntfy_url: str = ""
-    # Optional MCP server exposing HTTP tools (web search/read, ...). When set,
-    # its tools are discovered at startup and exposed to the agent alongside
-    # the built-in harness tools. Any streamable-HTTP MCP server works
-    # (SearXNG+crawl4ai, Firecrawl, ...). Empty = no external MCP tools.
+    # Optional MCP server(s) exposing HTTP tools (web search/read, ...). When
+    # set, their tools are discovered at startup and exposed to the agent
+    # alongside the built-in harness tools. Any streamable-HTTP MCP server
+    # works (SearXNG+crawl4ai, Firecrawl, ...). Empty = no external MCP tools.
+    # Give several (mcp_urls / CAMPUS_MCP_URLS, comma-separated) to merge tools
+    # from multiple servers; mcp_url / CAMPUS_MCP_URL is a single-entry alias.
     mcp_url: str = ""
+    mcp_urls: list = field(default_factory=list)  # merged; empty => [mcp_url]
     # Semantic search (corpus embeddings + rerank) is OPT-IN. Most
     # OpenAI-compatible endpoints don't serve /embeddings or /rerank, so these
     # default empty: search_corpus falls back to a lexical (substring + term
@@ -123,6 +129,14 @@ class Config:
             cfg.brightspace_hosts = [
                 h.strip() for h in os.environ["CAMPUS_BRIGHTSPACE_HOSTS"].split(",") if h.strip()
             ]
+        if os.environ.get("CAMPUS_LLM_URLS"):
+            cfg.llm_urls = [
+                u.strip() for u in os.environ["CAMPUS_LLM_URLS"].split(",") if u.strip()
+            ]
+        if os.environ.get("CAMPUS_MCP_URLS"):
+            cfg.mcp_urls = [
+                u.strip() for u in os.environ["CAMPUS_MCP_URLS"].split(",") if u.strip()
+            ]
         # expand ~ and coerce to Path (YAML strings don't auto-coerce)
         for field in ("data_root", "db_path", "token_dir", "browser_profile_dir"):
             val = getattr(cfg, field)
@@ -132,3 +146,22 @@ class Config:
                 val = Path(os.path.expanduser(str(val)))
             setattr(cfg, field, val)
         return cfg
+
+    # ── resolved endpoint lists ──────────────────────────────────────────
+    def llm_endpoints(self) -> list[str]:
+        """Ordered LLM base URLs for failover. llm_urls wins; otherwise the
+        single llm_url (or an empty list when neither is set)."""
+        if self.llm_urls:
+            return [u for u in self.llm_urls if u]
+        if self.llm_url:
+            return [self.llm_url]
+        return []
+
+    def mcp_endpoints(self) -> list[str]:
+        """Ordered MCP server URLs. mcp_urls wins; otherwise the single
+        mcp_url (or an empty list when neither is set)."""
+        if self.mcp_urls:
+            return [u for u in self.mcp_urls if u]
+        if self.mcp_url:
+            return [self.mcp_url]
+        return []
