@@ -756,11 +756,15 @@ class SyncEngine:
             # dropped the in-flight job, so big files never extracted.
             size_mb = path.stat().st_size / (1024 * 1024)
             # fast path: DIGITAL PDFs carry an embedded text layer — PyMuPDF
-            # extracts it in milliseconds, no OCR/VLM round-trip (MATH 2151A's
-            # solutions PDFs sat behind scanned book excerpts for hours before
-            # this existed). Scans return ~no text and fall through to the
-            # engine. pymupdf ships in the image (requirements.txt).
-            try:
+            # extracts it in milliseconds, no OCR/VLM round-trip. Scans
+            # return ~no text and fall through to the engine. pymupdf ships
+            # in the image (requirements.txt).
+            #
+            # When pdf_extractor_url is set, the external parser handles
+            # EVERYTHING (digital + scanned, better structure) — skip PyMuPDF
+            # entirely. PyMuPDF is the zero-config default when no parser is
+            # connected.
+            if not self.cfg.pdf_extractor_url:
                 import pymupdf
                 doc = pymupdf.open(path)
                 parts: list[str] = []
@@ -769,9 +773,6 @@ class SyncEngine:
                     if not text.strip():
                         continue
                     parts.append(text.rstrip())
-                    # real data tables (truth tables, grids) render as markdown
-                    # tables for the viewer; slide-deck layout boxes are filtered
-                    # out by the short-cell test. Flat text stays too — harmless.
                     try:
                         tables = [t for t in page.find_tables().tables
                                   if _looks_like_data_table(t)]
@@ -790,10 +791,12 @@ class SyncEngine:
                     self.deltas.append({"kind": "pdf_extracted", "path": str(md),
                                         "excerpt": excerpt})
                     return True
-            except ImportError:
-                pass
-            except Exception:
-                pass
+                # PyMuPDF didn't extract (scan) and no parser connected —
+                # nothing to do; file stays unprocessed for future retries
+                return False
+            else:
+                import pymupdf  # keep import available for _scan_pages
+            # external parser: send raw bytes, get markdown back
             timeout = 3600 if size_mb > 2 else 120
             r = httpx.put(f"{self.cfg.pdf_extractor_url}/process",
                           content=path.read_bytes(), timeout=timeout)
@@ -864,7 +867,9 @@ class SyncEngine:
             # and the extracted math text is the least reliable anyway.
             # Digital PDFs are never caught (text layer extracts instantly).
             # `extract --file` bypasses the queue and ignores the skip.
-            if path.suffix.lower() == ".pdf":
+            # When an external parser is connected, it handles everything
+            # (including long scans) — only apply this to local-OCR-only.
+            if not self.cfg.pdf_extractor_url and path.suffix.lower() == ".pdf":
                 pages = self._scan_pages(path)
                 if pages is not None and pages >= self.cfg.long_scan_skip_pages:
                     self.db.mark_processed(row["id"])

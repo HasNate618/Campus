@@ -33,8 +33,20 @@ trawl_url: "http://127.0.0.1:11236/mcp"
 # timezone for user-facing datetimes + the system prompt clock
 # timezone: "America/Toronto"
 
-# auto-extract PDFs to markdown after sync? Cloud engine by default
-# (pdf-extractor's default — no engine param). Set false if you don't want
+# ── PDF parsing ────────────────────────────────────────────────────────────
+# When empty: PyMuPDF extracts digital PDFs locally (instant, zero-config).
+# Scanned PDFs (no text layer) are not extracted — they stay viewable but
+# not searchable.
+#
+# When set: ALL PDFs (digital + scanned) go through the external parser.
+# PyMuPDF is skipped entirely. The parser must accept raw PDF bytes via
+# PUT /process and return {"page_content": "<markdown>", "metadata": {...}}.
+# Examples: your Cohere Parse adapter, Unstructured, Docling, the old
+# pdf-extractor container. Scans ≥long_scan_skip_pages are no longer
+# auto-skipped (the parser handles them).
+#
+# pdf_extractor_url: "http://127.0.0.1:8001"
+# auto-extract PDFs to markdown after sync? Set false if you don't want
 # API credits spent on old content.
 auto_extract_pdfs: true
 

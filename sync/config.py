@@ -53,7 +53,7 @@ class Config:
     llm_url: str = "http://127.0.0.1:18081/v1"
     llm_model: str = "opencode-go/deepseek-v4-flash"  # any model from llm_url /v1/models
     llm_api_key: str = ""  # env CAMPUS_LLM_API_KEY; Bearer auth when set
-    pdf_extractor_url: str = "http://127.0.0.1:8001"
+    pdf_extractor_url: str = ""  # empty = PyMuPDF only; set to a parser endpoint (e.g. Cohere Parse) to route all PDFs through it
     ntfy_url: str = "http://127.0.0.1:8085"  # topic set per-run
     trawl_url: str = "http://127.0.0.1:11236/mcp"  # trawl MCP (web_search/web_read)
 
