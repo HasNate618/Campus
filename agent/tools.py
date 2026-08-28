@@ -984,8 +984,11 @@ def load_mcp_tools(cfg: Config) -> dict[str, dict]:
         return {}
     out: dict[str, dict] = {}
     multi = len(urls) > 1
+    # Resolve a prefix per server: the server's own name (standard harness
+    # convention, e.g. trawl -> trawl_search) is preferred. When two servers
+    # share a name we disambiguate with an index (trawl_ / trawl_2_).
+    name_prefixes: dict[str, int] = {}
     for idx, url in enumerate(urls, start=1):
-        prefix = f"mcp{idx}_" if multi else None
         from .mcp import MCPClient
         client = MCPClient(url)
         try:
@@ -998,6 +1001,15 @@ def load_mcp_tools(cfg: Config) -> dict[str, dict]:
             continue
         finally:
             client.close()
+        # server-name prefix (trawl_); blank name -> index fallback (mcp1_)
+        prefix = MCPClient.tool_prefix(client.server_name)
+        if not prefix:
+            prefix = f"mcp{idx}_"
+        elif multi:
+            seen = name_prefixes.get(prefix, 0) + 1
+            name_prefixes[prefix] = seen
+            if seen > 1:
+                prefix = f"{prefix.rstrip('_')}_{seen}_"
         for t in remote:
             try:
                 n, entry = _mcp_tool_entry(t, url, prefix)

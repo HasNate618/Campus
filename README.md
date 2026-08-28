@@ -134,7 +134,7 @@ Everything environment-specific lives in `config.yaml` (gitignored) or
 | `embed_model` / `rerank_model` | `CAMPUS_EMBED/RERANK_MODEL` | Optional OpenAI-compatible `/embeddings` + `/rerank` models. Empty = lexical corpus search (no embeddings needed). A 404 on either degrades to lexical |
 | `pdf_extractor_url` | `CAMPUS_PDF_EXTRACTOR_URL` | Optional parser endpoint (Cohere Parse, Docling, …) for ALL PDFs; empty = local PyMuPDF (digital PDFs instant) |
 | `ntfy_url` | `CAMPUS_NTFY_URL` | Optional ntfy topic for sync pings; empty = disabled |
-| `mcp_url` / `mcp_urls` | `CAMPUS_MCP_URL` / `CAMPUS_MCP_URLS` | Optional streamable-HTTP MCP server(s) (web search/read/…); tools are auto-discovered and exposed to the agent. `mcp_urls` (or `CAMPUS_MCP_URLS`, comma-separated) merges tools from several servers, namespaced `mcp1_*`, `mcp2_*`, … Empty = no external tools |
+| `mcp_url` / `mcp_urls` | `CAMPUS_MCP_URL` / `CAMPUS_MCP_URLS` | Optional streamable-HTTP MCP server(s) (web search/read/…); tools are auto-discovered and exposed to the agent. Each server's tools are namespaced with its own name (trawl's `search` → `trawl_search`) — the standard harness convention for merging tools from several servers. `mcp_urls` (or `CAMPUS_MCP_URLS`, comma-separated) merges multiple servers; tools from a server with no name fall back to `mcp1_*`, `mcp2_*`. Empty = no external tools |
 | `data_root` | `CAMPUS_DATA_ROOT` | Where course content lands (`{term}/{code}/…`) |
 | `token_dir` | `CAMPUS_TOKEN_DIR` | MFA token + browser profile |
 | `institution` | — | Label in the system prompt |
@@ -160,6 +160,22 @@ python3 -m agent --one "What's due this week?" --course "CS 1100A"
 ```
 
 Chat needs a model endpoint. Set `CAMPUS_LLM_URL`, `CAMPUS_LLM_MODEL`, and `CAMPUS_LLM_API_KEY` in `docker-compose.yml` or `config.yaml`. Any OpenAI compatible `/v1` endpoint works.
+
+### Rebuilding the web UI
+
+The web UI is a separate React build served from `web/dist`. The deployment
+mounts the repo at `/app`, so the browser loads the host's `web/dist` — which
+is **not** rebuilt by Python-side restarts. After any change to `web/src`,
+rebuild it or the browser will silently run stale JS:
+
+```bash
+make build-web          # or: bash scripts/build-web.sh
+```
+
+The running container picks up the new `web/dist` on the next request (no
+restart needed). The image itself also bakes a fresh `web/dist` at build time
+(`docker compose build`), which is what you get when the deployment does not
+mount the repo.
 
 ## Configuration
 
