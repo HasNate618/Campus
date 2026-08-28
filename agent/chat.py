@@ -35,8 +35,8 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
                 on_token=None, on_reasoning=None) -> tuple[dict, dict | None]:
     """Streaming chat completion with LLM failover.
 
-    Tries each URL in ``cfg.llm_endpoints()`` (llm_urls / CAMPUS_LLM_URLS,
-    falling back to the single llm_url). A connection/timeout/HTTP error on one
+    Tries each URL in ``cfg.llm_endpoints()`` (llm_urls / OPENAI_ENDPOINTS,
+    falling back to the single llm_url / OPENAI_ENDPOINT). A connection/timeout/HTTP error on one
     endpoint fails over to the next; only if every endpoint fails do we raise.
     Accumulates content + tool_calls from SSE deltas; on_token(text) fires per
     content token and on_reasoning(text) per chain-of-thought chunk. Returns
@@ -141,7 +141,7 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
     # letting httpx raise an opaque connection error at request time.
     if not cfg.llm_endpoints():
         msg = ("No LLM endpoint configured. Set llm_url/llm_urls (and llm_model) in "
-               "config.yaml or CAMPUS_LLM_URL/CAMPUS_LLM_URLS, then retry. "
+               "config.yaml or OPENAI_ENDPOINT/OPENAI_ENDPOINTS, then retry. "
                "Sync, browse, and corpus search work without an LLM.")
         if emit:
             emit("done", {"answer": msg, "model": None, "usage": None})
@@ -149,7 +149,7 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
     if not (model or cfg.llm_model):
         msg = ("No LLM model configured. Run `python -m sync models` to list "
                "available models at your endpoint, then set llm_model in "
-               "config.yaml or CAMPUS_LLM_MODEL.")
+               "config.yaml or OPENAI_MODEL.")
         if emit:
             emit("done", {"answer": msg, "model": None, "usage": None})
         return msg, history or []

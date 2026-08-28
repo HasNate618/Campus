@@ -52,12 +52,12 @@ class Config:
     # Bearer token when set; empty = the endpoint needs no auth. Empty by
     # default — the harness runs without an LLM (sync, browse, search still
     # work); set this to enable chat + AI digest. Multiple endpoints may be
-    # given (llm_urls / CAMPUS_LLM_URLS, comma-separated) for failover if one
-    # is down; llm_url / CAMPUS_LLM_URL is a single-entry alias.
+    # given (llm_urls / OPENAI_ENDPOINTS, comma-separated) for failover if one
+    # is down; llm_url / OPENAI_ENDPOINT is a single-entry alias.
     llm_url: str = ""  # e.g. "https://api.openai.com/v1" or "http://localhost:11434/v1"
     llm_urls: list = field(default_factory=list)  # failover list; empty => [llm_url]
     llm_model: str = ""  # pick from: python -m sync models  (required for chat/digest)
-    llm_api_key: str = ""  # env CAMPUS_LLM_API_KEY; Bearer auth when set
+    llm_api_key: str = ""  # env OPENAI_API_KEY; Bearer auth when set
     pdf_extractor_url: str = ""  # empty = PyMuPDF only; set to a parser endpoint (e.g. Cohere Parse) to route all PDFs through it
     # ntfy publish URL for sync notifications; empty = notifications disabled.
     ntfy_url: str = ""
@@ -108,8 +108,9 @@ class Config:
         # env overrides. Two naming conventions are supported so the project
         # is portable: the conventional OpenAI-compatible names (OPENAI_*) any
         # outsider already knows, and the Campus-specific CAMPUS_* names used by
-        # the homelab deployment. CAMPUS_* wins when both are set (explicit
-        # deployment override). Single + plural (comma-separated) forms both work.
+        # the homelab deployment for non-LLM services. For the LLM, only the
+        # standard OPENAI_* names are accepted (no CAMPUS_LLM_* aliases) so the
+        # interface stays clean. Single + plural (comma-separated) forms both work.
         overrides = [
             ("OPENAI_ENDPOINT", "llm_url"),
             ("OPENAI_ENDPOINTS", "llm_urls_csv"),
@@ -119,10 +120,6 @@ class Config:
             ("CAMPUS_DATA_ROOT", "data_root"),
             ("CAMPUS_DB_PATH", "db_path"),
             ("CAMPUS_TOKEN_DIR", "token_dir"),
-            ("CAMPUS_LLM_URL", "llm_url"),
-            ("CAMPUS_LLM_URLS", "llm_urls_csv"),
-            ("CAMPUS_LLM_MODEL", "llm_model"),
-            ("CAMPUS_LLM_API_KEY", "llm_api_key"),
             ("CAMPUS_TIMEZONE", "timezone"),
             ("CAMPUS_PDF_EXTRACTOR_URL", "pdf_extractor_url"),
             ("CAMPUS_NTFY_URL", "ntfy_url"),
@@ -146,10 +143,6 @@ class Config:
         if os.environ.get("CAMPUS_BRIGHTSPACE_HOSTS"):
             cfg.brightspace_hosts = [
                 h.strip() for h in os.environ["CAMPUS_BRIGHTSPACE_HOSTS"].split(",") if h.strip()
-            ]
-        if os.environ.get("CAMPUS_LLM_URLS"):
-            cfg.llm_urls = [
-                u.strip() for u in os.environ["CAMPUS_LLM_URLS"].split(",") if u.strip()
             ]
         if os.environ.get("CAMPUS_MCP_URLS"):
             cfg.mcp_urls = [

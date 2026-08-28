@@ -130,7 +130,7 @@ Everything environment-specific lives in `config.yaml` (gitignored) or
 | ----------- | --------- | --------- |
 | `base_url` | `CAMPUS_BASE_URL` | LMS instance (any Brightspace/D2L) |
 | `username` | `CAMPUS_USERNAME` | LMS username; password via `CAMPUS_BRIGHTSPACE_PASSWORD` |
-| `llm_url` / `llm_urls` / `llm_model` / `llm_api_key` | `CAMPUS_LLM_*` / `CAMPUS_LLM_URLS` / `OPENAI_ENDPOINT` / `OPENAI_ENDPOINTS` / `OPENAI_API_KEY` / `OPENAI_MODEL` | Any OpenAI-compatible `/v1` endpoint (tool-calling required for chat); Bearer key optional (yours is keyless — set `llm_api_key`/`OPENAI_API_KEY` for endpoints that need one). `llm_urls` (or `CAMPUS_LLM_URLS`/`OPENAI_ENDPOINTS`, comma-separated) is a failover list tried in order. Empty = no chat/digest (sync + browse + search still work). `CAMPUS_*` overrides `OPENAI_*` when both are set. |
+| `llm_url` / `llm_urls` / `llm_model` / `llm_api_key` | `OPENAI_ENDPOINT` / `OPENAI_ENDPOINTS` / `OPENAI_API_KEY` / `OPENAI_MODEL` | Any OpenAI-compatible `/v1` endpoint (tool-calling required for chat); Bearer key optional (yours is keyless — set `llm_api_key`/`OPENAI_API_KEY` for endpoints that need one). `llm_urls` (or `OPENAI_ENDPOINTS`, comma-separated) is a failover list tried in order. Empty = no chat/digest (sync + browse + search still work). |
 | `embed_model` / `rerank_model` | `CAMPUS_EMBED/RERANK_MODEL` | Optional OpenAI-compatible `/embeddings` + `/rerank` models. Empty = lexical corpus search (no embeddings needed). A 404 on either degrades to lexical |
 | `pdf_extractor_url` | `CAMPUS_PDF_EXTRACTOR_URL` | Optional parser endpoint (Cohere Parse, Docling, …) for ALL PDFs; empty = local PyMuPDF (digital PDFs instant) |
 | `ntfy_url` | `CAMPUS_NTFY_URL` | Optional ntfy topic for sync pings; empty = disabled |
@@ -159,7 +159,7 @@ Try this once it is running:
 python3 -m agent --one "What's due this week?" --course "CS 1100A"
 ```
 
-Chat needs a model endpoint. Set `CAMPUS_LLM_URL`, `CAMPUS_LLM_MODEL`, and `CAMPUS_LLM_API_KEY` in `docker-compose.yml` or `config.yaml`. Any OpenAI compatible `/v1` endpoint works.
+Chat needs a model endpoint. Set `OPENAI_ENDPOINT`, `OPENAI_MODEL`, and `OPENAI_API_KEY` (only if the endpoint requires auth) in `docker-compose.yml` or `config.yaml`. Any OpenAI compatible `/v1` endpoint works.
 
 ### Rebuilding the web UI
 
@@ -177,6 +177,19 @@ restart needed). The image itself also bakes a fresh `web/dist` at build time
 (`docker compose build`), which is what you get when the deployment does not
 mount the repo.
 
+### Deploy with an AI agent
+
+Campus ships a `campus-deploy` skill (see `skills/campus-deploy/SKILL.md`) that
+guides an agent to set up the app honestly — the one hard requirement (an
+OpenAI-compatible `/v1` endpoint with tool-calling) plus every optional
+service, and a verifiable preflight. Point your agent at it:
+
+> Use the campus-deploy skill in this repo to set up Campus. prmpt
+
+Replace `prmpt` with your goal, e.g. "I have an OpenAI API key and want chat
+working against my Brightspace courses." The skill tells the agent the real
+prerequisites so it doesn't guess.
+
 ## Configuration
 
 All personal values live in `config.yaml` (gitignored) or `CAMPUS_*` env vars. The repo ships with no secrets.
@@ -186,16 +199,16 @@ All personal values live in `config.yaml` (gitignored) or `CAMPUS_*` env vars. T
 | `base_url` | `CAMPUS_BASE_URL` | Your LMS (Brightspace/D2L). **Leave empty** unless you want automated sync from a Brightspace/D2L school — it's the only LMS Campus pulls from automatically |
 | `username` | `CAMPUS_USERNAME` | LMS username; password via `CAMPUS_BRIGHTSPACE_PASSWORD` |
 | `institution` | — | Label in the system prompt, e.g. `"Your University"` |
-| `llm_url`, `llm_model`, `llm_api_key` | `CAMPUS_LLM_*` / `OPENAI_*` | Any OpenAI-compatible endpoint; key optional for local gateways. Empty = no chat/digest (browse + search still work) |
+| `llm_url`, `llm_model`, `llm_api_key` | `OPENAI_*` | Any OpenAI-compatible endpoint; key optional for local gateways. Empty = no chat/digest (browse + search still work) |
 | `data_root` | `CAMPUS_DATA_ROOT` | Where course files live as `{term}/{code}/...`; if you're not syncing, drop your own materials here |
 | `token_dir` | `CAMPUS_TOKEN_DIR` | MFA token + browser profile (used only for Brightspace sync) |
 | `web_password` | `CAMPUS_WEB_PASSWORD` | Single password for `/api/*` routes; empty = open demo |
 | `timezone` | `CAMPUS_TIMEZONE` | Dates you see and the clock in the prompt; empty = host local time |
 | `term_dates` | n/a | Start/end dates that anchor class events |
 
-### Not at Western University?
+### Not using Brightspace/D2L?
 
-Campus was built around Western's Brightspace/D2L deployment, but only the
+Campus's automated sync targets Brightspace/D2L, but only the
 **automated sync** is LMS-specific. The rest — browsing, corpus search, chat,
 MCP web tools, PDF reading — is LMS-agnostic and runs on whatever files are in
 `data_root`.

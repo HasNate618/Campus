@@ -3,7 +3,7 @@
 #   docker compose up --build
 #   open http://localhost:8087
 #
-# Chat needs an OpenAI-compatible endpoint; set CAMPUS_LLM_URL (+ model + key)
+# Chat needs an OpenAI-compatible endpoint; set OPENAI_ENDPOINT (+ model + key)
 # in the environment below. Everything else (timetable, courses, browse,
 # search) works with the seeded sample data out of the box.
 
@@ -19,10 +19,9 @@ services:
       CAMPUS_DB: /app/data/harness.db
       CAMPUS_DATA_ROOT: /app/data/school
       # OpenAI-compatible chat backend (optional for the demo):
-      # CAMPUS_LLM_URL: https://api.openai.com/v1
-      # CAMPUS_LLM_MODEL: gpt-4o-mini
-      # CAMPUS_LLM_API_KEY: your-key   # only if the endpoint requires auth
-      # CAMPUS_BRIGHTSPACE_HOSTS: ""        # proxy disabled by default
+      # OPENAI_ENDPOINT: https://api.openai.com/v1
+      # OPENAI_MODEL: gpt-4o-mini
+      # OPENAI_API_KEY: your-key   # only if the endpoint requires auth
     restart: unless-stopped
 
 volumes:
