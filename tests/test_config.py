@@ -47,8 +47,8 @@ def test_defaults_are_portable():
 def test_env_overrides(monkeypatch):
     from sync.config import Config
 
-    monkeypatch.setenv("CAMPUS_LLM_URL", "https://api.openai.com/v1")
-    monkeypatch.setenv("CAMPUS_LLM_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_ENDPOINT", "https://api.openai.com/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.setenv("CAMPUS_BRIGHTSPACE_HOSTS", "uni.edu, s.uni.edu")
     monkeypatch.setenv("CAMPUS_TIMEZONE", "Europe/Berlin")
 
@@ -69,27 +69,38 @@ def test_legacy_bifrost_env_is_gone(monkeypatch):
     assert "old-gateway" not in cfg.llm_url
 
 
+def test_campus_llm_env_is_gone(monkeypatch):
+    """CAMPUS_LLM_* aliases were removed — only OPENAI_* configures the LLM now."""
+    from sync.config import Config
+
+    monkeypatch.setenv("CAMPUS_LLM_URL", "https://should-not-apply/v1")
+    monkeypatch.setenv("CAMPUS_LLM_URLS", "https://also-ignored/v1")
+    cfg = Config.load()
+    assert "should-not-apply" not in cfg.llm_url
+    assert cfg.llm_endpoints() == []
+
+
 def test_config_yaml_not_required(tmp_path, monkeypatch):
     """Config.load() with no config.yaml present falls back to defaults/env."""
     from sync.config import Config
 
     monkeypatch.chdir(tmp_path)  # REPO_ROOT is module-relative, not cwd — still fine
-    monkeypatch.setenv("CAMPUS_LLM_MODEL", "some-model")
+    monkeypatch.setenv("OPENAI_MODEL", "some-model")
     cfg = Config.load()
     assert cfg.llm_model == "some-model"
 
 
 def test_multiple_llm_endpoints_failover(monkeypatch):
-    """llm_urls / CAMPUS_LLM_URLS build an ordered failover list; llm_url is
+    """llm_urls / OPENAI_ENDPOINTS build an ordered failover list; llm_url is
     the single-entry alias. llm_endpoints() collapses to one source."""
     from sync.config import Config
 
-    monkeypatch.setenv("CAMPUS_LLM_URLS", "https://a/v1, https://b/v1")
+    monkeypatch.setenv("OPENAI_ENDPOINTS", "https://a/v1, https://b/v1")
     cfg = Config.load()
     assert cfg.llm_endpoints() == ["https://a/v1", "https://b/v1"]
 
-    monkeypatch.setenv("CAMPUS_LLM_URL", "https://single/v1")
-    monkeypatch.delenv("CAMPUS_LLM_URLS", raising=False)
+    monkeypatch.setenv("OPENAI_ENDPOINT", "https://single/v1")
+    monkeypatch.delenv("OPENAI_ENDPOINTS", raising=False)
     cfg2 = Config.load()
     assert cfg2.llm_endpoints() == ["https://single/v1"]
 
@@ -129,6 +140,6 @@ def test_standard_openai_env_naming(monkeypatch):
     monkeypatch.setenv("OPENAI_ENDPOINTS", "https://a/v1, https://b/v1")
     assert Config.load().llm_endpoints() == ["https://a/v1", "https://b/v1"]
 
-    # CAMPUS_* wins when both present
+    # CAMPUS_LLM_* is intentionally gone — it must NOT configure the LLM
     monkeypatch.setenv("CAMPUS_LLM_URLS", "http://bifrost:8080/v1")
-    assert Config.load().llm_endpoints() == ["http://bifrost:8080/v1"]
+    assert "bifrost" not in Config.load().llm_endpoints()

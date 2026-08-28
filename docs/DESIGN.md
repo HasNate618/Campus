@@ -107,7 +107,7 @@ Stack: FastAPI + React/TS, SQLite WAL, semantic search over chunks.
 - Grade calculator
 - Chat-app bot
 - Word editing / iframe office
-- Background LMS scraping
+- Background LMS sync
 - Course content or solutions in git
 - Another chat UI as primary surface
 

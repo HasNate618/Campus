@@ -6,8 +6,8 @@
 # courses, and the corpus search uses a built-in lexical ranker (no embeddings
 # model needed). Only set what you have.
 #
-# ── Not at Western University? ───────────────────────────────────────────────
-# Campus's *automated sync* targets Brightspace/D2L (that's what Western runs).
+# ── Not using Brightspace/D2L? ─────────────────────────────────────────────────
+# Campus's *automated sync* targets Brightspace/D2L (a common LMS).
 # Everything else — browse, corpus search, chat, MCP web tools, PDF reading —
 # is LMS-agnostic and works on whatever files sit in data_root. So:
 #   • If your school uses Canvas/Moodle (or you're not a student): leave
@@ -48,9 +48,9 @@ web_password: ""
 #   local (Ollama): llm_url: "http://localhost:11434/v1"
 # Standard env names (any outsider knows these): OPENAI_ENDPOINT,
 # OPENAI_ENDPOINTS (comma-separated failover list), OPENAI_API_KEY, OPENAI_MODEL.
-# Campus deployment names (override the above when both set): CAMPUS_LLM_URL,
-# CAMPUS_LLM_URLS, CAMPUS_LLM_API_KEY, CAMPUS_LLM_MODEL. A Bearer key is
-# optional — most local gateways (and yours) need none; set it for hosted APIs.
+# These are the ONLY env names for the LLM — there are no CAMPUS_LLM_* aliases.
+# A Bearer key is optional — most local gateways (and yours) need none; set it
+# for hosted APIs.
 # Give a LIST to fail over if one endpoint is down:
 #   llm_urls:
 #     - "https://api.openai.com/v1"
@@ -67,13 +67,13 @@ llm_api_key: ""               # Bearer auth when set (OpenAI, OpenRouter, ...); 
 # ntfy_url: "https://ntfy.sh/campus-yourtopic"
 # External tools: any streamable-HTTP MCP server exposing tools (web search,
 # read, ...). Its tools are auto-discovered and namespaced by the server's own
-# name (trawl's `search` -> `trawl_search`). Empty = no external MCP tools.
-# Give a LIST to merge tools from several servers (or set CAMPUS_MCP_URLS);
-# servers with no name fall back to mcp1_*, mcp2_*, … .
-# mcp_url: "http://localhost:11236/mcp"
+# name (e.g. a server named "search" exposes `search_search`). Empty = no
+# external MCP tools. Give a LIST to merge tools from several servers (or set
+# CAMPUS_MCP_URLS); servers with no name fall back to mcp1_*, mcp2_*, … .
+# mcp_url: "http://localhost:8000/mcp"
 # mcp_urls:
-#   - "http://localhost:11236/mcp"
 #   - "http://localhost:8000/mcp"
+#   - "http://localhost:8001/mcp"
 
 # Semantic corpus search is OPT-IN (most /v1 endpoints don't serve embeddings
 # or rerank). Leave empty to use the lexical ranker (no extra model). Set both
