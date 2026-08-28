@@ -19,6 +19,31 @@ I built Campus because I was tired of hunting through Brightspace. Files four cl
 
 ## Tech stack
 
+- **Deterministic LMS sync** — D2L REST + Playwright/MFA auth. Pulls the
+  content tree, module landing pages, files, dropbox assignments,
+  announcements, and syllabus. sha256 change detection; nothing is scraped
+  in the background, nothing is re-downloaded unchanged.
+- **Course-scoped AI chat** — an agent with 19 tools over your data:
+  assignments/announcements/facts, paginated file reads, grep, semantic
+  search, audited mutations (extend a due date, add a note, write a fact),
+  free-recall quizzes, and web search for outside questions. Every mutation
+  is written to an `audit_log` with before/after JSON.
+- **Semantic + lexical search** — embeddings + rerank over extracted course
+  content, with an exact-phrase lexical boost so "where does it say X"
+  questions find the verbatim answer instead of burying it under paraphrase
+  matches.
+- **A web app that runs anywhere** — Today / Course hub / Timetable /
+  Calendar / Chat, PWA-installable, zen markdown rendering, a vendored
+  pageless PDF viewer, offline-capable assets.
+- **Portable by construction** — every URL, path, and credential is
+  config-driven (`config.yaml` + `CAMPUS_*` env vars). Point it at any
+  Brightspace instance and (optionally) any OpenAI-compatible model endpoint.
+  **No service is required to run it**: with an empty config the app seeds
+  sample courses and runs — browse, timetable, and a lexical corpus search
+  all work without an LLM or embeddings model. Set `llm_url`/`llm_model` to
+  enable chat + the AI digest; set `embed_model`/`rerank_model` to upgrade
+  search to semantic ranking.
+
 | Layer | Choice | Why this one |
 | --- | --- | --- |
 | Sync engine | Python, Playwright, httpx, PyMuPDF | Playwright handles MFA and keeps a token that survives restarts. PyMuPDF pulls text from most PDFs in milliseconds and I only fall back to OCR for scans |
@@ -96,7 +121,38 @@ python3 tools/ics_import.py seed/sample.ics
 .venv/bin/python -m uvicorn api.main:app --port 8000
 ```
 
+## Real deployment
+
+Everything environment-specific lives in `config.yaml` (gitignored) or
+`CAMPUS_*` env vars — the repo itself carries zero personal configuration.
+
+| Config key | Env var | Purpose |
+| ----------- | --------- | --------- |
+| `base_url` | `CAMPUS_BASE_URL` | LMS instance (any Brightspace/D2L) |
+| `username` | `CAMPUS_USERNAME` | LMS username; password via `CAMPUS_BRIGHTSPACE_PASSWORD` |
+| `llm_url` / `llm_model` / `llm_api_key` | `CAMPUS_LLM_*` | Any OpenAI-compatible `/v1` endpoint (tool-calling required for chat); Bearer key optional. Empty = no chat/digest (sync + browse + search still work) |
+| `embed_model` / `rerank_model` | `CAMPUS_EMBED/RERANK_MODEL` | Optional OpenAI-compatible `/embeddings` + `/rerank` models. Empty = lexical corpus search (no embeddings needed). A 404 on either degrades to lexical |
+| `pdf_extractor_url` | `CAMPUS_PDF_EXTRACTOR_URL` | Optional parser endpoint (Cohere Parse, Docling, …) for ALL PDFs; empty = local PyMuPDF (digital PDFs instant) |
+| `ntfy_url` | `CAMPUS_NTFY_URL` | Optional ntfy topic for sync pings; empty = disabled |
+| `mcp_url` | `CAMPUS_MCP_URL` | Optional streamable-HTTP MCP server (web search/read/…); its tools are auto-discovered and exposed to the agent. Empty = no external tools |
+| `data_root` | `CAMPUS_DATA_ROOT` | Where course content lands (`{term}/{code}/…`) |
+| `token_dir` | `CAMPUS_TOKEN_DIR` | MFA token + browser profile |
+| `institution` | — | Label in the system prompt |
+| `brightspace_hosts` / `brightspace_base_url` | `CAMPUS_BRIGHTSPACE_*` | Content proxy allowlist + link rebasing (Brightspace-only features) |
+| `term_dates` | — | Anchors computed class events |
+| `timezone` | `CAMPUS_TIMEZONE` | User-facing datetimes + prompt clock |
+| `web_password` | `CAMPUS_WEB_PASSWORD` | Optional single password for the web API; empty = open demo |
+
+### Authentication
+
+The web UI is open by default (zero-config demo). Set `CAMPUS_WEB_PASSWORD`
+(or `web_password` in `config.yaml`) to require a password for every `/api/*`
+route — static assets stay public so the login screen can load. Sessions are
+in-memory with a 30-day sliding expiry; restarting the server logs everyone
+out.
+
 Try this once it is running:
+
 
 ```bash
 # CLI chat over your local data, no browser needed

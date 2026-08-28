@@ -113,6 +113,22 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
       tool_end(event)   -> {"tool": name, "result": {...}}
       done(event)       -> {"answer": ...}
     """
+    # Preflight: chat needs an LLM endpoint + model. Fail clearly instead of
+    # letting httpx raise an opaque connection error at request time.
+    if not cfg.llm_url:
+        msg = ("No LLM endpoint configured. Set llm_url (and llm_model) in "
+               "config.yaml or CAMPUS_LLM_URL / CAMPUS_LLM_MODEL, then retry. "
+               "Sync, browse, and corpus search work without an LLM.")
+        if emit:
+            emit("done", {"answer": msg, "model": None, "usage": None})
+        return msg, history or []
+    if not (model or cfg.llm_model):
+        msg = ("No LLM model configured. Run `python -m sync models` to list "
+               "available models at your endpoint, then set llm_model in "
+               "config.yaml or CAMPUS_LLM_MODEL.")
+        if emit:
+            emit("done", {"answer": msg, "model": None, "usage": None})
+        return msg, history or []
     messages = [{"role": "system", "content": build_system_prompt(cfg, db, course_id)}]
     messages.extend(history or [])
     files = attachments or []

@@ -1,5 +1,10 @@
 # Campus config — copy to config.yaml (gitignored) and fill in.
 # Secrets prefer env vars: CAMPUS_USERNAME, CAMPUS_BRIGHTSPACE_PASSWORD.
+#
+# ZERO-CONFIG DEFAULTS: every service below is optional. With an empty
+# config.yaml the harness still runs — sample data seeds in, you can browse
+# courses, and the corpus search uses a built-in lexical ranker (no embeddings
+# model needed). Only set what you have.
 
 # Your institution's LMS (Brightspace/D2L-compatible) instance.
 base_url: ""                      # e.g. "https://your-university.brightspace.com"
@@ -22,16 +27,34 @@ token_ttl: 3600
 # optional single-password web auth; empty = open (demo) — set CAMPUS_WEB_PASSWORD in prod
 web_password: ""
 
-# services — any OpenAI-compatible /v1 endpoint works for llm_url
-llm_url: "http://127.0.0.1:18081/v1"
-llm_model: ""                 # pick from: python -m sync models
+# services — all optional; empty = feature disabled.
+# LLM endpoint: any OpenAI-compatible /v1 base URL. Empty = no chat/digest
+# (sync + browse + lexical search still work). Examples:
+#   OpenAI:      llm_url: "https://api.openai.com/v1"
+#   OpenRouter:  llm_url: "https://openrouter.ai/api/v1"
+#   local (Ollama): llm_url: "http://localhost:11434/v1"
+llm_url: ""
+llm_model: ""                 # pick from: python -m sync models  (required for chat/digest)
 llm_api_key: ""               # env CAMPUS_LLM_API_KEY; Bearer auth when set (OpenAI, OpenRouter, ...)
-pdf_extractor_url: "http://127.0.0.1:8001"
-ntfy_url: "http://127.0.0.1:8085"
-trawl_url: "http://127.0.0.1:11236/mcp"
+# PDF extraction: empty = local PyMuPDF (digital PDFs instant, scanned stay
+# viewable). Set to a parser endpoint (Cohere Parse, Unstructured, Docling,
+# ...) to route ALL PDFs through it.
+# pdf_extractor_url: "http://localhost:8001"
+# Sync notifications: empty = disabled. Set to an ntfy URL to get pings.
+# ntfy_url: "https://ntfy.sh/campus-yourtopic"
+# External tools: any streamable-HTTP MCP server exposing tools (web search,
+# read, ...). Its tools are discovered at startup and added to the agent.
+# Empty = no external MCP tools.
+# mcp_url: "http://localhost:11236/mcp"
 
-# timezone for user-facing datetimes + the system prompt clock
-# timezone: "America/Toronto"
+# Semantic corpus search is OPT-IN (most /v1 endpoints don't serve embeddings
+# or rerank). Leave empty to use the lexical ranker (no extra model). Set both
+# to enable semantic search; a 404 on either degrades back to lexical.
+# embed_model: "text-embedding-3-small"
+# rerank_model: "cohere/rerank-english-v3.0"
+
+# timezone for user-facing datetimes + the system prompt clock.
+# Empty = system local time. e.g. timezone: "America/Toronto"
 
 # ── PDF parsing ────────────────────────────────────────────────────────────
 # When empty: PyMuPDF extracts digital PDFs locally (instant, zero-config).
@@ -45,7 +68,7 @@ trawl_url: "http://127.0.0.1:11236/mcp"
 # pdf-extractor container. Scans ≥long_scan_skip_pages are no longer
 # auto-skipped (the parser handles them).
 #
-# pdf_extractor_url: "http://127.0.0.1:8001"
+# pdf_extractor_url: "http://localhost:8001"
 # auto-extract PDFs to markdown after sync? Set false if you don't want
 # API credits spent on old content.
 auto_extract_pdfs: true

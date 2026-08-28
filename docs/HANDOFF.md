@@ -16,10 +16,11 @@ Read first: [DESIGN.md](DESIGN.md), [DATA_MODEL.md](DATA_MODEL.md),
 | Runtime course data | `{data_root}/{term}/{code}/` (config; `./school` in dev) |
 | Local/dev DB & content | `data/`, `school/` (gitignored) |
 | LMS REST API | `base_url` in config (any Brightspace/D2L-compatible instance) |
-| LLM gateway | `llm_url` in config — any OpenAI-compatible `/v1` endpoint; `llm_api_key` for Bearer auth |
-| PDF extraction | `pdf_extractor_url` in config |
-| Web search/read | `trawl_url` in config (MCP) |
-| Notifications | `ntfy_url` in config |
+| LLM gateway | `llm_url` in config — any OpenAI-compatible `/v1` endpoint (tool-calling required for chat); `llm_api_key` for Bearer auth. Empty = no chat/digest |
+| PDF extraction | `pdf_extractor_url` in config (empty = local PyMuPDF) |
+| Semantic search | `embed_model` / `rerank_model` in config — OpenAI-compatible `/embeddings` + `/rerank`. Empty = lexical-only corpus search |
+| External tools (web search/read/…) | `mcp_url` in config — any streamable-HTTP MCP server; its tools are auto-discovered and exposed to the agent. Empty = no external tools |
+| Notifications | `ntfy_url` in config (empty = disabled) |
 
 Every URL, path, and credential is config-driven: `config.yaml` (gitignored,
 copy of `config.example.yaml`) + `CAMPUS_*` env overrides.

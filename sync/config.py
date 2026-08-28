@@ -48,14 +48,28 @@ class Config:
 
     # services (docker network names; host-mapped ports when run on host)
     # LLM endpoint: ANY OpenAI-compatible /v1 base URL (OpenAI, OpenRouter,
-    # Together, a local gateway, ...). `llm_api_key` is sent as a Bearer
-    # token when set; empty = the endpoint needs no auth.
-    llm_url: str = "http://127.0.0.1:18081/v1"
-    llm_model: str = "opencode-go/deepseek-v4-flash"  # any model from llm_url /v1/models
+    # Together, a local gateway like Ollama, ...). `llm_api_key` is sent as a
+    # Bearer token when set; empty = the endpoint needs no auth. Empty by
+    # default — the harness runs without an LLM (sync, browse, search still
+    # work); set this to enable chat + AI digest.
+    llm_url: str = ""  # e.g. "https://api.openai.com/v1" or "http://localhost:11434/v1"
+    llm_model: str = ""  # pick from: python -m sync models  (required for chat/digest)
     llm_api_key: str = ""  # env CAMPUS_LLM_API_KEY; Bearer auth when set
     pdf_extractor_url: str = ""  # empty = PyMuPDF only; set to a parser endpoint (e.g. Cohere Parse) to route all PDFs through it
-    ntfy_url: str = "http://127.0.0.1:8085"  # topic set per-run
-    trawl_url: str = "http://127.0.0.1:11236/mcp"  # trawl MCP (web_search/web_read)
+    # ntfy publish URL for sync notifications; empty = notifications disabled.
+    ntfy_url: str = ""
+    # Optional MCP server exposing HTTP tools (web search/read, ...). When set,
+    # its tools are discovered at startup and exposed to the agent alongside
+    # the built-in harness tools. Any streamable-HTTP MCP server works
+    # (SearXNG+crawl4ai, Firecrawl, ...). Empty = no external MCP tools.
+    mcp_url: str = ""
+    # Semantic search (corpus embeddings + rerank) is OPT-IN. Most
+    # OpenAI-compatible endpoints don't serve /embeddings or /rerank, so these
+    # default empty: search_corpus falls back to a lexical (substring + term
+    # overlap) ranker that needs no extra model. Set both to enable semantic
+    # search. If the endpoint 404s on either, search degrades to lexical only.
+    embed_model: str = ""  # e.g. "cohere/embed-english-v3.0" or "text-embedding-3-small"
+    rerank_model: str = ""  # e.g. "cohere/rerank-english-v3.0"
 
     # timezone for user-facing datetimes + the system prompt clock
     timezone: str = "America/Toronto"
@@ -97,7 +111,9 @@ class Config:
             ("CAMPUS_TIMEZONE", "timezone"),
             ("CAMPUS_PDF_EXTRACTOR_URL", "pdf_extractor_url"),
             ("CAMPUS_NTFY_URL", "ntfy_url"),
-            ("CAMPUS_TRAWL_URL", "trawl_url"),
+            ("CAMPUS_MCP_URL", "mcp_url"),
+            ("CAMPUS_EMBED_MODEL", "embed_model"),
+            ("CAMPUS_RERANK_MODEL", "rerank_model"),
             ("CAMPUS_BRIGHTSPACE_BASE_URL", "brightspace_base_url"),
             ("CAMPUS_WEB_PASSWORD", "web_password"),
         ]:

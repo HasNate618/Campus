@@ -27,8 +27,13 @@ RERANK_CANDIDATES = 20
 TOP_K = 5
 BATCH = 32
 
-EMBED_MODEL = "cohere/embed-english-v3.0"
-RERANK_MODEL = "cohere/rerank-english-v3.0"
+# Embedding/rerank models are OPT-IN (read from cfg.embed_model /
+# cfg.rerank_model). Most OpenAI-compatible endpoints don't serve /embeddings
+# or /rerank, so when both are empty the corpus search runs lexical-only
+# (substring + term-overlap) with no extra model. Raised when the endpoint
+# lacks the capability, so callers can degrade to lexical instead of crashing.
+class ModelUnavailable(Exception):
+    pass
 
 _PARAGRAPH_SPLIT = re.compile(r"\n\s*\n")
 
@@ -50,16 +55,27 @@ def _chunk(text: str, size: int = CHUNK_CHARS) -> list[str]:
 
 
 def _embed(cfg, texts: list[str]) -> list[list[float]]:
+    """Embed via cfg.llm_url /embeddings using cfg.embed_model. Raises
+    ModelUnavailable if the endpoint 404s or otherwise lacks embeddings so the
+    caller can fall back to lexical ranking."""
+    if not cfg.embed_model:
+        raise ModelUnavailable("embed_model not configured")
     out: list[list[float]] = []
     with httpx.Client(timeout=90) as client:
         for i in range(0, len(texts), BATCH):
             batch = texts[i:i + BATCH]
-            r = client.post(
-                f"{cfg.llm_url}/embeddings",
-                headers=llm_headers(cfg),
-                json={"model": EMBED_MODEL, "input": batch},
-            )
-            r.raise_for_status()
+            try:
+                r = client.post(
+                    f"{cfg.llm_url}/embeddings",
+                    headers=llm_headers(cfg),
+                    json={"model": cfg.embed_model, "input": batch},
+                )
+                r.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                raise ModelUnavailable(
+                    f"embeddings endpoint unavailable: {e.response.status_code}") from e
+            except httpx.HTTPError as e:
+                raise ModelUnavailable(f"embeddings request failed: {e}") from e
             data = r.json()["data"]
             data.sort(key=lambda d: d["index"])
             out.extend(d["embedding"] for d in data)
@@ -67,20 +83,30 @@ def _embed(cfg, texts: list[str]) -> list[list[float]]:
 
 
 def _rerank_scores(cfg, query: str, docs: list[str]) -> list[float]:
-    """Rerank docs via the LLM endpoint's rerank; scores aligned to docs."""
+    """Rerank docs via the LLM endpoint's /rerank using cfg.rerank_model;
+    scores aligned to docs. Raises ModelUnavailable if the endpoint lacks
+    /rerank so the caller can keep cosine order."""
     if not docs:
         return []
+    if not cfg.rerank_model:
+        raise ModelUnavailable("rerank_model not configured")
     with httpx.Client(timeout=90) as client:
-        r = client.post(
-            f"{cfg.llm_url}/rerank",
-            headers=llm_headers(cfg),
-            json={
-                "model": RERANK_MODEL,
-                "query": query,
-                "documents": [{"text": d} for d in docs],
-            },
-        )
-        r.raise_for_status()
+        try:
+            r = client.post(
+                f"{cfg.llm_url}/rerank",
+                headers=llm_headers(cfg),
+                json={
+                    "model": cfg.rerank_model,
+                    "query": query,
+                    "documents": [{"text": d} for d in docs],
+                },
+            )
+            r.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            raise ModelUnavailable(
+                f"rerank endpoint unavailable: {e.response.status_code}") from e
+        except httpx.HTTPError as e:
+            raise ModelUnavailable(f"rerank request failed: {e}") from e
         results = r.json().get("results", [])
     scores = [0.0] * len(docs)
     for res in results:
@@ -166,12 +192,35 @@ def _corpus(cfg, db) -> list[dict]:
 
 
 def rebuild(cfg, db) -> dict:
-    """Incremental: embed only items whose (ref, hash) changed. Returns counts."""
+    """Incremental: (re)embed only items whose (ref, hash) changed.
+
+    Lexical mode (cfg.embed_model empty): no /embeddings call — embeddings
+    are stored as empty blobs and search() ranks lexically. The empty model
+    guard below wipes any stale vectors so a mode switch is clean.
+    """
     db.conn.execute(
         """CREATE TABLE IF NOT EXISTS chunks (
             id INTEGER PRIMARY KEY, course_id INTEGER, ref TEXT, chunk_idx INTEGER,
             text TEXT, embedding BLOB, src_hash TEXT)"""
     )
+    # Track which embed_model built the vectors. A NULL/'none' means lexical
+    # (no vectors). If the configured model changed, wipe stale vectors so we
+    # never mix embeddings from two models into one cosine space.
+    db.conn.execute(
+        "CREATE TABLE IF NOT EXISTS chunk_meta "
+        "(k TEXT PRIMARY KEY, v TEXT)"
+    )
+    stored_model = db.conn.execute(
+        "SELECT v FROM chunk_meta WHERE k='embed_model'").fetchone()
+    stored_model = stored_model[0] if stored_model else None
+    want_model = cfg.embed_model or "none"  # "none" = lexical (empty vectors)
+    if stored_model != want_model:
+        db.conn.execute("DELETE FROM chunks")
+        db.conn.execute(
+            "INSERT INTO chunk_meta (k, v) VALUES ('embed_model', ?) "
+            "ON CONFLICT(k) DO UPDATE SET v=?", (want_model, want_model))
+        db.conn.commit()
+
     items = _corpus(cfg, db)
     known = {
         (r["ref"], r["src_hash"])
@@ -181,8 +230,41 @@ def rebuild(cfg, db) -> dict:
     if not todo:
         return {"chunks": db.conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0],
                 "embedded_items": 0, "items": len(items)}
+    # Lexical mode: write empty embeddings, no network.
+    if not cfg.embed_model:
+        cur = db.conn.cursor()
+        for it in todo:
+            cur.execute("DELETE FROM chunks WHERE ref=?", (it["ref"],))
+            for idx, chunk_text in enumerate(_chunk(it["text"])):
+                cur.execute(
+                    "INSERT INTO chunks (course_id, ref, chunk_idx, text, embedding, src_hash) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (it["course_id"], it["ref"], idx, chunk_text, b"", it["hash"]),
+                )
+        db.conn.commit()
+        return {"chunks": db.conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0],
+                "embedded_items": 0, "items": len(items)}
     texts = [t for it in todo for t in _chunk(it["text"])]
-    vectors = _embed(cfg, texts)
+    try:
+        vectors = _embed(cfg, texts)
+    except ModelUnavailable as e:
+        # Endpoint lacks /embeddings: fall back to lexical, log once.
+        import logging
+        logging.getLogger(__name__).warning("embeddings unavailable (%s); indexing lexical-only", e)
+        cur = db.conn.cursor()
+        for it in todo:
+            cur.execute("DELETE FROM chunks WHERE ref=?", (it["ref"],))
+            for idx, chunk_text in enumerate(_chunk(it["text"])):
+                cur.execute(
+                    "INSERT INTO chunks (course_id, ref, chunk_idx, text, embedding, src_hash) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (it["course_id"], it["ref"], idx, chunk_text, b"", it["hash"]),
+                )
+        db.conn.commit()
+        db.conn.execute("UPDATE chunk_meta SET v='none' WHERE k='embed_model'")
+        db.conn.commit()
+        return {"chunks": db.conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0],
+                "embedded_items": 0, "items": len(items), "lexical_fallback": True}
     vec_iter = iter(vectors)  # consume sequentially — zipping per item from the
     # head of the list misaligns every item after the first (all get the same
     # head vectors → identical cosines). This was a real bug; fixed.
@@ -249,7 +331,7 @@ def search(cfg, db, query: str, course_id: int | None = None,
            top_k: int = TOP_K) -> list[dict]:
     # models often pass the user's quoted phrase verbatim — strip the
     # quote chars so lexical phrase matching still works
-    query = query.strip().strip('"\'“”`').strip()
+    query = query.strip().strip('"\'\u201c\u201d`').strip()
     q = db.conn.execute(
         "SELECT id, course_id, ref, text, embedding FROM chunks"
         + (" WHERE course_id=?" if course_id else ""),
@@ -257,9 +339,23 @@ def search(cfg, db, query: str, course_id: int | None = None,
     ).fetchall()
     if not q:
         return []
-    qv = _embed(cfg, [query])[0]
+    # Lexical mode (no embed_model, or /embeddings unavailable): rank by the
+    # lexical ranker only — no cosine, no rerank. This is the zero-extra-model
+    # path that works for every deployment.
+    if not cfg.embed_model:
+        return _lexical_rank(db, q, query, course_id, top_k)
+    # Semantic mode: embed query + cosine, then try rerank. Both steps
+    # degrade to lexical if the endpoint lacks the capability.
+    try:
+        qv = _embed(cfg, [query])[0]
+    except ModelUnavailable as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            "embeddings unavailable at search (%s); lexical-only", e)
+        return _lexical_rank(db, q, query, course_id, top_k)
     scored = sorted(
-        ((_cosine(qv, _unpack(r["embedding"])), r) for r in q),
+        ((_cosine(qv, _unpack(r["embedding"])), r) for r in q
+         if _unpack(r["embedding"])),
         key=lambda t: t[0], reverse=True,
     )[:RERANK_CANDIDATES]
     # lexical boost: exact-substring matches cosine missed must still reach
@@ -268,11 +364,19 @@ def search(cfg, db, query: str, course_id: int | None = None,
     if lex_ids:
         seen = {r["id"] for _, r in scored}
         extra = [(_cosine(qv, _unpack(r["embedding"])), r)
-                 for r in q if r["id"] in lex_ids and r["id"] not in seen]
+                 for r in q if r["id"] in lex_ids and r["id"] not in seen
+                 and _unpack(r["embedding"])]
         if extra:
             scored = sorted(scored + extra, key=lambda t: t[0], reverse=True)[:RERANK_CANDIDATES]
     docs = [r["text"] for _, r in scored]
-    scores = _rerank_scores(cfg, query, docs)
+    # Rerank best-effort; on 404/error keep cosine order.
+    try:
+        scores = _rerank_scores(cfg, query, docs)
+    except ModelUnavailable as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            "rerank unavailable (%s); keeping cosine order", e)
+        scores = [s for s, _ in scored]
     ranked = sorted(
         ((scores[i], r) for i, (_, r) in enumerate(scored)),
         key=lambda t: t[0], reverse=True,
@@ -313,6 +417,37 @@ def search(cfg, db, query: str, course_id: int | None = None,
         {"ref": r["ref"], "course_id": r["course_id"],
          "text": _snippet(r["text"], query), "score": round(score, 4)}
         for score, r in ranked
+    ]
+
+
+def _lexical_rank(db, q, query: str, course_id: int | None, top_k: int) -> list[dict]:
+    """Rank chunks by lexical signal only (no embeddings/rerank).
+
+    Phrase matches (whole query verbatim) go first, then term-overlap count,
+    then insertion order. This is the deployment-agnostic path.
+    """
+    phrase_ids, term_ids = _lexical_hits(db, course_id, query)
+    if phrase_ids:
+        hits = [r for r in q if r["id"] in phrase_ids]
+        return [
+            {"ref": r["ref"], "course_id": r["course_id"],
+             "text": _snippet(r["text"], query), "score": 1.0}
+            for r in hits[:top_k]
+        ]
+    terms = [t for t in re.split(r"\s+", query) if len(t) >= 3][:6]
+    if not terms:
+        return []
+    ranked_terms: list[tuple[float, object]] = []
+    for r in q:
+        t = r["text"].lower()
+        c = sum(1 for w in terms if w in t)
+        if c > 0:
+            ranked_terms.append((0.3 + 0.15 * c, r))
+    ranked_terms.sort(key=lambda x: -x[0])
+    return [
+        {"ref": r["ref"], "course_id": r["course_id"],
+         "text": _snippet(r["text"], query), "score": round(score, 4)}
+        for score, r in ranked_terms[:top_k]
     ]
 
 

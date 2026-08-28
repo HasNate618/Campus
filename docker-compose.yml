@@ -19,8 +19,8 @@ services:
       CAMPUS_DB: /app/data/harness.db
       CAMPUS_DATA_ROOT: /app/data/school
       # OpenAI-compatible chat backend (optional for the demo):
-      # CAMPUS_LLM_URL: http://host.docker.internal:18081/v1
-      # CAMPUS_LLM_MODEL: your-model
+      # CAMPUS_LLM_URL: https://api.openai.com/v1
+      # CAMPUS_LLM_MODEL: gpt-4o-mini
       # CAMPUS_LLM_API_KEY: your-key   # only if the endpoint requires auth
       # CAMPUS_BRIGHTSPACE_HOSTS: ""        # proxy disabled by default
     restart: unless-stopped
