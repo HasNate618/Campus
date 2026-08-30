@@ -79,15 +79,21 @@ def _resolve_file(db: DB, course_id: int | None, ref: str) -> tuple[int | None, 
     if row:
         return row["id"], row["content_node_id"], "file"
 
-    # suffix match — refs from search may omit term prefix variants
+    # suffix match — refs from search may omit term prefix variants.
+    # Extracted .md files are stored in the DB under their .pdf path, so also
+    # try the .pdf name variant when the ref ends in .md.
     if course_id is not None:
-        row = db.conn.execute(
-            "SELECT id, content_node_id, path FROM files WHERE course_id=? AND path LIKE ? "
-            "ORDER BY length(path) LIMIT 1",
-            (course_id, f"%{Path(ref).name}"),
-        ).fetchone()
-        if row:
-            return row["id"], row["content_node_id"], "file"
+        candidates = [Path(ref).name]
+        if Path(ref).suffix.lower() == ".md":
+            candidates.append(Path(ref).with_suffix(".pdf").name)
+        for name in candidates:
+            row = db.conn.execute(
+                "SELECT id, content_node_id, path FROM files WHERE course_id=? AND path LIKE ? "
+                "ORDER BY length(path) LIMIT 1",
+                (course_id, f"%{name}"),
+            ).fetchone()
+            if row:
+                return row["id"], row["content_node_id"], "file"
     return None, None, "file"
 
 
