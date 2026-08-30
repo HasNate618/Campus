@@ -115,6 +115,18 @@ export const api = {
 	fileContent: (id: number) => get<FileContent>(`/files/${id}/content`),
 	memoryCard: (courseId: number) =>
 		get<{ markdown: string }>(`/courses/${courseId}/memory`),
+	resolveRef: (
+		courseId: number,
+		ref: string,
+	) =>
+		get<{
+			kind: string;
+			courseId: number;
+			nodeId?: number;
+			fileId?: number;
+			ref?: string;
+			isPdf?: boolean;
+		}>(`/courses/${courseId}/resolve-ref?ref=${encodeURIComponent(ref)}`),
 	syncStatus: () =>
 		get<{ status: string; last_run: SyncRun | null; token_valid?: boolean }>(
 			"/sync/status",

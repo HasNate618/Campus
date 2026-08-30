@@ -94,6 +94,43 @@ function renderFootnotes(md: string): string {
 marked.use({ gfm: true, breaks: true })
 marked.use({ extensions: [katexInline, katexBlock] })
 
+export interface CitationMeta {
+  id: number
+  ref: string
+  label: string
+  page?: number | null
+  courseId?: number | null
+  fileId?: number | null
+  nodeId?: number | null
+  kind?: string
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function chipLabel(c: CitationMeta): string {
+  const base = c.label || c.ref
+  return c.page != null && c.page > 0 ? `${base} · p.${c.page}` : base
+}
+
+/** Replace [cite:N] with inline chips — safe during streaming (no trailing defs). */
+function renderCitations(md: string, citations?: Record<number, CitationMeta>): string {
+  if (!/\[cite:\d+\]/.test(md)) return md
+  const map = citations ?? {}
+  return md.replace(/\[cite:(\d+)\]/g, (_m, idStr: string) => {
+    const id = Number(idStr)
+    const c = map[id]
+    const label = escapeHtml(c ? chipLabel(c) : `[${id}]`)
+    const cls = c ? 'cite-chip' : 'cite-chip cite-chip-pending'
+    return `<button type="button" class="${cls}" data-cite-id="${id}">${label}</button>`
+  })
+}
+
 /** While a message is still streaming, the model types the opening fence
  *  (```python) token by token — marked would render the half-typed fence as
  *  literal backticks at the top of the block. If the content has an
@@ -105,6 +142,7 @@ function balanceFences(md: string): string {
   return md
 }
 
-export function parseMarkdown(content: string): string {
-  return (marked.parse(balanceFences(renderFootnotes(content ?? ''))) as string) || ''
+export function parseMarkdown(content: string, citations?: Record<number, CitationMeta>): string {
+  const body = renderCitations(content ?? '', citations)
+  return (marked.parse(balanceFences(renderFootnotes(body))) as string) || ''
 }

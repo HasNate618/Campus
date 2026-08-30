@@ -129,3 +129,13 @@ def memory_card(course_id: int):
     if not services.get_course(course_id):
         raise HTTPException(404, "Course not found")
     return {"markdown": services.get_memory_card(course_id)}
+
+
+@router.get("/{course_id}/resolve-ref")
+def resolve_ref(course_id: int, ref: str = Query(...)):
+    if not services.get_course(course_id):
+        raise HTTPException(404, "Course not found")
+    target = services.resolve_ref(course_id, ref)
+    if not target:
+        raise HTTPException(404, "ref not found")
+    return target
