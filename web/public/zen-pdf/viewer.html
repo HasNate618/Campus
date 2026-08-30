@@ -1743,6 +1743,22 @@ input[type="range"] { accent-color: #4ade7f; }
     window.scrollTo({ top: Math.max(0, el.offsetTop - 15), behavior: smooth ? "smooth" : "auto" });
   }
 
+  // Parent embed (Campus citations) can jump pages without reloading the iframe.
+  let pendingGotoPage = null;
+  function goToPageFromParent(page) {
+    const p = Number.parseInt(page, 10);
+    if (!Number.isFinite(p) || p < 1) return;
+    if (!state.pdfDoc) {
+      pendingGotoPage = p;
+      return;
+    }
+    goToPage(p, true, false);
+  }
+  window.addEventListener("message", (e) => {
+    if (e.origin !== window.location.origin) return;
+    if (e.data?.type === "zenpdf-goto-page") goToPageFromParent(e.data.page);
+  });
+
   function bookmarkStorageKey() {
     return `zen-pdf-bookmarks:${file}`;
   }
@@ -2184,6 +2200,10 @@ input[type="range"] { accent-color: #4ade7f; }
 
       await resetAndRender({ skipAnchorRestore: initialPage > 1 });
       if (initialPage > 1) goToPage(initialPage, false, false);
+      if (pendingGotoPage != null) {
+        goToPage(pendingGotoPage, false, false);
+        pendingGotoPage = null;
+      }
       alignFitWidthView();
     } catch (err) {
       showError(`Could not render PDF: ${err?.message || err}`);

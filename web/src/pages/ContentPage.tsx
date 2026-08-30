@@ -105,7 +105,7 @@ function ZenPdfFrame({
       embed: '1',
       t: String(fileId),
     })
-    if (startPage != null && startPage > 1) q.set('page', String(startPage))
+    if (startPage != null && startPage >= 1) q.set('page', String(startPage))
     return `/zen-pdf/viewer.html?${q.toString()}`
   }, [rawUrl, fileId, startPage])
   // key remounts the frame per file so switching PDFs never reuses stale
@@ -360,6 +360,37 @@ export function ContentPage() {
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
   }, [setZone])
+
+  const postPdfGotoPage = (page: number) => {
+    if (page < 1) return
+    pdfFrameRef.current?.contentWindow?.postMessage(
+      { type: 'zenpdf-goto-page', page },
+      window.location.origin,
+    )
+  }
+
+  // Citation clicks while this PDF is already open — jump without reload.
+  useEffect(() => {
+    const onGotoCitation = (e: Event) => {
+      const d = (e as CustomEvent<{
+        courseId?: number
+        fileId?: number
+        page?: number | null
+      }>).detail
+      if (d.courseId !== cid || d.fileId == null || fileParam !== d.fileId) return
+      if (d.page != null && d.page > 0) postPdfGotoPage(d.page)
+    }
+    window.addEventListener('campus:goto-citation', onGotoCitation)
+    return () => window.removeEventListener('campus:goto-citation', onGotoCitation)
+  }, [cid, fileParam])
+
+  // URL ?page= changes (navigation or citation) — tell an already-loaded viewer.
+  useEffect(() => {
+    if (pdfStartPage == null || fileParam == null) return
+    const file = files.find((f) => f.id === fileParam)
+    if (!file?.path.toLowerCase().endsWith('.pdf')) return
+    postPdfGotoPage(pdfStartPage)
+  }, [pdfStartPage, fileParam, files])
 
   useEffect(() => {
     setNodes([])

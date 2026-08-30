@@ -386,10 +386,20 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 				}
 			}
 
+			const page =
+				c.page != null && c.page > 0 ? c.page : undefined;
+
+			// If the PDF is already open, jump immediately (even when route unchanged).
+			window.dispatchEvent(
+				new CustomEvent("campus:goto-citation", {
+					detail: { courseId: cid, nodeId, fileId, page },
+				}),
+			);
+
 			if (nodeId != null) {
 				const q = new URLSearchParams();
 				if (fileId != null) q.set("file", String(fileId));
-				if (c.page != null && c.page > 0) q.set("page", String(c.page));
+				if (page != null) q.set("page", String(page));
 				const qs = q.toString();
 				navigate(
 					`/courses/${cid}/content/${nodeId}${qs ? `?${qs}` : ""}`,
@@ -399,7 +409,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 
 			if (fileId != null) {
 				const q = new URLSearchParams({ file: String(fileId) });
-				if (c.page != null && c.page > 0) q.set("page", String(c.page));
+				if (page != null) q.set("page", String(page));
 				navigate(`/courses/${cid}/content?${q.toString()}`);
 			}
 		},
