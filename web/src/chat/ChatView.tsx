@@ -4,6 +4,7 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	type KeyboardEvent,
 	type ReactNode,
 } from "react";
 import { motion } from "framer-motion";
@@ -198,9 +199,45 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 	// keyboard cursor inside the history popover (0 = New chat, 1.. = sessions)
 	const histCount = courseSessions.length + 1;
 	const histList = useListCursor(histCount);
-	// keyboard cursor inside the model picker (0 = Default, 1.. = models)
-	const modelCount = filteredModels.length + 1;
+	// keyboard cursor inside the model picker (0.. = models)
+	const modelCount = filteredModels.length;
 	const modelList = useListCursor(modelCount);
+
+	useEffect(() => {
+		if (!modelOpen) return;
+		const idx = model ? filteredModels.indexOf(model) : -1;
+		modelList.setCursor(idx >= 0 ? idx : filteredModels.length > 0 ? 0 : -1);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [modelOpen, filteredModels, model]);
+
+	const pickModelAt = (i: number) => {
+		const m = filteredModels[i];
+		if (m) setModel(m);
+		setModelOpen(false);
+	};
+
+	const onModelSearchKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+		if (e.key === "ArrowDown") {
+			e.preventDefault();
+			modelList.move(1);
+			return;
+		}
+		if (e.key === "ArrowUp") {
+			e.preventDefault();
+			modelList.move(-1);
+			return;
+		}
+		if (e.key === "Enter") {
+			e.preventDefault();
+			if (modelList.cursor >= 0) pickModelAt(modelList.cursor);
+			else if (filteredModels[0]) pickModelAt(0);
+			return;
+		}
+		if (e.key === "Escape") {
+			e.preventDefault();
+			setModelOpen(false);
+		}
+	};
 
 	// Chat zone keys: j/k scroll, g/G jump, Enter/i focus the input, n new
 	// chat, r regenerate, h history, m model picker (j/k + Enter navigate
@@ -226,18 +263,11 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 			return listKeys(key, histList, () => pick(histList.cursor));
 		}
 		if (modelOpen) {
-			const pick = (i: number) => {
-				const m = filteredModels[i - 1];
-				if (m) setModel(m);
-				setModelOpen(false);
-			};
 			if (key === "Escape") {
 				setModelOpen(false);
 				return true;
 			}
-			// while the search input is focused keys type into it; once Esc
-			// blurs it, j/k move the picker cursor
-			return listKeys(key, modelList, () => pick(modelList.cursor));
+			return listKeys(key, modelList, () => pickModelAt(modelList.cursor));
 		}
 		switch (key) {
 			case "j":
@@ -951,7 +981,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 				</div>
 
 				{courses && onPickCourse ? (
-					<div ref={pickerRef} style={{ position: "relative" }}>
+					<div ref={pickerRef} className="course-picker-anchor">
 						<button
 							className="scope-pill course-picker-pill"
 							style={
@@ -1220,6 +1250,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 											autoFocus
 											value={modelQuery}
 											onChange={(e) => setModelQuery(e.target.value)}
+											onKeyDown={onModelSearchKeyDown}
 											placeholder="Search models…"
 											className="model-search"
 										/>
@@ -1240,8 +1271,8 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 											{filteredModels.map((m, i) => (
 												<button
 													key={m}
-													ref={modelList.setRef(i + 1)}
-													className={`popover-item${model === m ? " selected" : ""}${modelList.cursor === i + 1 ? " kbd-cursor" : ""}`}
+													ref={modelList.setRef(i)}
+													className={`popover-item${model === m ? " selected" : ""}${modelList.cursor === i ? " kbd-cursor" : ""}`}
 													onClick={() => {
 														setModel(m);
 														setModelOpen(false);
