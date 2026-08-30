@@ -227,7 +227,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		}
 		if (modelOpen) {
 			const pick = (i: number) => {
-				const m = filteredModels[i];
+				const m = filteredModels[i - 1];
 				if (m) setModel(m);
 				setModelOpen(false);
 			};

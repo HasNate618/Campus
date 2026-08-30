@@ -188,6 +188,26 @@ export function pathFor(session: ChatSession): MsgNode[] {
 	return out.reverse();
 }
 
+/**
+ * Resolve the model to use for a turn. Preference order:
+ *   1. the session's own stored model (stamped on first send),
+ *   2. the currently-selected model in the picker,
+ *   3. the first model the provider currently offers.
+ * If the chosen model is no longer in the live list (removed/renamed by the
+ * provider), fall back to the first available so we never 402.
+ */
+export function resolveTurnModel(
+	session: ChatSession,
+	selectedModel: string | null,
+	live: string[],
+): string | null {
+	let effective = session.model || selectedModel || (live[0] ?? null);
+	if (effective && live.length && !live.includes(effective)) {
+		effective = live[0] ?? null;
+	}
+	return effective;
+}
+
 function migrateV2(raw: ChatSessionV2[]): ChatSession[] {
 	return raw.map((s) => {
 		const nodes: MsgNode[] = [];
@@ -1091,10 +1111,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			// then to the first live model. If the chosen model was removed from
 			// the provider, substitute the first available so we never 402.
 			const live = modelsRef.current;
-			let effective = session.model || model || (live[0] ?? null);
-			if (effective && live.length && !live.includes(effective)) {
-				effective = live[0] ?? null;
-			}
+			const effective = resolveTurnModel(session, model, live);
 			// Stamp the session's model now (write-through on message) so
 			// reopening restores it — even if the user only picked it in the UI.
 			if (effective && session.model !== effective) {
@@ -1140,6 +1157,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				session.courseId,
 				history,
 				userNode.attachments ?? [],
+				resolveTurnModel(session, model, modelsRef.current),
 			);
 		},
 		[sessions, streamTurn],
@@ -1197,6 +1215,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				session.courseId,
 				history,
 				target.attachments ?? [],
+				resolveTurnModel(session, model, modelsRef.current),
 			);
 		},
 		[sessions, streamTurn],
