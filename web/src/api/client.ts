@@ -165,10 +165,15 @@ export const api = {
 			title?: string;
 			nodes: unknown[];
 			activeNodeId: string | null;
+			model?: string | null;
 			updatedAt?: number;
 		},
 	) => put(`/chat/sessions/${id}`, body),
 	chatSessionDelete: (id: number) => del(`/chat/sessions/${id}`),
+	// pinned models — persisted server-side (cross-device)
+	chatPinnedGet: () => get<{ pinned: string[] }>("/chat/pinned"),
+	chatPinnedPut: (pinned: string[]) =>
+		put("/chat/pinned", { pinned }),
 };
 
 export interface ChatAttachment {
@@ -182,6 +187,7 @@ export interface ChatServerSession {
 	id: number;
 	courseId: number | null;
 	title: string;
+	model?: string | null;
 	updatedAt: string;
 	nodes?: unknown[];
 	activeNodeId?: string | null;

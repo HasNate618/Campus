@@ -72,6 +72,9 @@ export interface ChatSession {
 	serverId?: number;
 	courseId: number;
 	title: string;
+	/** Per-session LLM model. NULL/undefined = inherit the current selection
+	 *  (the model the user last picked). Stamped on first send. */
+	model?: string | null;
 	createdAt: number;
 	updatedAt: number;
 	nodes: MsgNode[];
@@ -121,6 +124,8 @@ interface ChatContextValue {
 	lastCourseId: number | null;
 	model: string | null;
 	setModel: (m: string | null) => void;
+	pinned: string[];
+	setPinned: (p: string[]) => void;
 	setLastCourse: (c: number) => void;
 	sessionsFor: (courseId: number) => ChatSession[];
 	activeFor: (courseId: number) => ChatSession | null;
@@ -354,11 +359,42 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			return null;
 		}
 	});
+	const [pinned, setPinnedState] = useState<string[]>([]);
+	// Load pinned models from the server (cross-device) once on mount.
+	useEffect(() => {
+		api
+			.chatPinnedGet()
+			.then((d) => {
+				if (d?.pinned?.length) setPinnedState(d.pinned);
+			})
+			.catch(() => {})
+	}, []);
+	// Live model list (for validation: a session's stored model may have been
+	// removed from the provider — fall back to the first available before send).
+	const [models, setModels] = useState<string[]>([]);
+	const modelsRef = useRef<string[]>([]);
+	modelsRef.current = models;
+	useEffect(() => {
+		api
+			.models()
+			.then((d) => {
+				if (d.models?.length) {
+					setModels(d.models);
+					const cur = localStorage.getItem(MODEL_KEY);
+					if (cur && !d.models.includes(cur)) {
+						// selected model removed from provider → clear so we fall back
+						setModelState(null);
+					}
+					// Initial state: nothing selected yet (no chats) → pick the
+					// first available so the selector is never empty.
+					if (!cur) setModelState(d.models[0]);
+				}
+			})
+			.catch(() => {});
+	}, []);
 	const busyRef = useRef(false);
 	// abort handle for the in-flight turn — stop() trips it
 	const turnAbortRef = useRef<AbortController | null>(null);
-	const modelRef = useRef(model);
-	modelRef.current = model;
 	const serverReadyRef = useRef(false);
 	const savingRef = useRef(false);
 	const saveTimer = useRef<number | null>(null);
@@ -372,6 +408,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			serverId: srv.id,
 			courseId: srv.courseId ?? 0,
 			title: srv.title,
+			model: srv.model ?? null,
 			createdAt: Number.isFinite(ts) ? ts : Date.now(),
 			updatedAt: Number.isFinite(ts) ? ts : Date.now(),
 			nodes: (srv.nodes ?? []) as MsgNode[],
@@ -457,6 +494,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 					title: s.title,
 					nodes: stripUiFlags(s).nodes,
 					activeNodeId: s.activeNodeId,
+					model: s.model ?? null,
 					// the true per-session activity time — the server adopts it as
 					// updated_at instead of stamping its own (bulk re-saves used to
 					// clobber every session's time with the same value)
@@ -522,6 +560,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 		}
 	}, []);
 
+	const setPinned = useCallback((p: string[]) => {
+		const next = [...new Set(p)];
+		setPinnedState(next);
+		api.chatPinnedPut(next).catch((e) =>
+			console.error("[chat-pinned] save failed:", e),
+		);
+	}, []);
+
 	const sessionsFor = useCallback(
 		(courseId: number) => sessions.filter((s) => s.courseId === courseId),
 		[sessions],
@@ -548,6 +594,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
 	const openSession = useCallback((courseId: number, sessionId: string) => {
 		setActiveMap((m) => ({ ...m, [courseId]: sessionId }));
+		// Seed the selector with this session's stored model (or keep the
+		// current selection if it has none yet). Picking a different model
+		// updates the selector immediately but only writes to the session on
+		// send — so reopening a chat restores the model it was last sent with.
+		const s = sessionsRef.current.find((x) => x.id === sessionId);
+		if (s?.model) setModelState(s.model);
+		else if (s && s.model === null) setModelState((cur) => cur); // no-op; inherit current
 	}, []);
 
 	const newChat = useCallback((courseId: number) => {
@@ -616,6 +669,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			courseId: number | null,
 			history: { role: "user" | "assistant"; content: string }[],
 			attachments: ChatAttachment[] = [],
+			model?: string | null,
 		) => {
 			let assistantId: string | null = null;
 			let turnThinking = "";
@@ -862,7 +916,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 					}
 				},
 				history,
-				modelRef.current ?? undefined,
+				model ?? undefined,
 				userNodeId,
 				attachments.map((a) => a.id),
 				ac.signal,
@@ -1032,7 +1086,25 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			} catch {
 				/* never let a non-critical write kill the stream */
 			}
-			streamTurn(sid, userNodeId, text, courseId, history, attachments);
+			// Resolve the model for this turn. The session stores its own model
+			// (stamped on first send); fall back to the current selector value,
+			// then to the first live model. If the chosen model was removed from
+			// the provider, substitute the first available so we never 402.
+			const live = modelsRef.current;
+			let effective = session.model || model || (live[0] ?? null);
+			if (effective && live.length && !live.includes(effective)) {
+				effective = live[0] ?? null;
+			}
+			// Stamp the session's model now (write-through on message) so
+			// reopening restores it — even if the user only picked it in the UI.
+			if (effective && session.model !== effective) {
+				setSessions((ss) =>
+					ss.map((x) =>
+						x.id === sid ? { ...x, model: effective, updatedAt: Date.now() } : x,
+					),
+				);
+			}
+			streamTurn(sid, userNodeId, text, courseId, history, attachments, effective);
 			return true;
 		},
 		[activeFor, sessions, setLastCourse, streamTurn],
@@ -1219,6 +1291,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			lastCourseId,
 			model,
 			setModel,
+			pinned,
+			setPinned,
 			setLastCourse,
 			sessionsFor,
 			activeFor,
@@ -1240,6 +1314,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			lastCourseId,
 			model,
 			setModel,
+			pinned,
+			setPinned,
 			setLastCourse,
 			sessionsFor,
 			activeFor,

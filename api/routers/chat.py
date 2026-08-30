@@ -173,11 +173,11 @@ def list_sessions(course_id: int | None = None):
     try:
         if course_id:
             rows = db.conn.execute(
-                "SELECT id, course_id, title, nodes_json, updated_at FROM chat_sessions WHERE course_id=? ORDER BY updated_at DESC",
+                "SELECT id, course_id, title, nodes_json, model, updated_at FROM chat_sessions WHERE course_id=? ORDER BY updated_at DESC",
                 (course_id,)).fetchall()
         else:
             rows = db.conn.execute(
-                "SELECT id, course_id, title, nodes_json, updated_at FROM chat_sessions ORDER BY updated_at DESC").fetchall()
+                "SELECT id, course_id, title, nodes_json, model, updated_at FROM chat_sessions ORDER BY updated_at DESC").fetchall()
         out = []
         for r in rows:
             tree = {}
@@ -188,6 +188,7 @@ def list_sessions(course_id: int | None = None):
                     tree = {}
             out.append({
                 "id": r["id"], "courseId": r["course_id"], "title": r["title"],
+                "model": r["model"],
                 "updatedAt": r["updated_at"],
                 "nodes": tree.get("nodes", []), "activeNodeId": tree.get("activeNodeId"),
             })
@@ -205,6 +206,7 @@ class SessionUpdate(BaseModel):
     title: str | None = None
     nodes: list | None = None
     activeNodeId: str | None = None
+    model: str | None = None
     # Client's ms epoch for this session — the client's own record of when
     # it last touched the session is the truth (the server used to stamp
     # updated_at on every bulk re-save, clobbering individual times).
@@ -224,8 +226,9 @@ def create_session(body: SessionCreate):
         db.conn.commit()
         sid = cur.lastrowid
         row = db.conn.execute(
-            "SELECT id, course_id, title, updated_at FROM chat_sessions WHERE id=?", (sid,)).fetchone()
+            "SELECT id, course_id, title, model, updated_at FROM chat_sessions WHERE id=?", (sid,)).fetchone()
         return {"id": row["id"], "courseId": row["course_id"], "title": row["title"],
+                "model": row["model"],
                 "updatedAt": row["updated_at"], "nodes": [], "activeNodeId": None}
     finally:
         db.close()
@@ -240,7 +243,7 @@ def get_session(sid: int):
     db = DB(cfg.db_path)
     try:
         row = db.conn.execute(
-            "SELECT id, course_id, title, nodes_json, updated_at FROM chat_sessions WHERE id=?",
+            "SELECT id, course_id, title, nodes_json, model, updated_at FROM chat_sessions WHERE id=?",
             (sid,)).fetchone()
         if not row:
             raise HTTPException(404, "session not found")
@@ -251,6 +254,7 @@ def get_session(sid: int):
             except json.JSONDecodeError:
                 tree = {}
         return {"id": row["id"], "courseId": row["course_id"], "title": row["title"],
+                "model": row["model"],
                 "updatedAt": row["updated_at"],
                 "nodes": tree.get("nodes", []), "activeNodeId": tree.get("activeNodeId")}
     finally:
@@ -274,13 +278,15 @@ def put_session(sid: int, body: SessionUpdate):
         if ts is not None:
             db.conn.execute(
                 "UPDATE chat_sessions SET title=COALESCE(?, title), nodes_json=?, "
+                "model=COALESCE(?, model), "
                 "updated_at=datetime(?, 'unixepoch') WHERE id=?",
-                (body.title, new_tree, ts, sid))
+                (body.title, new_tree, body.model, ts, sid))
         else:
             db.conn.execute(
                 "UPDATE chat_sessions SET title=COALESCE(?, title), nodes_json=?, "
+                "model=COALESCE(?, model), "
                 "updated_at=datetime('now') WHERE id=?",
-                (body.title, new_tree, sid))
+                (body.title, new_tree, body.model, sid))
         db.conn.commit()
         return {"ok": True, "id": sid}
     finally:
@@ -297,6 +303,50 @@ def delete_session(sid: int):
         db.conn.execute("DELETE FROM chat_sessions WHERE id=?", (sid,))
         db.conn.commit()
         return {"ok": True}
+    finally:
+        db.close()
+
+
+class PinnedBody(BaseModel):
+    pinned: list[str] = []
+
+
+@router.get("/pinned")
+def get_pinned():
+    """Pinned model names (single local user) — persisted server-side so they
+    survive across devices."""
+    from sync.db import DB
+    from sync.config import Config
+
+    cfg = Config.load()
+    db = DB(cfg.db_path)
+    try:
+        row = db.conn.execute(
+            "SELECT pinned FROM chat_prefs WHERE id=1").fetchone()
+        if not row:
+            return {"pinned": []}
+        try:
+            return {"pinned": json.loads(row["pinned"]) if row["pinned"] else []}
+        except (json.JSONDecodeError, TypeError):
+            return {"pinned": []}
+    finally:
+        db.close()
+
+
+@router.put("/pinned")
+def put_pinned(body: PinnedBody):
+    from sync.db import DB
+    from sync.config import Config
+
+    cfg = Config.load()
+    db = DB(cfg.db_path)
+    try:
+        db.conn.execute(
+            "INSERT INTO chat_prefs (id, pinned) VALUES (1, ?) "
+            "ON CONFLICT(id) DO UPDATE SET pinned=excluded.pinned",
+            (json.dumps(list(body.pinned)),))
+        db.conn.commit()
+        return {"pinned": body.pinned}
     finally:
         db.close()
 

@@ -211,8 +211,15 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     course_id   INTEGER REFERENCES courses(id) ON DELETE CASCADE, -- NULL = general
     title       TEXT NOT NULL DEFAULT 'New chat',
     nodes_json  TEXT,                       -- full message tree (JSON blob)
+    model       TEXT,                       -- per-session LLM model; NULL = inherit current selection
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Single-row client prefs (pinned models). id is pinned to 1 (one local user).
+CREATE TABLE IF NOT EXISTS chat_prefs (
+    id        INTEGER PRIMARY KEY CHECK (id = 1),
+    pinned    TEXT NOT NULL DEFAULT '[]'    -- JSON array of pinned model names
 );
 
 CREATE TABLE IF NOT EXISTS chat_messages (
