@@ -250,7 +250,6 @@ export function SchedulePage() {
 														width: `${w}%`,
 														background: `${color}24`,
 														borderColor: `${color}66`,
-														color,
 													}}
 												>
 													<b className="tt-code">{iv.course.code}</b>
@@ -260,8 +259,10 @@ export function SchedulePage() {
 													{tall && (
 														<span className="tt-time">
 															{iv.meeting.start}–{iv.meeting.end}
-															{iv.meeting.room ? ` · ${iv.meeting.room}` : ""}
 														</span>
+													)}
+													{tall && iv.meeting.room && (
+														<span className="tt-room">{iv.meeting.room}</span>
 													)}
 												</div>
 											);

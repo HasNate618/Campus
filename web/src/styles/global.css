@@ -2831,13 +2831,17 @@
     position: absolute;
     border: 1px solid;
     border-radius: 6px;
-    padding: 3px 5px;
+    padding: 4px 6px;
     overflow: hidden;
     font-size: 10.5px;
     line-height: 1.35;
     z-index: 2;
     display: flex;
     flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.95);
   }
 
   .tt-block:hover {
@@ -2849,14 +2853,26 @@
     font-weight: 700;
     font-size: 11px;
     letter-spacing: -0.01em;
+    color: rgba(255, 255, 255, 0.95);
   }
 
   .tt-type {
-    opacity: 0.85;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 10px;
+    line-height: 1.25;
   }
 
   .tt-time {
-    opacity: 0.75;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 10px;
+    line-height: 1.25;
+  }
+
+  .tt-room {
+    display: block;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 10px;
+    line-height: 1.25;
   }
 
   .sched-legend {
@@ -2913,7 +2929,7 @@
 
     .tt-wrap {
       max-height: none;
-      height: calc(100dvh - 160px);
+      height: calc(100dvh - 100px);
       min-height: 320px;
       background: transparent;
       border-color: var(--glass-border);
@@ -3003,9 +3019,9 @@
       padding-bottom: 0;
     }
     .page.page-schedule .sched-legend {
-      flex-shrink: 0;
-      padding-bottom: calc(12px + 60px + env(safe-area-inset-bottom));
+      display: none;
     }
+
     .tt-scroll {
       overflow: auto;
       overscroll-behavior: contain;
