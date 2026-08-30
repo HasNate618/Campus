@@ -167,9 +167,9 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 					setModels(d.models);
 					// A model persisted in localStorage can go stale (removed upstream,
 					// renamed, or a provider that no longer accepts it) — if the stored
-					// model isn't in the live list, drop it so chat falls back to the
-					// server default instead of 402ing on every turn.
-					if (model && !d.models.includes(model)) setModel(null);
+					// model isn't in the live list, fall back to the first available so
+					// the selector never goes blank / 402s on every turn.
+					if (model && !d.models.includes(model)) setModel(d.models[0] ?? null);
 				}
 				if (d.contexts) setContexts(d.contexts);
 			})
@@ -227,12 +227,8 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		}
 		if (modelOpen) {
 			const pick = (i: number) => {
-				if (i === 0) {
-					setModel(null);
-				} else {
-					const m = filteredModels[i - 1];
-					if (m) setModel(m);
-				}
+				const m = filteredModels[i];
+				if (m) setModel(m);
 				setModelOpen(false);
 			};
 			if (key === "Escape") {
@@ -1191,7 +1187,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 										setModelOpen((o) => !o);
 										setModelQuery("");
 									}}
-									title={model ?? "Default model"}
+									title={model ?? models[0] ?? "No model"}
 								>
 									<Cpu size={12} />
 									<span
@@ -1202,7 +1198,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 											whiteSpace: "nowrap",
 										}}
 									>
-										{model ? shortModel(model) : "Default"}
+										{model ? shortModel(model) : models[0] ? shortModel(models[0]) : "No model"}
 									</span>
 									<ChevronDown size={11} />
 								</button>
@@ -1228,16 +1224,6 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 											className="model-search"
 										/>
 										<div style={{ overflowY: "auto", flex: 1 }}>
-											<button
-												ref={modelList.setRef(0)}
-												className={`popover-item${!model ? " selected" : ""}${modelList.cursor === 0 ? " kbd-cursor" : ""}`}
-												onClick={() => {
-													setModel(null);
-													setModelOpen(false);
-												}}
-											>
-												<span className="popover-title">Default (config)</span>
-											</button>
 											{filteredModels.length === 0 && (
 												<p
 													style={{
