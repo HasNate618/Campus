@@ -1,37 +1,46 @@
 # Zen PDF Viewer (vendored)
 
-This directory is the Campus-embedded copy of the
-[zen-pdf-viewer](https://github.com/HasNate618/zen-pdf-viewer) single-file
-viewer, served statically from `/zen-pdf/*` and embedded by the content page
-in an `<iframe>`:
+Campus embeds upstream [zen-pdf-viewer](https://github.com/HasNate618/zen-pdf-viewer)
+from `/zen-pdf/viewer.html` in a full-bleed iframe on the content page.
 
 ```
-/zen-pdf/viewer.html?file=<absolute raw pdf url>&zen=1&pageless=1&t=<file id>
+/zen-pdf/viewer.html?file=<absolute raw pdf url>&zen=1&pageless=1&embed=1&t=<file id>
 ```
 
-The viewer is designed to be driven entirely by URL params (`file`, `zen`,
-`pageless`, `dual`, `imgcolor`, `svg`, `fg`, `bg`) — see the upstream
-README's "URL Parameters" table. The app pins `zen=1&pageless=1` so the PDF
-gets the full zen experience (pageless transparent inverted pages, text
-selection, zoom, keyboard nav) with no approximation.
+| Param | Campus value | Purpose |
+|-------|----------------|---------|
+| `file` | `{origin}/api/files/{id}/raw` | Same-origin PDF bytes for pdf.js |
+| `zen` / `pageless` | `1` | Transparent inverted pageless reading |
+| `embed` | `1` | Escape/Tab `postMessage` to parent; cookies on fetch |
+| `t` | file id | Cache-bust / iframe remount per document |
 
-## Vendored PDF.js (2.16.105)
+Optional upstream params: `page`, `fit=full`, `zen=0`, `pageless=0`, etc. See upstream README.
 
-`pdf.min.js` + `pdf.worker.min.js` are the exact `pdfjs-dist@2.16.105` build
-artifacts, vendored so nothing depends on a CDN (clients may be
-offline/air-gapped). `viewer.html` references them as
-`./pdf.min.js` / `./pdf.worker.min.js` — the only two deviations from the
-upstream file (the upstream script tag + `workerSrc` point at unpkg).
+## Layout
+
+- `viewer.html` — synced from zen-pdf-viewer (one-line Campus patch: violet `::selection` color)
+- `vendor/pdf.min.js` + `vendor/pdf.worker.min.js` — PDF.js **2.16.105**, offline-safe
 
 ## Updating
 
+From the Campus repo root (with zen-pdf-viewer checked out nearby):
+
 ```bash
-curl -sSL -o pdf.min.js https://unpkg.com/pdfjs-dist@2.16.105/build/pdf.min.js
-curl -sSL -o pdf.worker.min.js https://unpkg.com/pdfjs-dist@2.16.105/build/pdf.worker.min.js
+./scripts/vendor-zen-pdf.sh ~/Projects/zen-pdf-viewer
+cd web && npm run build
 ```
 
-Keep both files and `viewer.html` on the same PDF.js version. To sync
-viewer.html itself, copy the upstream file and re-apply the two local-path
-edits above. Vite copies `web/public/*` verbatim into `web/dist`, and the
-FastAPI SPA catch-all serves real files under `web/dist` before falling
-back to the shell — no backend change needed.
+Or set `ZEN_PDF_VIEWER_ROOT` to the zen-pdf-viewer path. The script copies `viewer.html` and `vendor/`, removes legacy root-level `pdf.min.js` files, and applies the selection-color patch.
+
+Vite copies `web/public/*` into `web/dist`; the service worker cache-first rule covers `/zen-pdf/*`. PDF API routes are not cached.
+
+## Parent integration
+
+`ContentPage.tsx` listens for:
+
+| Message | Action |
+|---------|--------|
+| `zenpdf-escape` | Return keyboard zone to sidebar |
+| `zenpdf-tab` | Blur iframe, focus tree |
+
+Listener validates `e.origin` and `e.source === pdfFrameRef.current?.contentWindow`.

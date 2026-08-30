@@ -60,7 +60,6 @@ html, body {
   .keybinds-grid > .keybind-desc:nth-child(2) { border-top: none; }
 }
 .keybind-key { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 7px 8px 7px 0; border-top: 1px solid rgba(255,255,255,0.03); }
-.keybind-key:nth-child(4n+1), .keybind-key:nth-child(4n+2) { border-top: none; }
 /* Remove top border from first four children (first row) */
 .keybinds-grid > .keybind-key:nth-child(-n+4) { border-top: none; }
 .keybind-desc { color: #e6eef0; font-size:14px; line-height:1.45; opacity:0.95; padding: 7px 8px 7px 0; border-top: 1px solid rgba(255,255,255,0.03); display: flex; align-items: center; }
@@ -194,6 +193,22 @@ input[type="range"] { accent-color: #4ade7f; }
   padding: 12px;
   display: none;
 }
+#renderStatus {
+  position: fixed;
+  bottom: 12px;
+  right: 12px;
+  z-index: 900;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #e6eef0;
+  background: rgba(14, 14, 18, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+#renderStatus[hidden] { display: none; }
 </style>
 </head>
 <body>
@@ -209,28 +224,63 @@ input[type="range"] { accent-color: #4ade7f; }
       <div class="keybind-key">H, L</div><div class="keybind-desc">Goto top or bottom of current page</div><div class="keybind-key">^o, ^i</div><div class="keybind-desc">Move backward/forward through jump list</div>
       <div class="keybind-key">Escape, ?</div><div class="keybind-desc">Open/close keybinds viewer</div><div class="keybind-key">:</div><div class="keybind-desc">Goto page number</div>
       <div class="keybind-key">1-9</div><div class="keybind-desc">Go to bookmark slots (default pages 1-9)</div><div class="keybind-key">Alt+1-9</div><div class="keybind-desc">Assign the current viewport position to a bookmark slot</div>
-      <div class="keybind-key">r</div><div class="keybind-desc">Rotate by 90 degrees</div><div class="keybind-key">z</div><div class="keybind-desc">Toggle Zen mode</div>
-      <div class="keybind-key">c</div><div class="keybind-desc">Toggle color in Zen mode</div><div class="keybind-key">f</div><div class="keybind-desc">Find in document</div>
-      <div class="keybind-key">p</div><div class="keybind-desc">Toggle pageless & compression</div><div class="keybind-key">d</div><div class="keybind-desc">Toggle dual page view</div>
-      <div class="keybind-key">F11</div><div class="keybind-desc">Toggle fullscreen mode</div><div class="keybind-key">=, -</div><div class="keybind-desc">Zoom in / out</div>
-      <div class="keybind-key">0</div><div class="keybind-desc">Reset zoom to fit the page width</div>
+      <div class="keybind-key">r</div><div class="keybind-desc">Rotate by 90 degrees</div>      <div class="keybind-key">z</div><div class="keybind-desc">Toggle Zen reading filter</div>
+      <div class="keybind-key">c</div><div class="keybind-desc">Toggle color in Zen mode</div><div class="keybind-key">p</div><div class="keybind-desc">Toggle pageless layout</div>
+      <div class="keybind-key">d</div><div class="keybind-desc">Toggle dual page view</div><div class="keybind-key">F11</div><div class="keybind-desc">Toggle fullscreen mode</div>
+      <div class="keybind-key">=, +, -</div><div class="keybind-desc">Zoom in / out</div><div class="keybind-key">0, w</div><div class="keybind-desc">Reset to default width / fit page to window width</div>
       <div class="keybind-key">R</div><div class="keybind-desc">Reload document</div><div class="keybind-key">q</div><div class="keybind-desc">Quit</div>
     </div>
     <div style="text-align:right; margin-top:8px"><button id="keybindsCloseBtn">Close</button></div>
   </div>
 </div>
 <div id="error"></div>
+<div id="renderStatus" hidden aria-live="polite"></div>
 <div id="viewerContainer"></div>
 
-<script src="https://unpkg.com/pdfjs-dist@2.16.105/build/pdf.min.js"></script>
+<script src="./vendor/pdf.min.js"></script>
 <script>
 (() => {
   const params = new URLSearchParams(location.search);
   const file = params.get("file") || "";
   const theme = {
     fg: params.get("fg") || "#e6e6e6",
-    toolbarBg: params.get("bg") || "rgba(0,0,0,0.45)",
   };
+
+  function parseInitialPageParam() {
+    const raw = params.get("page");
+    if (!raw) return 1;
+    const n = Number.parseInt(raw, 10);
+    return Number.isFinite(n) && n >= 1 ? n : 1;
+  }
+
+  function parseFullWidthFitParam() {
+    const fit = (params.get("fit") || "").toLowerCase();
+    if (fit === "full" || fit === "width") return true;
+    const fw = params.get("fullwidth");
+    return fw === "1" || fw === "true";
+  }
+
+  const urlOpenFullWidth = parseFullWidthFitParam();
+
+  function parseEmbedParam() {
+    return params.get("embed") === "1" || params.get("embedded") === "1";
+  }
+
+  const isEmbedded = parseEmbedParam();
+
+  function parseCredentialsParam() {
+    const raw = params.get("credentials");
+    if (raw === "1" || raw === "true") return true;
+    if (raw === "0" || raw === "false") return false;
+    return isEmbedded;
+  }
+
+  const urlSendCredentials = parseCredentialsParam();
+
+  function notifyParent(type) {
+    if (!isEmbedded || window.parent === window) return;
+    window.parent.postMessage({ type }, window.location.origin);
+  }
 
   const perf = {
     renderBehind: 12,
@@ -240,6 +290,7 @@ input[type="range"] { accent-color: #4ade7f; }
     largeDocMaxDpr: 1.75,
     smallDocThreshold: 150,
     maxRenderedPages: 50,
+    renderConcurrency: 3,
   };
 
   const layout = {
@@ -288,6 +339,7 @@ input[type="range"] { accent-color: #4ade7f; }
 
   const container = document.getElementById("viewerContainer");
   const errorEl = document.getElementById("error");
+  const renderStatusEl = document.getElementById("renderStatus");
   const keybindsOverlay = document.getElementById("keybindsOverlay");
   const keybindsClose = document.getElementById("keybindsClose");
   const keybindsCloseBtn = document.getElementById("keybindsCloseBtn");
@@ -312,6 +364,7 @@ input[type="range"] { accent-color: #4ade7f; }
   state.isSmallDoc = false;
   state.renderedPagesMru = [];  // MRU list for page cache eviction
   state.bookmarks = new Map();
+  state.svgImageZenCache = new Map();
 
   function clamp(v, min, max) {
     return Math.min(max, Math.max(min, v));
@@ -376,7 +429,9 @@ input[type="range"] { accent-color: #4ade7f; }
     ];
   }
 
-  function zenRecolorRgb(r, g, b, keepImagesColor, pageBg) {
+  const zenRecolorLutCache = new Map();
+
+  function zenRecolorRgbRaw(r, g, b, keepImagesColor, pageBg) {
     if (pageBg?.isDark) {
       if (keepImagesColor) return [r, g, b];
       const gray = 0.299 * r + 0.587 * g + 0.114 * b;
@@ -389,6 +444,33 @@ input[type="range"] { accent-color: #4ade7f; }
     const gray = 0.299 * r + 0.587 * g + 0.114 * b;
     const inv = 255 - gray;
     return [inv, inv, inv];
+  }
+
+  function getZenRecolorLut(keepImagesColor, pageBg) {
+    const key = `${keepImagesColor ? 1 : 0}:${pageBg?.isDark ? 1 : 0}`;
+    if (zenRecolorLutCache.has(key)) return zenRecolorLutCache.get(key);
+    const lut = new Uint8Array(32 * 32 * 32 * 3);
+    for (let ri = 0; ri < 32; ri++) {
+      for (let gi = 0; gi < 32; gi++) {
+        for (let bi = 0; bi < 32; bi++) {
+          const r = ri * 8 + 4;
+          const g = gi * 8 + 4;
+          const b = bi * 8 + 4;
+          const idx = (ri * 32 * 32 + gi * 32 + bi) * 3;
+          const [nr, ng, nb] = zenRecolorRgbRaw(r, g, b, keepImagesColor, pageBg);
+          lut[idx] = nr;
+          lut[idx + 1] = ng;
+          lut[idx + 2] = nb;
+        }
+      }
+    }
+    zenRecolorLutCache.set(key, lut);
+    return lut;
+  }
+
+  function lookupZenRecolor(lut, r, g, b) {
+    const idx = ((r >> 3) * 32 * 32 + (g >> 3) * 32 + (b >> 3)) * 3;
+    return [lut[idx], lut[idx + 1], lut[idx + 2]];
   }
 
   function rgbDistance(r1, g1, b1, r2, g2, b2) {
@@ -458,6 +540,19 @@ input[type="range"] { accent-color: #4ade7f; }
     return luma >= zen.paperLumaMin && chroma <= zen.paperChromaMax;
   }
 
+  // Tighter match for pageless transparency — avoids punching light grey text as paper.
+  function isStrictPaperPixel(r, g, b, a, pageBg) {
+    if (a < 4) return true;
+    const { luma, chroma } = pixelLumaChroma(r, g, b);
+    if (chroma > zen.paperChromaMax) return false;
+    if (pageBg) {
+      if (rgbDistance(r, g, b, pageBg.r, pageBg.g, pageBg.b) > 24) return false;
+      if (pageBg.isDark) return luma <= pageBg.luma + 12;
+      return luma >= pageBg.luma - 12;
+    }
+    return luma >= zen.paperLumaMin && chroma <= zen.paperChromaMax;
+  }
+
   function applyPaperTreatment(data, index) {
     if (state.pageless) {
       data[index + 3] = 0;
@@ -469,33 +564,60 @@ input[type="range"] { accent-color: #4ade7f; }
     data[index + 3] = 255;
   }
 
-  function buildBackgroundMask(d, w, h, pageBg) {
-    const mask = new Uint8Array(w * h);
+  function dilateMaskSquare(mask, w, h, radius) {
+    const tmp = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let hit = 0;
+        for (let dx = -radius; dx <= radius; dx++) {
+          const nx = x + dx;
+          if (nx >= 0 && nx < w && mask[y * w + nx]) {
+            hit = 1;
+            break;
+          }
+        }
+        tmp[y * w + x] = hit;
+      }
+    }
+    const out = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let hit = 0;
+        for (let dy = -radius; dy <= radius; dy++) {
+          const ny = y + dy;
+          if (ny >= 0 && ny < h && tmp[ny * w + x]) {
+            hit = 1;
+            break;
+          }
+        }
+        out[y * w + x] = hit;
+      }
+    }
+    return out;
+  }
+
+  function buildBackgroundMask(d, w, h, pageBg, { includeFringe = true, strictPaper = false } = {}) {
+    const isPaper = strictPaper ? isStrictPaperPixel : isBackgroundPixel;
+    const base = new Uint8Array(w * h);
     for (let p = 0; p < w * h; p++) {
       const i = p * 4;
       if (d[i + 3] === 0) continue;
-      if (isBackgroundPixel(d[i], d[i + 1], d[i + 2], d[i + 3], pageBg)) mask[p] = 1;
+      if (isPaper(d[i], d[i + 1], d[i + 2], d[i + 3], pageBg)) base[p] = 1;
     }
+
+    const mask = base.slice();
+    if (!includeFringe) return mask;
+
+    const nearBg = dilateMaskSquare(base, w, h, 2);
 
     for (let y = 1; y < h - 1; y++) {
       for (let x = 1; x < w - 1; x++) {
         const p = y * w + x;
-        if (mask[p]) continue;
+        if (base[p] || !nearBg[p]) continue;
         const i = p * 4;
         if (d[i + 3] === 0) continue;
         const { luma, chroma } = pixelLumaChroma(d[i], d[i + 1], d[i + 2]);
         if (chroma > zen.haloChromaMax) continue;
-
-        let nearBg = false;
-        for (let dy = -2; dy <= 2 && !nearBg; dy++) {
-          for (let dx = -2; dx <= 2; dx++) {
-            if (mask[(y + dy) * w + (x + dx)] === 1) {
-              nearBg = true;
-              break;
-            }
-          }
-        }
-        if (!nearBg) continue;
 
         if (pageBg?.isDark) {
           if (luma <= pageBg.luma + zen.bgFringeLuma && chroma <= zen.paperChromaMax + 8) {
@@ -510,18 +632,23 @@ input[type="range"] { accent-color: #4ade7f; }
     return mask;
   }
 
-  function applyZenFilter(ctx, w, h, keepImagesColor) {
+  function applyZenFilter(ctx, w, h, keepImagesColor, knownPageBg = null) {
     const img = ctx.getImageData(0, 0, w, h);
     const d = img.data;
-    const pageBg = detectCanvasBackground(d, w, h);
+    const pageBg = knownPageBg || detectCanvasBackground(d, w, h);
 
     if (state.pageless && w > 2 && h > 2) {
-      const bgMask = buildBackgroundMask(d, w, h, pageBg);
+      // Fringe expansion eats text anti-aliasing; strict paper mask only in pageless.
+      const bgMask = buildBackgroundMask(d, w, h, pageBg, { includeFringe: false, strictPaper: true });
       for (let p = 0; p < w * h; p++) {
         if (!bgMask[p]) continue;
         applyPaperTreatment(d, p * 4);
       }
     }
+
+    // Pageless always inverts for reading; never treat detected bg as "dark paper".
+    const recolorBg = (state.pageless && pageBg) ? { ...pageBg, isDark: false } : pageBg;
+    const recolorLut = getZenRecolorLut(keepImagesColor, recolorBg);
 
     for (let i = 0; i < d.length; i += 4) {
       const a = d[i + 3];
@@ -536,15 +663,10 @@ input[type="range"] { accent-color: #4ade7f; }
         continue;
       }
 
-      const [nr, ng, nb] = zenRecolorRgb(r, g, b, keepImagesColor, pageBg);
+      const [nr, ng, nb] = lookupZenRecolor(recolorLut, r, g, b);
       d[i] = nr;
       d[i + 1] = ng;
       d[i + 2] = nb;
-
-      if (state.pageless && !pageBg?.isDark) {
-        const post = pixelLumaChroma(nr, ng, nb);
-        if (post.luma < 14) d[i + 3] = 0;
-      }
     }
 
     ctx.putImageData(img, 0, 0);
@@ -613,6 +735,23 @@ input[type="range"] { accent-color: #4ade7f; }
     return best;
   }
 
+  function clearPageBackgroundRect(svg, viewport, pageBg) {
+    if (!pageBg) return;
+    const vw = parseFloat(svg.getAttribute("width")) || viewport?.width || 0;
+    const vh = parseFloat(svg.getAttribute("height")) || viewport?.height || 0;
+    svg.querySelectorAll("rect").forEach((el) => {
+      if (el.closest("defs")) return;
+      const w = parseFloat(el.getAttribute("width") || 0);
+      const h = parseFloat(el.getAttribute("height") || 0);
+      if (!vw || !vh || w < vw * 0.7 || h < vh * 0.7) return;
+      const fill = el.getAttribute("fill") || el.style?.fill;
+      if (!paintMatchesBackground(fill, pageBg)) return;
+      el.setAttribute("fill", "none");
+      el.setAttribute("fill-opacity", "0");
+      if (el.style) el.style.fill = "none";
+    });
+  }
+
   function clearBackgroundSvgPaints(svg, pageBg) {
     const paintAttrs = ["fill", "stroke"];
     svg.querySelectorAll("*").forEach((el) => {
@@ -626,11 +765,25 @@ input[type="range"] { accent-color: #4ade7f; }
     });
   }
 
-  async function applyZenToSvgImages(svg, keepImagesColor) {
+  function clearSvgImageZenCache() {
+    state.svgImageZenCache.clear();
+    zenRecolorLutCache.clear();
+  }
+
+  async function applyZenToSvgImages(svg, keepImagesColor, pageBg = null) {
     const images = [...svg.querySelectorAll("image")];
     await Promise.all(images.map(async (img) => {
       const href = img.getAttribute("href") || img.getAttribute("xlink:href");
       if (!href || href.startsWith("#")) return;
+
+      const cacheKey = `${keepImagesColor ? 1 : 0}:${state.pageless ? 1 : 0}:${href}`;
+      const cached = state.svgImageZenCache.get(cacheKey);
+      if (cached) {
+        img.setAttribute("href", cached);
+        img.removeAttribute("xlink:href");
+        img.style.filter = "";
+        return;
+      }
 
       const w = Math.max(1, Math.floor(parseFloat(img.getAttribute("width")) || 0));
       const h = Math.max(1, Math.floor(parseFloat(img.getAttribute("height")) || 0));
@@ -647,8 +800,10 @@ input[type="range"] { accent-color: #4ade7f; }
         imageEl.src = href;
       });
       ctx.drawImage(imageEl, 0, 0, w, h);
-      applyZenFilter(ctx, w, h, keepImagesColor);
-      img.setAttribute("href", canvas.toDataURL("image/png"));
+      applyZenFilter(ctx, w, h, keepImagesColor, pageBg);
+      const dataUrl = canvas.toDataURL("image/png");
+      state.svgImageZenCache.set(cacheKey, dataUrl);
+      img.setAttribute("href", dataUrl);
       img.removeAttribute("xlink:href");
       img.style.filter = "";
     }));
@@ -662,8 +817,29 @@ input[type="range"] { accent-color: #4ade7f; }
   async function applySvgZenStyle(svg, keepImagesColor, viewport) {
     svg.style.filter = "";
     const pageBg = detectSvgBackground(svg, viewport);
+
+    if (state.pageless) {
+      clearPageBackgroundRect(svg, viewport, pageBg);
+      // Raster-heavy pages (e.g. scanned JPEGs) live in <image>; process per-image
+      // instead of a root filter so we don't double-invert or skip bitmap content.
+      await applyZenToSvgImages(svg, keepImagesColor, pageBg);
+      const vectorFilter = keepImagesColor ? zen.filterKeepHue : zen.filterMono;
+      const vectorTags = "path, rect, polygon, circle, ellipse, line, polyline, text, tspan, use";
+      svg.querySelectorAll(vectorTags).forEach((el) => {
+        if (el.closest("image") || el.closest("defs")) return;
+        applySvgElementFilter(el, vectorFilter);
+      });
+      svg.querySelectorAll("g").forEach((group) => {
+        if (group.closest("defs") || group.closest("image")) return;
+        if (group.querySelector("image")) return;
+        if (group.querySelector(vectorTags)) return;
+        applySvgElementFilter(group, vectorFilter);
+      });
+      return;
+    }
+
     clearBackgroundSvgPaints(svg, pageBg);
-    await applyZenToSvgImages(svg, keepImagesColor);
+    await applyZenToSvgImages(svg, keepImagesColor, pageBg);
 
     const monoFilter = zen.filterMono;
     const colorFilter = zen.filterKeepHue;
@@ -702,6 +878,16 @@ input[type="range"] { accent-color: #4ade7f; }
     else document.documentElement.classList.remove("dual-mode");
   }
 
+  async function applyViewerModeChange({ adjustScale = false } = {}) {
+    clearSvgImageZenCache();
+    updateModeClass();
+    if (adjustScale) {
+      await adjustScaleToMode({ pageNumber: state.currentPage });
+    }
+    await resetAndRender();
+    alignFitWidthView();
+  }
+
 
   function compactKeybindsTable() {
     const grid = document.getElementById('keybindsText');
@@ -718,6 +904,28 @@ input[type="range"] { accent-color: #4ade7f; }
     grid.dataset.compact = '1';
   }
 
+  function findPageNearestToViewportCenter() {
+    if (!state.pdfDoc) {
+      return { page: state.currentPage || 1, element: null, distance: Infinity };
+    }
+    const centerY = window.scrollY + window.innerHeight / 2;
+    let page = state.currentPage || 1;
+    let bestEl = null;
+    let bestDist = Infinity;
+    for (let i = 1; i <= state.pdfDoc.numPages; i++) {
+      const el = document.getElementById(`page-${i}`);
+      if (!el) continue;
+      const pageCenter = el.offsetTop + el.offsetHeight / 2;
+      const dist = Math.abs(pageCenter - centerY);
+      if (dist < bestDist) {
+        bestDist = dist;
+        page = i;
+        bestEl = el;
+      }
+    }
+    return { page, element: bestEl, distance: bestDist };
+  }
+
   function updateCurrentPageFromScroll() {
     if (!state.pdfDoc) return;
     if (state.visiblePages.size > 0) {
@@ -732,17 +940,7 @@ input[type="range"] { accent-color: #4ade7f; }
       state.currentPage = best;
       return;
     }
-    const centerY = window.scrollY + window.innerHeight / 2;
-    let best = state.currentPage || 1;
-    let dist = Infinity;
-    for (let i = 1; i <= state.pdfDoc.numPages; i++) {
-      const el = document.getElementById(`page-${i}`);
-      if (!el) continue;
-      const pageCenter = el.offsetTop + el.offsetHeight / 2;
-      const d = Math.abs(pageCenter - centerY);
-      if (d < dist) { dist = d; best = i; }
-    }
-    state.currentPage = best;
+    state.currentPage = findPageNearestToViewportCenter().page;
   }
 
   async function renderTextLayer(page, viewport, textLayerDiv) {
@@ -978,6 +1176,79 @@ input[type="range"] { accent-color: #4ade7f; }
     return order;
   }
 
+  function swapPageShell(pageNo, pageNode) {
+    const existing = document.getElementById(`page-${pageNo}`);
+    if (existing && existing.parentNode === container) {
+      if (state.pageObserver) state.pageObserver.unobserve(existing);
+      container.replaceChild(pageNode, existing);
+    }
+    if (state.pageObserver) state.pageObserver.observe(pageNode);
+  }
+
+  function touchRenderedPageMru(pageNo) {
+    state.renderedPagesMru = state.renderedPagesMru.filter((p) => p !== pageNo);
+    state.renderedPagesMru.push(pageNo);
+  }
+
+  function enforceRenderedPageCacheLimit() {
+    while (state.renderedPages.size > perf.maxRenderedPages && state.renderedPagesMru.length > 0) {
+      const lruPage = state.renderedPagesMru.shift();
+      if (state.renderedPages.has(lruPage)) {
+        replaceWithPlaceholder(lruPage);
+      }
+    }
+  }
+
+  function getEffectiveRenderConcurrency() {
+    const cores = navigator.hardwareConcurrency || 4;
+    if (state.largeDoc) return 1;
+    if (cores <= 2) return 1;
+    if (cores <= 4) return 2;
+    return perf.renderConcurrency;
+  }
+
+  function showRenderProgress(done, total) {
+    if (!renderStatusEl) return;
+    if (!total || done >= total) {
+      renderStatusEl.hidden = true;
+      return;
+    }
+    renderStatusEl.hidden = false;
+    renderStatusEl.textContent = `Rendering ${done}/${total} pages…`;
+  }
+
+  function hideRenderProgress() {
+    if (renderStatusEl) renderStatusEl.hidden = true;
+  }
+
+  async function renderPagesWithPool(pageNumbers, token, onRendered, { onProgress, forceRerender = false } = {}) {
+    const concurrency = Math.min(getEffectiveRenderConcurrency(), pageNumbers.length);
+    if (concurrency === 0) return;
+    let nextIndex = 0;
+    let completed = 0;
+    const trackProgress = typeof onProgress === "function";
+
+    async function worker() {
+      while (true) {
+        if (token !== state.renderToken) return;
+        const idx = nextIndex++;
+        if (idx >= pageNumbers.length) return;
+        const pageNo = pageNumbers[idx];
+        if (!forceRerender && state.renderedPages.has(pageNo)) {
+          touchRenderedPageMru(pageNo);
+          if (trackProgress) onProgress(++completed, pageNumbers.length);
+          continue;
+        }
+        const pageNode = await renderPage(pageNo);
+        if (token !== state.renderToken) return;
+        await onRendered(pageNo, pageNode);
+        if (trackProgress) onProgress(++completed, pageNumbers.length);
+      }
+    }
+
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  }
+
   function getAvailablePageWidth() {
     if (!container) return Math.max(100, window.innerWidth - 16);
     const cs = getComputedStyle(container);
@@ -994,7 +1265,7 @@ input[type="range"] { accent-color: #4ade7f; }
     return layout.preferredPortraitDpi / layout.pdfPointDpi;
   }
 
-  async function getModeFitScale({ pageNumber } = {}) {
+  async function getModeFitScale({ pageNumber, fullWidth = false } = {}) {
     if (!state.pdfDoc) return 1;
     const pageNo = clamp(
       Number.isFinite(pageNumber) ? pageNumber : (state.currentPage || 1),
@@ -1013,7 +1284,7 @@ input[type="range"] { accent-color: #4ade7f; }
     } else {
       const widthFitScale = getWidthFitScale(vp, availableW);
       const isLandscape = vp.width >= vp.height;
-      nextScale = isLandscape
+      nextScale = fullWidth || isLandscape
         ? widthFitScale
         : Math.min(getPortraitPreferredScale(), widthFitScale);
     }
@@ -1021,10 +1292,10 @@ input[type="range"] { accent-color: #4ade7f; }
     return Math.max(nextScale, 0.1);
   }
 
-  async function adjustScaleToMode({ skipWhenZoomedIn = false, pageNumber } = {}) {
+  async function adjustScaleToMode({ skipWhenZoomedIn = false, pageNumber, fullWidth = false } = {}) {
     if (!state.pdfDoc) return false;
     try {
-      const fitScale = await getModeFitScale({ pageNumber });
+      const fitScale = await getModeFitScale({ pageNumber, fullWidth });
       if (skipWhenZoomedIn && state.scale > fitScale + 0.01) {
         return false;
       }
@@ -1042,8 +1313,8 @@ input[type="range"] { accent-color: #4ade7f; }
     });
   }
 
-  async function resetToFitWidth({ pageNumber } = {}) {
-    await adjustScaleToMode({ pageNumber });
+  async function resetToFitWidth({ pageNumber, fullWidth = false } = {}) {
+    await adjustScaleToMode({ pageNumber, fullWidth });
     await rerenderRenderedPages();
     alignFitWidthView();
   }
@@ -1165,20 +1436,9 @@ input[type="range"] { accent-color: #4ade7f; }
     const left = window.scrollX;
     const centerY = window.scrollY + window.innerHeight / 2;
     const centerX = window.scrollX + window.innerWidth / 2;
-    let page = state.currentPage || 1;
-    let bestEl = null;
-    let bestDist = Infinity;
-    for (let i = 1; i <= state.pdfDoc.numPages; i++) {
-      const el = document.getElementById(`page-${i}`);
-      if (!el) continue;
-      const pageCenter = el.offsetTop + el.offsetHeight / 2;
-      const dist = Math.abs(pageCenter - centerY);
-      if (dist < bestDist) {
-        bestDist = dist;
-        page = i;
-        bestEl = el;
-      }
-    }
+    const nearest = findPageNearestToViewportCenter();
+    const page = nearest.page;
+    const bestEl = nearest.element;
     const docHeight = Math.max(document.documentElement.scrollHeight - window.innerHeight, 1);
     const docWidth = Math.max(document.documentElement.scrollWidth - window.innerWidth, 1);
     if (!bestEl) {
@@ -1251,6 +1511,7 @@ input[type="range"] { accent-color: #4ade7f; }
   function replaceWithPlaceholder(pageNumber) {
     const existing = document.getElementById(`page-${pageNumber}`);
     if (!existing || existing.parentNode !== container) return;
+    if (state.pageObserver) state.pageObserver.unobserve(existing);
     const placeholder = createPlaceholder(pageNumber);
     container.replaceChild(placeholder, existing);
     if (state.pageObserver) state.pageObserver.observe(placeholder);
@@ -1272,23 +1533,11 @@ input[type="range"] { accent-color: #4ade7f; }
     };
   }
 
+  // Exposed for the manual cache-verification flow described in AGENTS.md
+  window.getLoadedPages = getLoadedPages;
+  window.unloadPage = unloadPage;
+
   function buildPlaceholders() {
-    // Preserve the currently visible page to avoid flash
-    const centerY = window.scrollY + window.innerHeight / 2;
-    let centerPage = null;
-    let minDist = Infinity;
-    
-    for (let i = 1; i <= (state.pdfDoc?.numPages || 0); i++) {
-      const el = document.getElementById(`page-${i}`);
-      if (!el) continue;
-      const pageCenter = el.offsetTop + el.offsetHeight / 2;
-      const dist = Math.abs(pageCenter - centerY);
-      if (dist < minDist) {
-        minDist = dist;
-        centerPage = i;
-      }
-    }
-    
     container.innerHTML = "";
     state.renderedPages.clear();
     state.renderedPagesMru = [];
@@ -1299,6 +1548,7 @@ input[type="range"] { accent-color: #4ade7f; }
       frag.appendChild(createPlaceholder(i));
     }
     container.appendChild(frag);
+    void prefetchPlaceholderSizes();
   }
 
   function scheduleRenderWindow() {
@@ -1321,42 +1571,24 @@ input[type="range"] { accent-color: #4ade7f; }
     const end = clamp(center + perf.renderAhead, 1, total);
     const order = buildRenderOrder(end - start + 1, center - start + 1)
       .map((idx) => idx + start - 1);
+    const progressOpts = order.length > 8
+      ? { onProgress: (done, total) => showRenderProgress(done, total) }
+      : {};
 
-    for (const pageNo of order) {
+    await renderPagesWithPool(order, token, async (pageNo, pageNode) => {
       if (token !== state.renderToken) return;
-      if (state.renderedPages.has(pageNo)) {
-        // Move to end of MRU list (most recently used)
-        state.renderedPagesMru = state.renderedPagesMru.filter((p) => p !== pageNo);
-        state.renderedPagesMru.push(pageNo);
-        continue;
-      }
-      const pageNode = await renderPage(pageNo);
-      if (token !== state.renderToken) return;
-      const existing = document.getElementById(`page-${pageNo}`);
-      if (existing && existing.parentNode === container) {
-        container.replaceChild(pageNode, existing);
-      }
-      if (state.pageObserver) state.pageObserver.observe(pageNode);
+      swapPageShell(pageNo, pageNode);
       state.renderedPages.add(pageNo);
-      state.renderedPagesMru.push(pageNo);
+      touchRenderedPageMru(pageNo);
+      if (!state.isSmallDoc) enforceRenderedPageCacheLimit();
+    }, progressOpts);
 
-      // Enforce cache limit with LRU eviction
-      while (state.renderedPages.size > perf.maxRenderedPages && state.renderedPagesMru.length > 0) {
-        const lruPage = state.renderedPagesMru.shift();
-        if (state.renderedPages.has(lruPage)) {
-          replaceWithPlaceholder(lruPage);
-        }
-      }
-    }
+    if (token !== state.renderToken) return;
+    if (progressOpts.onProgress) hideRenderProgress();
 
     // For small docs, never auto-unload; for large docs, respect the cache limit
     if (!state.isSmallDoc && state.renderedPages.size > perf.maxRenderedPages) {
-      while (state.renderedPages.size > perf.maxRenderedPages && state.renderedPagesMru.length > 0) {
-        const lruPage = state.renderedPagesMru.shift();
-        if (state.renderedPages.has(lruPage)) {
-          replaceWithPlaceholder(lruPage);
-        }
-      }
+      enforceRenderedPageCacheLimit();
     }
   }
 
@@ -1367,17 +1599,14 @@ input[type="range"] { accent-color: #4ade7f; }
     const center = clamp(state.currentPage || 1, 1, total);
     const order = buildRenderOrder(total, center);
 
-    for (const pageNo of order) {
+    await renderPagesWithPool(order, token, async (pageNo, pageNode) => {
       if (token !== state.renderToken) return;
-      if (state.renderedPages.has(pageNo)) continue;
-      const pageNode = await renderPage(pageNo);
-      if (token !== state.renderToken) return;
-      const existing = document.getElementById(`page-${pageNo}`);
-      if (existing && existing.parentNode === container) {
-        container.replaceChild(pageNode, existing);
-      }
+      swapPageShell(pageNo, pageNode);
       state.renderedPages.add(pageNo);
-    }
+    }, {
+      onProgress: (done, total) => showRenderProgress(done, total),
+    });
+    hideRenderProgress();
   }
 
   function initPageObserver() {
@@ -1416,20 +1645,44 @@ input[type="range"] { accent-color: #4ade7f; }
   }
 
   function updatePlaceholderSizes() {
-    const size = getEstimatedPageSize();
     for (const child of container.children) {
       if (!child || child.dataset?.placeholder !== "1") continue;
+      const pageNo = Number.parseInt(String(child.id || "").replace("page-", ""), 10);
+      const size = (pageNo && state.pageSizes.get(pageNo)) || getEstimatedPageSize();
       child.style.width = `${size.width}px`;
       child.style.height = `${size.height}px`;
     }
   }
 
-  function getRefreshPageOrder() {
+  async function prefetchPlaceholderSizes() {
+    if (!state.pdfDoc) return;
+    const total = state.pdfDoc.numPages;
+    const rotation = state.rotation || 0;
+    for (let i = 1; i <= total; i++) {
+      if (state.pageSizes.has(i)) continue;
+      try {
+        const page = await getPdfPage(i);
+        const vp = page.getViewport({ scale: state.scale, rotation });
+        state.pageSizes.set(i, { width: vp.width, height: vp.height });
+        const el = document.getElementById(`page-${i}`);
+        if (el && el.dataset.placeholder === "1") {
+          el.style.width = `${vp.width}px`;
+          el.style.height = `${vp.height}px`;
+        }
+      } catch (_) {
+        break;
+      }
+      if (i % 8 === 0) {
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      }
+    }
+  }
+
+  function getViewportWindowPageOrder() {
     if (!state.pdfDoc) return [];
     const total = state.pdfDoc.numPages;
     const center = clamp(state.currentPage || 1, 1, total);
-    const preferredOrder = buildRenderOrder(total, center);
-    if (state.isSmallDoc) return preferredOrder;
+    if (state.isSmallDoc) return buildRenderOrder(total, center);
     const start = clamp(center - perf.renderBehind, 1, total);
     const end = clamp(center + perf.renderAhead, 1, total);
     const windowOrder = buildRenderOrder(end - start + 1, center - start + 1)
@@ -1437,36 +1690,42 @@ input[type="range"] { accent-color: #4ade7f; }
     const visibleOrder = Array.from(state.visiblePages.keys())
       .map((pageNo) => clamp(Number.parseInt(pageNo, 10) || 1, 1, total))
       .filter((pageNo, idx, arr) => arr.indexOf(pageNo) === idx);
-    const renderedOrder = state.renderedPagesMru
-      .slice()
-      .reverse()
-      .map((pageNo) => clamp(Number.parseInt(pageNo, 10) || 1, 1, total));
-    return [...new Set([...visibleOrder, ...windowOrder, ...renderedOrder])];
+    return [...new Set([...visibleOrder, ...windowOrder])];
   }
 
   async function rerenderRenderedPages() {
     if (!state.pdfDoc) return;
+    clearSvgImageZenCache();
     updateCurrentPageFromScroll();
-    const pages = getRefreshPageOrder();
+    const pages = getViewportWindowPageOrder();
+    const refreshSet = new Set(pages);
     const anchor = getViewportAnchor();
     beginRenderMutation();
     const token = ++state.renderToken;
+
+    // Drop off-window cache entries to placeholders (cheap); only rerender the viewport window.
+    for (const pageNo of [...state.renderedPages]) {
+      if (!refreshSet.has(pageNo)) replaceWithPlaceholder(pageNo);
+    }
+    for (const pageNo of pages) state.renderedPages.delete(pageNo);
+
+    state.pageSizes.clear();
     updatePlaceholderSizes();
+    void prefetchPlaceholderSizes();
+
+    const progressOpts = pages.length > 8
+      ? { onProgress: (done, total) => showRenderProgress(done, total), forceRerender: true }
+      : { forceRerender: true };
+
     try {
-      for (const pageNo of pages) {
-        if (token !== state.renderToken) break;
-        const pageNode = await renderPage(pageNo);
-        if (token !== state.renderToken) break;
-        const existing = document.getElementById(`page-${pageNo}`);
-        if (existing && existing.parentNode === container) {
-          container.replaceChild(pageNode, existing);
-        }
-        if (state.pageObserver) state.pageObserver.observe(pageNode);
+      await renderPagesWithPool(pages, token, async (pageNo, pageNode) => {
+        if (token !== state.renderToken) return;
+        swapPageShell(pageNo, pageNode);
         state.renderedPages.add(pageNo);
-        state.renderedPagesMru = state.renderedPagesMru.filter((p) => p !== pageNo);
-        state.renderedPagesMru.push(pageNo);
-      }
+        touchRenderedPageMru(pageNo);
+      }, progressOpts);
     } finally {
+      if (progressOpts.onProgress) hideRenderProgress();
       restoreViewportAnchorStable(anchor);
       updateDisplayScaleSnapshot();
       endRenderMutation();
@@ -1474,9 +1733,9 @@ input[type="range"] { accent-color: #4ade7f; }
     }
   }
 
-  async function resetAndRender() {
+  async function resetAndRender({ skipAnchorRestore = false } = {}) {
     if (!state.pdfDoc) return;
-    const anchor = getViewportAnchor();
+    const anchor = skipAnchorRestore ? null : getViewportAnchor();
     if (state.pageObserver) {
       state.pageObserver.disconnect();
       state.pageObserver = null;
@@ -1488,12 +1747,12 @@ input[type="range"] { accent-color: #4ade7f; }
     if (state.isSmallDoc) {
       await renderAllPages();
       initPageObserver();
-      restoreViewportAnchorStable(anchor);
+      if (anchor) restoreViewportAnchorStable(anchor);
       updateDisplayScaleSnapshot();
       return;
     }
     initPageObserver();
-    restoreViewportAnchorStable(anchor);
+    if (anchor) restoreViewportAnchorStable(anchor);
     state.renderPending = false;
     await renderWindow();
     updateDisplayScaleSnapshot();
@@ -1511,6 +1770,38 @@ input[type="range"] { accent-color: #4ade7f; }
     window.scrollTo({ top: Math.max(0, el.offsetTop - 15), behavior: smooth ? "smooth" : "auto" });
   }
 
+  function bookmarkStorageKey() {
+    return `zen-pdf-bookmarks:${file}`;
+  }
+
+  function loadBookmarks() {
+    try {
+      const raw = localStorage.getItem(bookmarkStorageKey());
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      for (const [slot, anchor] of Object.entries(data)) {
+        const slotNo = Number.parseInt(slot, 10);
+        if (slotNo >= 1 && slotNo <= 9 && anchor && typeof anchor === "object") {
+          state.bookmarks.set(slotNo, anchor);
+        }
+      }
+    } catch (_) {
+      // localStorage unavailable or corrupt data — keep defaults
+    }
+  }
+
+  function saveBookmarks() {
+    try {
+      const data = {};
+      for (const [slot, anchor] of state.bookmarks.entries()) {
+        data[slot] = anchor;
+      }
+      localStorage.setItem(bookmarkStorageKey(), JSON.stringify(data));
+    } catch (_) {
+      // localStorage unavailable — bookmarks stay in-memory only
+    }
+  }
+
   function getBookmarkTarget(slot) {
     const total = state.pdfDoc?.numPages || 1;
     const assigned = state.bookmarks.get(slot);
@@ -1523,6 +1814,7 @@ input[type="range"] { accent-color: #4ade7f; }
     const anchor = getViewportAnchor();
     anchor.page = clamp(anchor.page || state.currentPage || slot, 1, state.pdfDoc.numPages || 1);
     state.bookmarks.set(slot, anchor);
+    saveBookmarks();
   }
 
   function goToBookmark(slot) {
@@ -1632,19 +1924,7 @@ input[type="range"] { accent-color: #4ade7f; }
         goToPage(best, true, false);
         return;
       }
-      const centerY = window.scrollY + window.innerHeight/2;
-      let best = 1;
-      let bestDist = Infinity;
-      for (let i=1;i<=state.pdfDoc.numPages;i++) {
-        const el = document.getElementById('page-'+i);
-        if (!el) continue;
-        const top = el.offsetTop;
-        const h = el.offsetHeight;
-        const pageCenter = top + h/2;
-        const d = Math.abs(pageCenter - centerY);
-        if (d < bestDist) { bestDist = d; best = i; }
-      }
-      goToPage(best, true, false);
+      goToPage(findPageNearestToViewportCenter().page, true, false);
     }
 
     async function handleGotoPagePrompt() {
@@ -1661,23 +1941,26 @@ input[type="range"] { accent-color: #4ade7f; }
         return;
       }
 
-      // Escape hands keyboard control back to the parent app (campus):
-      // the viewer posts a message so the host can blur the frame and
-      // return to normal navigation. ? still toggles the keybinds viewer.
-      if (e.key === 'Escape') {
+      // Embed: Escape closes keybind overlay or returns focus to parent.
+      if (e.key === 'Escape' && isEmbedded) {
         if (keybindsOverlay && !keybindsOverlay.hidden) {
           closeKeybinds();
         } else {
-          window.parent.postMessage({ type: 'zenpdf-escape' }, '*');
+          notifyParent('zenpdf-escape');
         }
         e.preventDefault();
         return;
       }
-      if (e.key === '?') {
+
+      // Toggle keybind viewer on Escape or ?
+      if (e.key === 'Escape' || e.key === '?') {
         toggleKeybinds();
         e.preventDefault();
         return;
       }
+
+      // Everything below needs a loaded document
+      if (!state.pdfDoc) return;
 
       const keyLower = typeof e.key === 'string' ? e.key.toLowerCase() : '';
       const bookmarkKey = /^[1-9]$/.test(e.key);
@@ -1692,14 +1975,14 @@ input[type="range"] { accent-color: #4ade7f; }
         return;
       }
       
-      // Tab cycles through user-assigned bookmarks (no-op if none);
-      // without bookmarks it hands keyboard control back to the parent
-      // app (campus) so Tab switches tree ⇄ content there.
+      // Tab cycles through user-assigned bookmarks (no-op if none)
       if (e.key === 'Tab') {
         const assigned = Array.from(state.bookmarks.keys()).sort((a, b) => a - b);
         if (assigned.length === 0) {
-          window.parent.postMessage({ type: 'zenpdf-tab' }, '*');
-          e.preventDefault();
+          if (isEmbedded) {
+            notifyParent('zenpdf-tab');
+            e.preventDefault();
+          }
           return;
         }
         e.preventDefault();
@@ -1772,33 +2055,26 @@ input[type="range"] { accent-color: #4ade7f; }
 
       // rotate (r), zen toggle (z), and color toggle (c)
        if (e.key === 'r' && !e.ctrlKey) { state.rotation = (state.rotation + 90) % 360; await adjustScaleToMode(); await resetAndRender(); alignFitWidthView(); e.preventDefault(); return; }
-       if (e.key === 'z') { state.zenMode = !state.zenMode; updateModeClass(); await rerenderRenderedPages(); e.preventDefault(); return; }
-       if (e.key === 'c') { state.keepImagesColor = !state.keepImagesColor; await rerenderRenderedPages(); e.preventDefault(); return; }
-       if (e.key === 'f') { state.pdfDoc.findController?.executeCommand('find'); e.preventDefault(); return; }
+       if (e.key === 'z') {
+         state.zenMode = !state.zenMode;
+         await applyViewerModeChange({ adjustScale: true });
+         e.preventDefault();
+         return;
+       }
+       if (e.key === 'c') { state.keepImagesColor = !state.keepImagesColor; await applyViewerModeChange(); e.preventDefault(); return; }
 
       // dual-page mode toggle
       if (e.key === 'd') {
-        const anchor = getViewportAnchor();
         state.dualMode = !state.dualMode;
-        updateModeClass();
-        await adjustScaleToMode();
-         await resetAndRender();
-         restoreViewportAnchor(anchor);
-         alignFitWidthView();
+        await applyViewerModeChange({ adjustScale: true });
          e.preventDefault();
          return;
        }
 
-      // pageless & compression toggle
+      // pageless layout toggle
       if (e.key === 'p') {
-        const anchor = getViewportAnchor();
         state.pageless = !state.pageless;
-        state.compress = !state.compress;
-        updateModeClass();
-        await adjustScaleToMode();
-         await resetAndRender();
-         restoreViewportAnchor(anchor);
-         alignFitWidthView();
+        await applyViewerModeChange({ adjustScale: true });
          e.preventDefault();
          return;
        }
@@ -1809,14 +2085,19 @@ input[type="range"] { accent-color: #4ade7f; }
       // fullscreen
       if (e.key === 'F11') { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{}); else document.exitFullscreen().catch(()=>{}); e.preventDefault(); return; }
 
-      // zoom = -
-       if (e.key === '=') { state.scale = Math.min(state.scale * 1.1, 4); await rerenderRenderedPages(); e.preventDefault(); return; }
+      // zoom = + -
+       if (e.key === '=' || e.key === '+') { state.scale = Math.min(state.scale * 1.1, 4); await rerenderRenderedPages(); e.preventDefault(); return; }
        if (e.key === '-') { state.scale = Math.max(state.scale / 1.1, 0.1); await rerenderRenderedPages(); e.preventDefault(); return; }
       if (e.key === '0') {
          await resetToFitWidth({ pageNumber: state.currentPage });
          e.preventDefault();
          return;
        }
+      if (e.key === 'w' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        await resetToFitWidth({ pageNumber: state.currentPage, fullWidth: true });
+        e.preventDefault();
+        return;
+      }
 
       if (bookmarkKey) {
         goToBookmark(Number.parseInt(e.key, 10));
@@ -1827,8 +2108,14 @@ input[type="range"] { accent-color: #4ade7f; }
       // goto page prompt
       if (e.key === ':') { handleGotoPagePrompt(); e.preventDefault(); return; }
 
-      // quit
-      if (e.key === 'q') { try { window.close(); } catch(err) { location.href='about:blank'; } e.preventDefault(); return; }
+      // quit (disabled in embed mode — parent owns window lifecycle)
+      if (e.key === 'q') {
+        e.preventDefault();
+        if (isEmbedded) return;
+        window.close();
+        if (!window.closed) location.href = 'about:blank';
+        return;
+      }
 
     });
   }
@@ -1840,17 +2127,17 @@ input[type="range"] { accent-color: #4ade7f; }
     }
 
     try {
-      pdfjsLib.GlobalWorkerOptions.workerSrc =
-        "https://unpkg.com/pdfjs-dist@2.16.105/build/pdf.worker.min.js";
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdf.worker.min.js";
 
      state.pdfDoc = await pdfjsLib.getDocument({
         url: file,
-        withCredentials: false,
+        withCredentials: urlSendCredentials,
       }).promise;
 
     state.largeDoc = state.pdfDoc.numPages >= perf.largeDocPages;
     state.isSmallDoc = state.pdfDoc.numPages <= perf.smallDocThreshold;
     state.bookmarks = new Map();
+    loadBookmarks();
     
     if (state.isSmallDoc) {
       perf.renderBehind = state.pdfDoc.numPages;
@@ -1908,9 +2195,11 @@ input[type="range"] { accent-color: #4ade7f; }
       }, 110);
 
       // Initial adjust and set resize handler to auto-fill on window changes.
+      const initialPage = clamp(parseInitialPageParam(), 1, state.pdfDoc.numPages);
+      state.currentPage = initialPage;
       const firstPage = await getPdfPage(1);
       state.baseViewport = firstPage.getViewport({ scale: 1, rotation: 0 });
-      await adjustScaleToMode({ pageNumber: 1 });
+      await adjustScaleToMode({ pageNumber: initialPage, fullWidth: urlOpenFullWidth });
       state.baseDevicePixelRatio = Math.max(window.devicePixelRatio || 1, 1);
       updateDisplayScaleSnapshot();
       window.addEventListener('resize', onWindowResize);
@@ -1919,7 +2208,8 @@ input[type="range"] { accent-color: #4ade7f; }
         window.visualViewport.addEventListener('scroll', onViewportResize, { passive: true });
       }
 
-      await resetAndRender();
+      await resetAndRender({ skipAnchorRestore: initialPage > 1 });
+      if (initialPage > 1) goToPage(initialPage, false, false);
       alignFitWidthView();
     } catch (err) {
       showError(`Could not render PDF: ${err?.message || err}`);
