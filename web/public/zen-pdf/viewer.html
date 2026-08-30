@@ -193,22 +193,6 @@ input[type="range"] { accent-color: #4ade7f; }
   padding: 12px;
   display: none;
 }
-#renderStatus {
-  position: fixed;
-  bottom: 12px;
-  right: 12px;
-  z-index: 900;
-  padding: 6px 10px;
-  border-radius: 8px;
-  font-size: 12px;
-  color: #e6eef0;
-  background: rgba(14, 14, 18, 0.88);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  pointer-events: none;
-}
-#renderStatus[hidden] { display: none; }
 </style>
 </head>
 <body>
@@ -234,7 +218,6 @@ input[type="range"] { accent-color: #4ade7f; }
   </div>
 </div>
 <div id="error"></div>
-<div id="renderStatus" hidden aria-live="polite"></div>
 <div id="viewerContainer"></div>
 
 <script src="./vendor/pdf.min.js"></script>
@@ -339,7 +322,6 @@ input[type="range"] { accent-color: #4ade7f; }
 
   const container = document.getElementById("viewerContainer");
   const errorEl = document.getElementById("error");
-  const renderStatusEl = document.getElementById("renderStatus");
   const keybindsOverlay = document.getElementById("keybindsOverlay");
   const keybindsClose = document.getElementById("keybindsClose");
   const keybindsCloseBtn = document.getElementById("keybindsCloseBtn");
@@ -364,6 +346,7 @@ input[type="range"] { accent-color: #4ade7f; }
   state.isSmallDoc = false;
   state.renderedPagesMru = [];  // MRU list for page cache eviction
   state.bookmarks = new Map();
+  state.pagelessRasterZenDoc = false;
   state.svgImageZenCache = new Map();
 
   function clamp(v, min, max) {
@@ -429,9 +412,7 @@ input[type="range"] { accent-color: #4ade7f; }
     ];
   }
 
-  const zenRecolorLutCache = new Map();
-
-  function zenRecolorRgbRaw(r, g, b, keepImagesColor, pageBg) {
+  function zenRecolorRgb(r, g, b, keepImagesColor, pageBg) {
     if (pageBg?.isDark) {
       if (keepImagesColor) return [r, g, b];
       const gray = 0.299 * r + 0.587 * g + 0.114 * b;
@@ -446,6 +427,8 @@ input[type="range"] { accent-color: #4ade7f; }
     return [inv, inv, inv];
   }
 
+  const zenRecolorLutCache = new Map();
+
   function getZenRecolorLut(keepImagesColor, pageBg) {
     const key = `${keepImagesColor ? 1 : 0}:${pageBg?.isDark ? 1 : 0}`;
     if (zenRecolorLutCache.has(key)) return zenRecolorLutCache.get(key);
@@ -457,7 +440,7 @@ input[type="range"] { accent-color: #4ade7f; }
           const g = gi * 8 + 4;
           const b = bi * 8 + 4;
           const idx = (ri * 32 * 32 + gi * 32 + bi) * 3;
-          const [nr, ng, nb] = zenRecolorRgbRaw(r, g, b, keepImagesColor, pageBg);
+          const [nr, ng, nb] = zenRecolorRgb(r, g, b, keepImagesColor, pageBg);
           lut[idx] = nr;
           lut[idx + 1] = ng;
           lut[idx + 2] = nb;
@@ -471,6 +454,14 @@ input[type="range"] { accent-color: #4ade7f; }
   function lookupZenRecolor(lut, r, g, b) {
     const idx = ((r >> 3) * 32 * 32 + (g >> 3) * 32 + (b >> 3)) * 3;
     return [lut[idx], lut[idx + 1], lut[idx + 2]];
+  }
+
+  function clearZenRecolorLutCache() {
+    zenRecolorLutCache.clear();
+  }
+
+  function clearSvgImageZenCache() {
+    state.svgImageZenCache.clear();
   }
 
   function rgbDistance(r1, g1, b1, r2, g2, b2) {
@@ -564,60 +555,36 @@ input[type="range"] { accent-color: #4ade7f; }
     data[index + 3] = 255;
   }
 
-  function dilateMaskSquare(mask, w, h, radius) {
-    const tmp = new Uint8Array(w * h);
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        let hit = 0;
-        for (let dx = -radius; dx <= radius; dx++) {
-          const nx = x + dx;
-          if (nx >= 0 && nx < w && mask[y * w + nx]) {
-            hit = 1;
-            break;
-          }
-        }
-        tmp[y * w + x] = hit;
-      }
-    }
-    const out = new Uint8Array(w * h);
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        let hit = 0;
-        for (let dy = -radius; dy <= radius; dy++) {
-          const ny = y + dy;
-          if (ny >= 0 && ny < h && tmp[ny * w + x]) {
-            hit = 1;
-            break;
-          }
-        }
-        out[y * w + x] = hit;
-      }
-    }
-    return out;
-  }
-
   function buildBackgroundMask(d, w, h, pageBg, { includeFringe = true, strictPaper = false } = {}) {
     const isPaper = strictPaper ? isStrictPaperPixel : isBackgroundPixel;
-    const base = new Uint8Array(w * h);
+    const mask = new Uint8Array(w * h);
     for (let p = 0; p < w * h; p++) {
       const i = p * 4;
       if (d[i + 3] === 0) continue;
-      if (isPaper(d[i], d[i + 1], d[i + 2], d[i + 3], pageBg)) base[p] = 1;
+      if (isPaper(d[i], d[i + 1], d[i + 2], d[i + 3], pageBg)) mask[p] = 1;
     }
 
-    const mask = base.slice();
     if (!includeFringe) return mask;
-
-    const nearBg = dilateMaskSquare(base, w, h, 2);
 
     for (let y = 1; y < h - 1; y++) {
       for (let x = 1; x < w - 1; x++) {
         const p = y * w + x;
-        if (base[p] || !nearBg[p]) continue;
+        if (mask[p]) continue;
         const i = p * 4;
         if (d[i + 3] === 0) continue;
         const { luma, chroma } = pixelLumaChroma(d[i], d[i + 1], d[i + 2]);
         if (chroma > zen.haloChromaMax) continue;
+
+        let nearBg = false;
+        for (let dy = -2; dy <= 2 && !nearBg; dy++) {
+          for (let dx = -2; dx <= 2; dx++) {
+            if (mask[(y + dy) * w + (x + dx)] === 1) {
+              nearBg = true;
+              break;
+            }
+          }
+        }
+        if (!nearBg) continue;
 
         if (pageBg?.isDark) {
           if (luma <= pageBg.luma + zen.bgFringeLuma && chroma <= zen.paperChromaMax + 8) {
@@ -632,22 +599,29 @@ input[type="range"] { accent-color: #4ade7f; }
     return mask;
   }
 
-  function applyZenFilter(ctx, w, h, keepImagesColor, knownPageBg = null) {
+  function applyZenFilter(ctx, w, h, keepImagesColor, { pagelessRaster = false } = {}) {
     const img = ctx.getImageData(0, 0, w, h);
     const d = img.data;
-    const pageBg = knownPageBg || detectCanvasBackground(d, w, h);
+    const pageBg = detectCanvasBackground(d, w, h);
+    const usePagelessRaster = state.pageless && pagelessRaster;
 
-    if (state.pageless && w > 2 && h > 2) {
-      // Fringe expansion eats text anti-aliasing; strict paper mask only in pageless.
+    if (usePagelessRaster && w > 2 && h > 2) {
+      // Fringe expansion eats text anti-aliasing; strict paper mask only in pageless raster pages.
       const bgMask = buildBackgroundMask(d, w, h, pageBg, { includeFringe: false, strictPaper: true });
+      for (let p = 0; p < w * h; p++) {
+        if (!bgMask[p]) continue;
+        applyPaperTreatment(d, p * 4);
+      }
+    } else if (state.pageless && w > 2 && h > 2) {
+      const bgMask = buildBackgroundMask(d, w, h, pageBg);
       for (let p = 0; p < w * h; p++) {
         if (!bgMask[p]) continue;
         applyPaperTreatment(d, p * 4);
       }
     }
 
-    // Pageless always inverts for reading; never treat detected bg as "dark paper".
-    const recolorBg = (state.pageless && pageBg) ? { ...pageBg, isDark: false } : pageBg;
+    // Scanned raster pages always invert; vector slides keep normal dark-bg handling.
+    const recolorBg = (usePagelessRaster && pageBg) ? { ...pageBg, isDark: false } : pageBg;
     const recolorLut = getZenRecolorLut(keepImagesColor, recolorBg);
 
     for (let i = 0; i < d.length; i += 4) {
@@ -667,6 +641,11 @@ input[type="range"] { accent-color: #4ade7f; }
       d[i] = nr;
       d[i + 1] = ng;
       d[i + 2] = nb;
+
+      if (state.pageless && !usePagelessRaster && !pageBg?.isDark) {
+        const post = pixelLumaChroma(nr, ng, nb);
+        if (post.luma < 14) d[i + 3] = 0;
+      }
     }
 
     ctx.putImageData(img, 0, 0);
@@ -752,6 +731,48 @@ input[type="range"] { accent-color: #4ade7f; }
     });
   }
 
+  function svgHasDominantRasterImage(svg, viewport) {
+    const vw = parseFloat(svg.getAttribute("width")) || viewport?.width || 0;
+    const vh = parseFloat(svg.getAttribute("height")) || viewport?.height || 0;
+    if (!vw || !vh) return false;
+    const minArea = vw * vh * 0.55;
+    for (const img of svg.querySelectorAll("image")) {
+      if (img.closest("defs")) continue;
+      const w = parseFloat(img.getAttribute("width") || 0);
+      const h = parseFloat(img.getAttribute("height") || 0);
+      if (w * h >= minArea) return true;
+    }
+    return false;
+  }
+
+  // Scanned pages are a full-page bitmap with almost no vectors; slides can
+  // have large photos but still carry many path/text elements.
+  function svgNeedsPagelessRasterZen(svg, viewport) {
+    if (!state.pagelessRasterZenDoc) return false;
+    return svgHasDominantRasterImage(svg, viewport);
+  }
+
+  async function detectPagelessRasterZenDoc(pdfDoc) {
+    try {
+      const meta = await pdfDoc.getMetadata();
+      const info = meta?.info || {};
+      const blob = `${info.Title || ""} ${info.Author || ""} ${info.Subject || ""}`.toLowerCase();
+      if (/pptxgenjs|powerpoint|presentation|\.pptx|\bslides?\b/.test(blob)) return false;
+
+      const page = await pdfDoc.getPage(1);
+      const vp = page.getViewport({ scale: 1, rotation: 0 });
+      const aspect = vp.width / vp.height;
+      // Widescreen slide exports (16:9, etc.).
+      if (aspect > 1.25) return false;
+
+      // Book-length portrait docs where scan pages are full-page bitmaps.
+      if (pdfDoc.numPages >= 80 && aspect < 0.95) return true;
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function clearBackgroundSvgPaints(svg, pageBg) {
     const paintAttrs = ["fill", "stroke"];
     svg.querySelectorAll("*").forEach((el) => {
@@ -765,18 +786,13 @@ input[type="range"] { accent-color: #4ade7f; }
     });
   }
 
-  function clearSvgImageZenCache() {
-    state.svgImageZenCache.clear();
-    zenRecolorLutCache.clear();
-  }
-
-  async function applyZenToSvgImages(svg, keepImagesColor, pageBg = null) {
+  async function applyZenToSvgImages(svg, keepImagesColor, { pagelessRaster = false } = {}) {
     const images = [...svg.querySelectorAll("image")];
     await Promise.all(images.map(async (img) => {
       const href = img.getAttribute("href") || img.getAttribute("xlink:href");
       if (!href || href.startsWith("#")) return;
 
-      const cacheKey = `${keepImagesColor ? 1 : 0}:${state.pageless ? 1 : 0}:${href}`;
+      const cacheKey = `${keepImagesColor ? 1 : 0}:${state.pageless ? 1 : 0}:${pagelessRaster ? 1 : 0}:${href}`;
       const cached = state.svgImageZenCache.get(cacheKey);
       if (cached) {
         img.setAttribute("href", cached);
@@ -800,7 +816,7 @@ input[type="range"] { accent-color: #4ade7f; }
         imageEl.src = href;
       });
       ctx.drawImage(imageEl, 0, 0, w, h);
-      applyZenFilter(ctx, w, h, keepImagesColor, pageBg);
+      applyZenFilter(ctx, w, h, keepImagesColor, { pagelessRaster });
       const dataUrl = canvas.toDataURL("image/png");
       state.svgImageZenCache.set(cacheKey, dataUrl);
       img.setAttribute("href", dataUrl);
@@ -817,29 +833,15 @@ input[type="range"] { accent-color: #4ade7f; }
   async function applySvgZenStyle(svg, keepImagesColor, viewport) {
     svg.style.filter = "";
     const pageBg = detectSvgBackground(svg, viewport);
+    const pagelessRaster = state.pageless && svgNeedsPagelessRasterZen(svg, viewport);
 
     if (state.pageless) {
       clearPageBackgroundRect(svg, viewport, pageBg);
-      // Raster-heavy pages (e.g. scanned JPEGs) live in <image>; process per-image
-      // instead of a root filter so we don't double-invert or skip bitmap content.
-      await applyZenToSvgImages(svg, keepImagesColor, pageBg);
-      const vectorFilter = keepImagesColor ? zen.filterKeepHue : zen.filterMono;
-      const vectorTags = "path, rect, polygon, circle, ellipse, line, polyline, text, tspan, use";
-      svg.querySelectorAll(vectorTags).forEach((el) => {
-        if (el.closest("image") || el.closest("defs")) return;
-        applySvgElementFilter(el, vectorFilter);
-      });
-      svg.querySelectorAll("g").forEach((group) => {
-        if (group.closest("defs") || group.closest("image")) return;
-        if (group.querySelector("image")) return;
-        if (group.querySelector(vectorTags)) return;
-        applySvgElementFilter(group, vectorFilter);
-      });
-      return;
+    } else {
+      clearBackgroundSvgPaints(svg, pageBg);
     }
 
-    clearBackgroundSvgPaints(svg, pageBg);
-    await applyZenToSvgImages(svg, keepImagesColor, pageBg);
+    await applyZenToSvgImages(svg, keepImagesColor, { pagelessRaster });
 
     const monoFilter = zen.filterMono;
     const colorFilter = zen.filterKeepHue;
@@ -879,6 +881,7 @@ input[type="range"] { accent-color: #4ade7f; }
   }
 
   async function applyViewerModeChange({ adjustScale = false } = {}) {
+    clearZenRecolorLutCache();
     clearSvgImageZenCache();
     updateModeClass();
     if (adjustScale) {
@@ -1207,26 +1210,10 @@ input[type="range"] { accent-color: #4ade7f; }
     return perf.renderConcurrency;
   }
 
-  function showRenderProgress(done, total) {
-    if (!renderStatusEl) return;
-    if (!total || done >= total) {
-      renderStatusEl.hidden = true;
-      return;
-    }
-    renderStatusEl.hidden = false;
-    renderStatusEl.textContent = `Rendering ${done}/${total} pages…`;
-  }
-
-  function hideRenderProgress() {
-    if (renderStatusEl) renderStatusEl.hidden = true;
-  }
-
-  async function renderPagesWithPool(pageNumbers, token, onRendered, { onProgress, forceRerender = false } = {}) {
+  async function renderPagesWithPool(pageNumbers, token, onRendered, { forceRerender = false } = {}) {
     const concurrency = Math.min(getEffectiveRenderConcurrency(), pageNumbers.length);
     if (concurrency === 0) return;
     let nextIndex = 0;
-    let completed = 0;
-    const trackProgress = typeof onProgress === "function";
 
     async function worker() {
       while (true) {
@@ -1236,13 +1223,11 @@ input[type="range"] { accent-color: #4ade7f; }
         const pageNo = pageNumbers[idx];
         if (!forceRerender && state.renderedPages.has(pageNo)) {
           touchRenderedPageMru(pageNo);
-          if (trackProgress) onProgress(++completed, pageNumbers.length);
           continue;
         }
         const pageNode = await renderPage(pageNo);
         if (token !== state.renderToken) return;
         await onRendered(pageNo, pageNode);
-        if (trackProgress) onProgress(++completed, pageNumbers.length);
       }
     }
 
@@ -1362,7 +1347,9 @@ input[type="range"] { accent-color: #4ade7f; }
     await page.render(renderParams).promise;
 
     if (state.zenMode) {
-      applyZenFilter(ctx, canvas.width, canvas.height, state.keepImagesColor);
+      applyZenFilter(ctx, canvas.width, canvas.height, state.keepImagesColor, {
+        pagelessRaster: state.pageless && state.pagelessRasterZenDoc,
+      });
     }
     shell.appendChild(canvas);
   }
@@ -1571,20 +1558,15 @@ input[type="range"] { accent-color: #4ade7f; }
     const end = clamp(center + perf.renderAhead, 1, total);
     const order = buildRenderOrder(end - start + 1, center - start + 1)
       .map((idx) => idx + start - 1);
-    const progressOpts = order.length > 8
-      ? { onProgress: (done, total) => showRenderProgress(done, total) }
-      : {};
-
     await renderPagesWithPool(order, token, async (pageNo, pageNode) => {
       if (token !== state.renderToken) return;
       swapPageShell(pageNo, pageNode);
       state.renderedPages.add(pageNo);
       touchRenderedPageMru(pageNo);
       if (!state.isSmallDoc) enforceRenderedPageCacheLimit();
-    }, progressOpts);
+    });
 
     if (token !== state.renderToken) return;
-    if (progressOpts.onProgress) hideRenderProgress();
 
     // For small docs, never auto-unload; for large docs, respect the cache limit
     if (!state.isSmallDoc && state.renderedPages.size > perf.maxRenderedPages) {
@@ -1603,10 +1585,7 @@ input[type="range"] { accent-color: #4ade7f; }
       if (token !== state.renderToken) return;
       swapPageShell(pageNo, pageNode);
       state.renderedPages.add(pageNo);
-    }, {
-      onProgress: (done, total) => showRenderProgress(done, total),
     });
-    hideRenderProgress();
   }
 
   function initPageObserver() {
@@ -1695,7 +1674,6 @@ input[type="range"] { accent-color: #4ade7f; }
 
   async function rerenderRenderedPages() {
     if (!state.pdfDoc) return;
-    clearSvgImageZenCache();
     updateCurrentPageFromScroll();
     const pages = getViewportWindowPageOrder();
     const refreshSet = new Set(pages);
@@ -1713,19 +1691,14 @@ input[type="range"] { accent-color: #4ade7f; }
     updatePlaceholderSizes();
     void prefetchPlaceholderSizes();
 
-    const progressOpts = pages.length > 8
-      ? { onProgress: (done, total) => showRenderProgress(done, total), forceRerender: true }
-      : { forceRerender: true };
-
     try {
       await renderPagesWithPool(pages, token, async (pageNo, pageNode) => {
         if (token !== state.renderToken) return;
         swapPageShell(pageNo, pageNode);
         state.renderedPages.add(pageNo);
         touchRenderedPageMru(pageNo);
-      }, progressOpts);
+      }, { forceRerender: true });
     } finally {
-      if (progressOpts.onProgress) hideRenderProgress();
       restoreViewportAnchorStable(anchor);
       updateDisplayScaleSnapshot();
       endRenderMutation();
@@ -2136,6 +2109,7 @@ input[type="range"] { accent-color: #4ade7f; }
 
     state.largeDoc = state.pdfDoc.numPages >= perf.largeDocPages;
     state.isSmallDoc = state.pdfDoc.numPages <= perf.smallDocThreshold;
+    state.pagelessRasterZenDoc = await detectPagelessRasterZenDoc(state.pdfDoc);
     state.bookmarks = new Map();
     loadBookmarks();
     
