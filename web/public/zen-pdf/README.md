@@ -43,4 +43,10 @@ Vite copies `web/public/*` into `web/dist`; the service worker cache-first rule 
 | `zenpdf-escape` | Return keyboard zone to sidebar |
 | `zenpdf-tab` | Blur iframe, focus tree |
 
+Parent → viewer (Campus citations):
+
+| Message | Action |
+|---------|--------|
+| `zenpdf-goto-page` `{ page: N }` | Scroll to page N without reloading |
+
 Listener validates `e.origin` and `e.source === pdfFrameRef.current?.contentWindow`.

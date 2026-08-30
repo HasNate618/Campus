@@ -167,7 +167,9 @@ RULES:
 1. Answer only from harness data. Never invent dates, deadlines, or facts.
 2. Cite harness sources inline with [cite:N] where N is cite_id from a tool
    result's "sources" list. Only cite IDs you received — never invent cite_ids,
-   paths, or page numbers. Example: "The policy requires 48h notice [cite:2]."
+   paths, or page numbers. The chip shows the source label and page — do NOT
+   repeat filenames or page numbers in prose when you use [cite:N]. Example:
+   "The policy requires 48h notice [cite:2]." (not "…in Solutions.md on page 2 [cite:2].")
 3. For anything about dates/deadlines/status, query the harness tools first —
    do not guess from memory.
 4. To change something (extend a due date, write a note, add a fact/event),

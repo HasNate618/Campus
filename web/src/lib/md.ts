@@ -113,9 +113,15 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;')
 }
 
-function chipLabel(c: CitationMeta): string {
+function chipTitle(c: CitationMeta): string {
   const base = c.label || c.ref
   return c.page != null && c.page > 0 ? `${base} · p.${c.page}` : base
+}
+
+/** Compact chip text — full source goes in title/tooltip to avoid repeating prose. */
+function chipLabel(c: CitationMeta, id: number): string {
+  if (c.page != null && c.page > 0) return `p.${c.page}`
+  return String(id)
 }
 
 /** Replace [cite:N] with inline chips — safe during streaming (no trailing defs). */
@@ -125,9 +131,10 @@ function renderCitations(md: string, citations?: Record<number, CitationMeta>): 
   return md.replace(/\[cite:(\d+)\]/g, (_m, idStr: string) => {
     const id = Number(idStr)
     const c = map[id]
-    const label = escapeHtml(c ? chipLabel(c) : `[${id}]`)
+    const label = escapeHtml(c ? chipLabel(c, id) : String(id))
+    const title = c ? escapeHtml(chipTitle(c)) : `Source ${id}`
     const cls = c ? 'cite-chip' : 'cite-chip cite-chip-pending'
-    return `<button type="button" class="${cls}" data-cite-id="${id}">${label}</button>`
+    return `<button type="button" class="${cls}" data-cite-id="${id}" title="${title}">${label}</button>`
   })
 }
 
