@@ -164,6 +164,18 @@ def get_file(file_id: int) -> dict | None:
     return _row("SELECT * FROM files WHERE id=?", (file_id,))
 
 
+def resolve_ref(course_id: int, ref: str) -> dict | None:
+    """Map a harness ref (file path or overview/id) to UI navigation."""
+    from sync.db import DB
+    from agent.citations import resolve_ref as _resolve
+
+    db = DB(DB_PATH)
+    try:
+        return _resolve(db, course_id, ref)
+    finally:
+        db.close()
+
+
 def _read_text(path: Path, max_chars: int = 200_000) -> str:
     return path.read_bytes()[:max_chars].decode("utf-8", errors="replace")
 

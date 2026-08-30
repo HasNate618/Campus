@@ -1,5 +1,6 @@
 import {
 	memo,
+	useCallback,
 	useEffect,
 	useMemo,
 	useRef,
@@ -7,6 +8,7 @@ import {
 	type KeyboardEvent,
 	type ReactNode,
 } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
 	ArrowUp,
@@ -31,7 +33,8 @@ import { api, type ChatAttachment } from "@/api/client";
 import { getLlmModel } from "@/lib/appConfig";
 import { listKeys, useListCursor, useZoneKeys } from "@/lib/keynav";
 import { ZenMarkdown } from "@/lib/ZenMarkdown";
-import { useChat, pathFor, type MsgNode, type StepItem } from "./ChatContext";
+import type { CitationMeta } from "@/lib/md";
+import { useChat, pathFor, type Citation, type MsgNode, type StepItem } from "./ChatContext";
 import type { Course } from "@/types";
 
 const SUGGESTIONS = [
@@ -58,13 +61,25 @@ function formatDetail(v: unknown): string {
  *  one per token). memo() keeps finished messages from re-rendering when
  *  the composer re-renders the chat (typing previously wiped every
  *  message's innerHTML — code headers and images flickered). */
-const ChatMd = memo(function ChatMd({ content }: { content: string }) {
+const ChatMd = memo(function ChatMd({
+	content,
+	citations,
+}: {
+	content: string;
+	citations?: CitationMeta[];
+}) {
 	const [rendered, setRendered] = useState(content);
+	const citeMap = useMemo(() => {
+		if (!citations?.length) return undefined;
+		const m: Record<number, CitationMeta> = {};
+		for (const c of citations) m[c.id] = c;
+		return m;
+	}, [citations]);
 	useEffect(() => {
 		const raf = requestAnimationFrame(() => setRendered(content));
 		return () => cancelAnimationFrame(raf);
 	}, [content]);
-	return <ZenMarkdown content={rendered} />;
+	return <ZenMarkdown content={rendered} citations={citeMap} />;
 });
 
 function shortModel(id: string): string {
@@ -94,6 +109,7 @@ interface Props {
 }
 
 export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
+	const navigate = useNavigate();
 	const {
 		busy,
 		sessionsFor,
@@ -349,6 +365,59 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		session?.nodes.filter(
 			(n) => n.parentId === assistantId && n.role === "tool",
 		) ?? [];
+
+	const openCitation = useCallback(
+		async (citeId: number, cites?: Citation[]) => {
+			const c = cites?.find((x) => x.id === citeId);
+			if (!c) return;
+			const cid = c.courseId ?? courseId;
+			if (!cid) return;
+
+			let nodeId = c.nodeId ?? undefined;
+			let fileId = c.fileId ?? undefined;
+
+			if (!nodeId || !fileId) {
+				try {
+					const resolved = await api.resolveRef(cid, c.ref);
+					nodeId = resolved.nodeId ?? nodeId;
+					fileId = resolved.fileId ?? fileId;
+				} catch {
+					// fall through with what we have
+				}
+			}
+
+			if (nodeId != null) {
+				const q = new URLSearchParams();
+				if (fileId != null) q.set("file", String(fileId));
+				if (c.page != null && c.page > 0) q.set("page", String(c.page));
+				const qs = q.toString();
+				navigate(
+					`/courses/${cid}/content/${nodeId}${qs ? `?${qs}` : ""}`,
+				);
+				return;
+			}
+
+			if (fileId != null) {
+				const q = new URLSearchParams({ file: String(fileId) });
+				if (c.page != null && c.page > 0) q.set("page", String(c.page));
+				navigate(`/courses/${cid}/content?${q.toString()}`);
+			}
+		},
+		[courseId, navigate],
+	);
+
+	const onCitationClick = useCallback(
+		(e: { target: EventTarget | null; preventDefault: () => void }, cites?: Citation[]) => {
+			const btn = (e.target as HTMLElement).closest<HTMLElement>(
+				"[data-cite-id]",
+			);
+			if (!btn) return;
+			e.preventDefault();
+			const id = Number(btn.dataset.citeId);
+			if (Number.isFinite(id)) void openCitation(id, cites);
+		},
+		[openCitation],
+	);
 
 	/** A short humanized purpose for a tool call, from its most meaningful
 	 *  argument (the "to do thing" in "Using some_tool to do thing"). */
@@ -756,8 +825,9 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 						)}
 						<div
 							className={`msg-assistant${node.streaming ? " streaming" : ""}`}
+							onClick={(e) => onCitationClick(e, node.citations)}
 						>
-							<ChatMd content={node.content} />
+							<ChatMd content={node.content} citations={node.citations} />
 							{node.streaming && <span className="stream-cursor" />}
 						</div>
 

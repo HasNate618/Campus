@@ -2409,6 +2409,39 @@
     color: var(--text-3);
   }
 
+  /* inline citation chips ([cite:N] in chat) */
+  .cite-chip {
+    display: inline;
+    vertical-align: baseline;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--violet);
+    background: var(--violet-soft);
+    border: 1px solid var(--violet-border);
+    border-radius: 999px;
+    padding: 1px 8px;
+    margin: 0 2px;
+    cursor: pointer;
+    white-space: nowrap;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .cite-chip:hover {
+    filter: brightness(1.12);
+    background: rgba(139, 92, 246, 0.32);
+  }
+
+  .cite-chip-pending {
+    color: var(--text-2);
+    background: var(--glass-bg);
+    border-color: var(--glass-border);
+    opacity: 0.85;
+  }
+
   .md iframe {
     max-width: 100%;
   }

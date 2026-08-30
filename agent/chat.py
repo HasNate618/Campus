@@ -16,6 +16,7 @@ import httpx
 from sync.config import Config
 from sync.db import DB
 
+from .citations import CitationRegistry
 from .context import build_system_prompt
 from .tools import TOOL_SCHEMAS, execute_tool
 
@@ -136,7 +137,8 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
       token(event)      -> {"text": ...}
       tool_start(event) -> {"tool": name, "args": {...}}
       tool_end(event)   -> {"tool": name, "result": {...}}
-      done(event)       -> {"answer": ...}
+      cite_register     -> {id, ref, label, page?, fileId?, nodeId?, ...}
+      done(event)       -> {"answer": ..., "citations": [...]}
     """
     # Preflight: chat needs an LLM endpoint + model. Fail clearly instead of
     # letting httpx raise an opaque connection error at request time.
@@ -176,6 +178,7 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
         content = user_message + "".join(extracted)
     messages.append({"role": "user", "content": content})
 
+    citations = CitationRegistry(db, cfg, course_id)
     total_usage: dict = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     for i in range(MAX_ITERATIONS):
         if i >= NUDGE_AT and not any(m.get("role") == "user" and "must answer now" in m.get("content", "") for m in messages):
@@ -214,6 +217,7 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
                     "answer": answer,
                     "model": model or cfg.llm_model,
                     "usage": total_usage if any(total_usage.values()) else None,
+                    "citations": citations.sources,
                 })
             return answer, messages
 
@@ -230,6 +234,11 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
             if emit:
                 emit("tool_start", {"tool": name, "args": args})
             result = execute_tool(name, args, db, cfg)
+            new_cites = citations.register_from_tool(name, result, args)
+            for cite in new_cites:
+                if emit:
+                    emit("cite_register", cite)
+            result = citations.annotate_result(name, result, new_cites)
             if emit:
                 emit("tool_end", {"tool": name, "result": result})
             messages.append({

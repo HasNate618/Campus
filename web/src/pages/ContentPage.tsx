@@ -88,11 +88,13 @@ function ZenPdfFrame({
   fileId,
   filename,
   frameRef,
+  startPage,
 }: {
   rawUrl: string
   fileId: number
   filename: string
   frameRef?: Ref<HTMLIFrameElement>
+  startPage?: number | null
 }) {
   const src = useMemo(() => {
     const abs = `${window.location.origin}${rawUrl}`
@@ -103,8 +105,9 @@ function ZenPdfFrame({
       embed: '1',
       t: String(fileId),
     })
+    if (startPage != null && startPage > 1) q.set('page', String(startPage))
     return `/zen-pdf/viewer.html?${q.toString()}`
-  }, [rawUrl, fileId])
+  }, [rawUrl, fileId, startPage])
   // key remounts the frame per file so switching PDFs never reuses stale
   // viewer state (scroll position, loaded pages).
   return <iframe key={fileId} ref={frameRef} className="zen-pdf-frame" src={src} title={filename} allow="fullscreen" />
@@ -153,6 +156,7 @@ function ViewerBody({
   loading,
   showMd,
   frameRef,
+  pdfStartPage,
 }: {
   node: ContentNode
   file: FileRecord | null
@@ -161,6 +165,7 @@ function ViewerBody({
   loading: boolean
   showMd: boolean
   frameRef?: Ref<HTMLIFrameElement>
+  pdfStartPage?: number | null
 }) {
   // Module landing page (Brightspace HTML).
   if (node.node_type === 'module') {
@@ -180,7 +185,7 @@ function ViewerBody({
         {!descHasImages && introFile ? (
           <ModuleIntro file={introFile} />
         ) : !descHasImages && file ? (
-          <FileBody file={file} contentInfo={contentInfo} loading={loading} showMd={showMd} frameRef={frameRef} />
+          <FileBody file={file} contentInfo={contentInfo} loading={loading} showMd={showMd} frameRef={frameRef} pdfStartPage={pdfStartPage} />
         ) : !hasDesc ? (
           <div className="empty compact">This module has no landing page content.</div>
         ) : null}
@@ -213,7 +218,7 @@ function ViewerBody({
   }
 
   if (!file) return <div className="empty compact">No file attached to this topic.</div>
-  return <FileBody file={file} contentInfo={contentInfo} loading={loading} showMd={showMd} frameRef={frameRef} />
+  return <FileBody file={file} contentInfo={contentInfo} loading={loading} showMd={showMd} frameRef={frameRef} pdfStartPage={pdfStartPage} />
 }
 
 function FileBody({
@@ -222,12 +227,14 @@ function FileBody({
   loading,
   showMd,
   frameRef,
+  pdfStartPage,
 }: {
   file: FileRecord
   contentInfo: FileContent | null
   loading: boolean
   showMd: boolean
   frameRef?: Ref<HTMLIFrameElement>
+  pdfStartPage?: number | null
 }) {
   if (loading) return <div className="empty compact">Loading…</div>
   if (!contentInfo) return <div className="empty compact">Couldn&apos;t load this file.</div>
@@ -262,7 +269,7 @@ function FileBody({
               <ZenMarkdown content={content} />
             </div>
           ) : rawUrl ? (
-            <ZenPdfFrame rawUrl={rawUrl} fileId={file.id} filename={filename} frameRef={frameRef} />
+            <ZenPdfFrame rawUrl={rawUrl} fileId={file.id} filename={filename} frameRef={frameRef} startPage={pdfStartPage} />
           ) : content ? (
             <div className="pdf-text-view">
               <ZenMarkdown content={content} />
@@ -299,6 +306,8 @@ export function ContentPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const fileParam = searchParams.get('file') ? Number(searchParams.get('file')) : null
+  const pageParam = searchParams.get('page') ? Number(searchParams.get('page')) : null
+  const pdfStartPage = pageParam != null && Number.isFinite(pageParam) && pageParam > 0 ? pageParam : null
   const cid = Number(courseId)
   const nid = nodeId ? Number(nodeId) : null
   const [nodes, setNodes] = useState<ContentNode[]>([])
@@ -723,6 +732,7 @@ export function ContentPage() {
                 loading={loadingContent}
                 showMd={showMd}
                 frameRef={pdfFrameRef}
+                pdfStartPage={pdfStartPage}
               />
             </motion.div>
           </>

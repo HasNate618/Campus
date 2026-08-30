@@ -36,6 +36,19 @@ export interface StepItem {
 	result?: unknown;
 }
 
+export interface Citation {
+	id: number;
+	ref: string;
+	label: string;
+	excerpt?: string;
+	page?: number | null;
+	line?: number | null;
+	courseId?: number | null;
+	fileId?: number | null;
+	nodeId?: number | null;
+	kind?: string;
+}
+
 export interface MsgNode {
 	id: string;
 	parentId: string | null;
@@ -61,6 +74,7 @@ export interface MsgNode {
 	done?: boolean;
 	open?: boolean;
 	attachments?: ChatAttachment[];
+	citations?: Citation[];
 	createdAt: number;
 }
 
@@ -862,6 +876,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 							),
 						);
 						if (assistantId) patchSteps(assistantId);
+					} else if (event === "cite_register") {
+						const cite = d as unknown as Citation;
+						if (assistantId && cite?.id != null) {
+							patchNode(sid, assistantId, (n) => {
+								const prev = n.citations ?? [];
+								if (prev.some((c) => c.id === cite.id)) return n;
+								return { ...n, citations: [...prev, cite] };
+							});
+						}
 					} else if (event === "done") {
 						receivedDone = true;
 						closeThought();
@@ -873,6 +896,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 						if (!assistantId) {
 							// nothing streamed at all — surface the final answer directly
 							const id = makeUuid();
+							const doneCites = (d.citations as Citation[] | undefined) ?? [];
 							appendNode(sid, {
 								id,
 								parentId: userNodeId,
@@ -883,10 +907,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 								thinkingDone: true,
 								thinking: turnThinking || undefined,
 								steps,
+								citations: doneCites.length ? doneCites : undefined,
 								createdAt: Date.now(),
 							});
 							setActiveNode(sid, id);
 						} else {
+							const doneCites = (d.citations as Citation[] | undefined) ?? [];
 							patchNode(sid, assistantId, (n) => ({
 								...n,
 								streaming: false,
@@ -896,6 +922,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 								model: (d.model as string) || undefined,
 								tokens: (d.usage as MsgNode["tokens"]) || undefined,
 								steps,
+								citations:
+									doneCites.length > 0
+										? doneCites
+										: n.citations?.length
+											? n.citations
+											: undefined,
 							}));
 						}
 					} else if (event === "error") {
