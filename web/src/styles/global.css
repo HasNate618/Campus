@@ -1030,6 +1030,36 @@
     color: var(--violet);
   }
 
+  /* Pin button on model rows: right-aligned, hidden until the row is hovered
+     (or the model is already pinned). */
+  .model-pin {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    border: none;
+    background: none;
+    border-radius: 6px;
+    color: var(--text-3);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
+  }
+  .popover-item:hover .model-pin {
+    opacity: 1;
+  }
+  .model-pin:hover {
+    color: var(--text-1);
+    background: var(--glass-bg-strong);
+  }
+  .model-pin.pinned {
+    opacity: 1;
+    color: var(--violet);
+  }
+
   /* model picker search box — no browser default focus ring (the white
      outline), just the app's subtle glass border + violet on focus */
   .model-search {

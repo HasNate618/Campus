@@ -15,6 +15,7 @@ import {
 	Cpu,
 	History,
 	Loader2,
+	Pin,
 	Plus,
 	RefreshCw,
 	Square,
@@ -108,6 +109,8 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		setActiveBranch,
 		model,
 		setModel,
+		pinned,
+		setPinned,
 	} = useChat();
 	const [input, setInput] = useState("");
 	const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -122,13 +125,21 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 	const [renamingTitle, setRenamingTitle] = useState(false);
 	const [renameTitleText, setRenameTitleText] = useState("");
 	const filteredModels = useMemo(
-		() =>
-			modelQuery.trim()
-				? models.filter((m) =>
-						m.toLowerCase().includes(modelQuery.trim().toLowerCase()),
-					)
-				: models,
-		[models, modelQuery],
+		() => {
+			const q = modelQuery.trim().toLowerCase();
+			const filtered = q
+				? models.filter((m) => m.toLowerCase().includes(q))
+				: models.slice();
+			// Pinned models float to the top (stable order); the rest follow.
+			const pinnedSet = new Set(pinned);
+			return filtered.sort((a, b) => {
+				const pa = pinnedSet.has(a) ? 0 : 1;
+				const pb = pinnedSet.has(b) ? 0 : 1;
+				if (pa !== pb) return pa - pb;
+				return a.localeCompare(b);
+			});
+		},
+		[models, modelQuery, pinned],
 	);
 	// server-configured default model (config llm_model) — used for the
 	// context-window fallback when nothing is explicitly selected
@@ -1235,7 +1246,9 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 														color: "var(--text-3)",
 													}}
 												>
-													No matching models.
+													{models.length === 0
+														? "No models available — configure an LLM endpoint."
+														: "No matching models."}
 												</p>
 											)}
 											{filteredModels.map((m, i) => (
@@ -1261,6 +1274,21 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 													{model === m && (
 														<Check size={13} style={{ flexShrink: 0 }} />
 													)}
+													<button
+														type="button"
+														className={`model-pin${pinned.includes(m) ? " pinned" : ""}`}
+														title={pinned.includes(m) ? "Unpin" : "Pin to top"}
+														onClick={(e) => {
+															e.stopPropagation();
+															setPinned(
+																pinned.includes(m)
+																	? pinned.filter((p) => p !== m)
+																	: [...pinned, m],
+															);
+														}}
+													>
+														<Pin size={12} />
+													</button>
 												</button>
 											))}
 										</div>

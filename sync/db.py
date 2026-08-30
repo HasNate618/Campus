@@ -46,6 +46,16 @@ class DB:
                 extracted_text TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             )""")
+        # per-session LLM model (NULL = inherit current selection)
+        scols = {r[1] for r in self.conn.execute("PRAGMA table_info(chat_sessions)")}
+        if "model" not in scols:
+            self.conn.execute("ALTER TABLE chat_sessions ADD COLUMN model TEXT")
+        # single-row client prefs (pinned models)
+        self.conn.execute(
+            """CREATE TABLE IF NOT EXISTS chat_prefs (
+                id      INTEGER PRIMARY KEY CHECK (id = 1),
+                pinned  TEXT NOT NULL DEFAULT '[]'
+            )""")
         self.conn.commit()
 
     def link_file_topic(self, file_id: int, topic_id: int) -> None:
