@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "demo:video": "node scripts/demo-video.mjs",
+    "demo:video": "node scripts/capture-real-ui.mjs && remotion render CampusDemo out/campus-demo.mp4 --codec=h264 --crf=18 --image-format=jpeg --fps=60 --concurrency=4",
+    "demo:real-capture": "node scripts/capture-real-ui.mjs",
+    "demo:real-video": "node scripts/capture-real-ui.mjs && remotion render CampusDemo out/campus-demo.mp4 --codec=h264 --crf=18 --image-format=jpeg --fps=60 --concurrency=4",
     "demo:capture": "node scripts/capture-frames.mjs",
     "demo:install": "npm i -D playwright && npx playwright install chromium --with-deps",
     "remotion:studio": "remotion studio",

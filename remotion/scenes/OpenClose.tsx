@@ -10,10 +10,15 @@ import {
 	Easing,
 } from "remotion";
 import { C, FONT, SPRING } from "../theme";
-import { PROOF_CHIPS, REPO, STACK, TAGLINE } from "../data/demo";
-import { Shell } from "../ui/Shell";
-import { HomeScreen } from "../ui/HomeScreen";
+import {
+	PROOF_CHIPS,
+	REPO,
+	STACK,
+	T,
+	TAGLINE,
+} from "../data/demo";
 import { Icon } from "../ui/Icons";
+import { MacWindow } from "../ui/MacWindow";
 import { enter } from "../ui/primitives";
 
 /** brand wordmark with a glint sweep masked to the logo silhouette */
@@ -293,26 +298,23 @@ export const S1Problem: React.FC = () => {
 /** S9 — proof chips over a blurred desk, then the end card */
 export const S9Close: React.FC = () => {
 	const frame = useCurrentFrame();
-	const cardO = interpolate(frame, [160, 185], [0, 1], {
+	const cardO = interpolate(frame, [145, 170], [0, 1], {
 		extrapolateRight: "clamp",
 	});
-	const fade = interpolate(frame, [450, 480], [0, 1], {
+	const fade = interpolate(frame, [255, 280], [0, 1], {
 		extrapolateRight: "clamp",
 	});
 	return (
 		<AbsoluteFill style={{ background: "#000" }}>
 			{/* blurred desk */}
 			<AbsoluteFill style={{ opacity: 1 - cardO }}>
-				<AbsoluteFill
-					style={{
+				<MacWindow
+					startFrom={T.s9}
+					animateIn={false}
+					contentStyle={{
 						filter: "blur(18px) brightness(0.42) saturate(0.85)",
-						transform: "scale(1.04)",
 					}}
-				>
-					<Shell active="home">
-						<HomeScreen />
-					</Shell>
-				</AbsoluteFill>
+				/>
 				<AbsoluteFill style={{ background: "rgba(5,5,8,0.35)" }} />
 				{/* proof chips */}
 				<AbsoluteFill
@@ -330,7 +332,7 @@ export const S9Close: React.FC = () => {
 							<div
 								key={t}
 								style={{
-									...enter(frame, 40 + i * 40, { y: 12 }),
+									...enter(frame, 18 + i * 28, { y: 12 }),
 									display: "flex",
 									alignItems: "center",
 									gap: 12,
@@ -365,7 +367,7 @@ export const S9Close: React.FC = () => {
 					gap: 30,
 				}}
 			>
-				<BrandLogo height={130} at={170} />
+				<BrandLogo height={130} at={158} />
 				<div
 					style={{
 						fontSize: 25,
@@ -380,13 +382,13 @@ export const S9Close: React.FC = () => {
 				<div
 					style={{
 						fontFamily: FONT.mono,
-						fontSize: 16,
+						fontSize: 15,
 						color: C.primary,
 						background: C.primaryBg,
 						border: "1px solid rgba(167,139,250,0.35)",
 						borderRadius: 10,
 						padding: "9px 18px",
-						...enter(frame, 240, { y: 8 }),
+						...enter(frame, 208, { y: 8 }),
 					}}
 				>
 					{REPO}
@@ -396,7 +398,7 @@ export const S9Close: React.FC = () => {
 						<span
 							key={t}
 							style={{
-								...enter(frame, 272 + i * 7, { y: 6 }),
+								...enter(frame, 232 + i * 5, { y: 6 }),
 								fontSize: 13.5,
 								fontWeight: 600,
 								color: C.text2,

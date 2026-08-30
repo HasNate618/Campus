@@ -1,45 +1,66 @@
 import type React from "react";
-import { AbsoluteFill, Sequence } from "remotion";
+import { AbsoluteFill, Sequence, interpolate, useCurrentFrame } from "remotion";
 import { T } from "./data/demo";
-import { S0Logo, S1Problem, S9Close } from "./scenes/OpenClose";
-import { S2Home, S3Sync, S4Content, S5Schedule } from "./scenes/Middle";
-import { S6Cite, S7Act, S8Quiz } from "./scenes/Agent";
+import { S0Logo, S9Close } from "./scenes/OpenClose";
 import { SfxTrack } from "./motion/Sfx";
 import { CaptionTrack } from "./motion/Caption";
 import { Fonts } from "./ui/Fonts";
+import { MacWindow } from "./ui/MacWindow";
 
-const scene = (from: number, Component: React.FC) => {
-	const nexts = Object.values(T).filter((v) => v > from);
-	const dur = (nexts.length ? Math.min(...nexts) : T.end) - from;
+const scene = (from: number, durationInFrames: number, Component: React.FC) => {
 	return (
-		<Sequence key={from} from={from} durationInFrames={dur} name={`S@${from}`}>
+		<Sequence
+			key={from}
+			from={from}
+			durationInFrames={durationInFrames}
+			name={`S@${from}`}
+		>
 			<Component />
 		</Sequence>
 	);
 };
 
+const CUTS = [T.home, T.sync, T.course, T.s6, T.s7, T.s8, T.s9];
+
+const SceneCuts: React.FC = () => {
+	const frame = useCurrentFrame();
+	return (
+		<AbsoluteFill style={{ pointerEvents: "none" }}>
+			{CUTS.map((at) => (
+				<AbsoluteFill
+					key={at}
+					style={{
+						opacity: interpolate(frame, [at - 7, at, at + 13], [0, 0.24, 0], {
+							extrapolateLeft: "clamp",
+							extrapolateRight: "clamp",
+						}),
+						background:
+							"linear-gradient(105deg, transparent 18%, rgba(167,139,250,0.7) 50%, transparent 82%)",
+						mixBlendMode: "screen",
+					}}
+				/>
+			))}
+		</AbsoluteFill>
+	);
+};
+
 /**
- * Campus — 88 s product demo (90 BPM beat grid, SFX, captions).
- * Scene boundaries all land on bar lines so a music bed drops in aligned.
+ * Campus — 42.7 s product demo built from the captured production UI.
+ * The app is presented inside a focused macOS-style window.
  */
 export const CampusDemo: React.FC = () => (
 	<AbsoluteFill
 		style={{
-			background: "#000",
+			background:
+				"radial-gradient(900px 620px at 50% 42%, #211d45 0%, #100f1b 48%, #07070b 100%)",
 			fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
 		}}
 	>
 		<Fonts />
-		{scene(T.s0, S0Logo)}
-		{scene(T.s1, S1Problem)}
-		{scene(T.s2, S2Home)}
-		{scene(T.s3, S3Sync)}
-		{scene(T.s4, S4Content)}
-		{scene(T.s5, S5Schedule)}
-		{scene(T.s6, S6Cite)}
-		{scene(T.s7, S7Act)}
-		{scene(T.s8, S8Quiz)}
-		{scene(T.s9, S9Close)}
+		<MacWindow />
+		{scene(T.s0, T.home - T.s0, S0Logo)}
+		{scene(T.s9, T.end - T.s9, S9Close)}
+		<SceneCuts />
 		<CaptionTrack />
 		<SfxTrack />
 	</AbsoluteFill>

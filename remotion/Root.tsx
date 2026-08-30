@@ -9,7 +9,7 @@ export const RemotionRoot: React.FC = () => {
 			<Composition
 				id="CampusDemo"
 				component={CampusDemo}
-				durationInFrames={DURATION} // 88 s @60fps — 90 BPM beat grid
+				durationInFrames={DURATION} // 42.7 s @60fps — short beat grid
 				fps={60}
 				width={1920}
 				height={1080}
