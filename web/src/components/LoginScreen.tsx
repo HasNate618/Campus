@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { api } from '@/api/client'
+import { CampusLogoFull } from '@/components/CampusLogo'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -33,7 +34,7 @@ export function LoginScreen({ onAuthed }: { onAuthed: () => void }) {
     <div className="login-screen">
       <form onSubmit={submit} className="login-card">
         <div className="login-card-head">
-          <h1 className="login-card-title">Campus</h1>
+          <CampusLogoFull height={34} className="login-card-logo" />
           <p className="login-card-sub">Enter the access password to continue.</p>
         </div>
         <Input
