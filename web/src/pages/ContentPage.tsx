@@ -77,6 +77,7 @@ function EmptyFile({ rawUrl, filename }: { rawUrl: string | null; filename: stri
  * is driven entirely by URL params: ?file= (absolute same-origin raw pdf),
  * zen=1 (per-pixel luma inversion, paper detection → transparent pages),
  * pageless=1 (continuous scroll, visible-page rendering, MRU page cache),
+ * embed=1 (postMessage Escape/Tab handoff + cookie auth for raw PDF URL),
  * plus its own text layer, zoom, rotation and keyboard nav. Rendering
  * happens inside the iframe via pdf.js (canvas/SVG), so this works on
  * Android too — an iframe pointing at the RAW pdf would trigger a download
@@ -95,7 +96,13 @@ function ZenPdfFrame({
 }) {
   const src = useMemo(() => {
     const abs = `${window.location.origin}${rawUrl}`
-    const q = new URLSearchParams({ file: abs, zen: '1', pageless: '1', t: String(fileId) })
+    const q = new URLSearchParams({
+      file: abs,
+      zen: '1',
+      pageless: '1',
+      embed: '1',
+      t: String(fileId),
+    })
     return `/zen-pdf/viewer.html?${q.toString()}`
   }, [rawUrl, fileId])
   // key remounts the frame per file so switching PDFs never reuses stale
@@ -331,6 +338,8 @@ export function ContentPage() {
   // sidebar zone, Tab → tree focus).
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return
+      if (e.source !== pdfFrameRef.current?.contentWindow) return
       if (e.data?.type === 'zenpdf-escape') {
         setZone('sidebar')
         pdfFrameRef.current?.blur()
