@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
 	CalendarDays,
@@ -15,7 +15,10 @@ import { useChat } from "@/chat/ChatContext";
 import { listKeys, useListCursor, useZoneKeys } from "@/lib/keynav";
 import { courseColor } from "@/lib/courses";
 import { fmtRelative } from "@/lib/format";
+import { useMediaQuery } from "@/lib/useMediaQuery";
 import type { Course } from "@/types";
+
+const AUTO_COLLAPSE = "(max-width: 900px) and (pointer: fine)" as const;
 
 const NAV = [
 	{ to: "/", label: "Home", icon: Home, end: true },
@@ -27,6 +30,7 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 	const [collapsed, setCollapsed] = useState(
 		() => localStorage.getItem("hc.sidebar.collapsed") === "1",
 	);
+	const autoNarrow = useMediaQuery(AUTO_COLLAPSE);
 	const { sessions, activeFor, openSession, renameSession, deleteSession } =
 		useChat();
 	const navigate = useNavigate();
@@ -49,6 +53,21 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 	useEffect(() => {
 		api.courses().then(setCourses).catch(console.error);
 	}, []);
+
+	// Auto-collapse on narrow desktop, but don't force — user can re-expand.
+	const prevNarrowRef = useRef(false);
+	useEffect(() => {
+		if (autoNarrow && !prevNarrowRef.current) {
+			setCollapsed((c) => {
+				if (!c) {
+					localStorage.setItem("hc.sidebar.collapsed", "1");
+					return true;
+				}
+				return c;
+			});
+		}
+		prevNarrowRef.current = autoNarrow;
+	}, [autoNarrow]);
 
 	// Alt+1 toggles the sidebar collapse (same as the 'c' key / footer button).
 	useEffect(() => {
