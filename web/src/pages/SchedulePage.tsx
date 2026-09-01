@@ -99,6 +99,7 @@ export function SchedulePage() {
 	const nowTop = (nowMin - MIN_START) * PX_MIN;
 	const showNow = today != null && nowMin >= MIN_START && nowMin <= MIN_END;
 	const ttScrollRef = useRef<HTMLDivElement>(null);
+	const ttRulerBodyRef = useRef<HTMLDivElement>(null);
 	const todayColRef = useRef<HTMLDivElement>(null);
 
 	// On mobile, keep all five days available but focus the current day.
@@ -113,6 +114,19 @@ export function SchedulePage() {
 			}
 		});
 	}, [showNow, today, nowTop]);
+
+	// Mobile: time gutter is outside the scrolling pane — translate it with vertical scroll
+	useEffect(() => {
+		const scroller = ttScrollRef.current;
+		const rulerBody = ttRulerBodyRef.current;
+		if (!scroller || !rulerBody) return;
+		const onScroll = () => {
+			rulerBody.style.transform = `translateY(${-scroller.scrollTop}px)`;
+		};
+		scroller.addEventListener("scroll", onScroll, { passive: true });
+		onScroll();
+		return () => scroller.removeEventListener("scroll", onScroll);
+	}, []);
 
 	const byDay = useMemo(() => {
 		const map: Record<Meeting["day"], Interval[]> = {
@@ -173,9 +187,7 @@ export function SchedulePage() {
 				</button>
 			</div>
 
-			{error && (
-				<div className="empty">Couldn't load your schedule — {error}</div>
-			)}
+			{error && <div className="empty">Couldn't load your schedule — {error}</div>}
 			{!error && (
 				<div className="tt-wrap">
 					<div className="tt">
@@ -184,7 +196,7 @@ export function SchedulePage() {
               to its right are culled by layout, not by an opaque fill. */}
 						<div className="tt-ruler">
 							<div className="tt-ruler-head" />
-							<div className="tt-ruler-body">
+							<div className="tt-ruler-body" ref={ttRulerBodyRef}>
 								{hours.map((h) => (
 									<span
 										key={h}
@@ -205,10 +217,7 @@ export function SchedulePage() {
 						<div className="tt-scroll" ref={ttScrollRef}>
 							<div className="tt-grid">
 								{DAYS.map((d) => (
-									<div
-										key={d}
-										className={`tt-day-head${d === today ? " today" : ""}`}
-									>
+									<div key={d} className={`tt-day-head${d === today ? " today" : ""}`}>
 										{DAY_FULL[d]}
 									</div>
 								))}
@@ -250,12 +259,11 @@ export function SchedulePage() {
 														width: `${w}%`,
 														background: `${color}24`,
 														borderColor: `${color}66`,
+														color,
 													}}
 												>
 													<b className="tt-code">{iv.course.code}</b>
-													{tall && (
-														<span className="tt-type">{iv.block.type}</span>
-													)}
+													{tall && <span className="tt-type">{iv.block.type}</span>}
 													{tall && (
 														<span className="tt-time">
 															{iv.meeting.start}–{iv.meeting.end}

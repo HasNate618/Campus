@@ -15,11 +15,7 @@ import { useChat } from "@/chat/ChatContext";
 import { listKeys, useListCursor, useZoneKeys } from "@/lib/keynav";
 import { courseColor } from "@/lib/courses";
 import { fmtRelative } from "@/lib/format";
-import { useMediaQuery } from "@/lib/useMediaQuery";
 import type { Course } from "@/types";
-
-const NARROW_DESKTOP =
-	"(min-width: 861px) and (max-width: 1100px)" as const;
 
 const NAV = [
 	{ to: "/", label: "Home", icon: Home, end: true },
@@ -28,11 +24,9 @@ const NAV = [
 
 export function Sidebar({ onLogout }: { onLogout: () => void }) {
 	const [courses, setCourses] = useState<Course[]>([]);
-	const [userCollapsed, setUserCollapsed] = useState(
+	const [collapsed, setCollapsed] = useState(
 		() => localStorage.getItem("hc.sidebar.collapsed") === "1",
 	);
-	const narrowDesktop = useMediaQuery(NARROW_DESKTOP);
-	const collapsed = userCollapsed || narrowDesktop;
 	const { sessions, activeFor, openSession, renameSession, deleteSession } =
 		useChat();
 	const navigate = useNavigate();
@@ -64,13 +58,11 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 		window.addEventListener("campus:toggle-pane", h);
 		return () => window.removeEventListener("campus:toggle-pane", h);
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [collapsed, userCollapsed, narrowDesktop]);
+	}, [collapsed]);
 
 	const toggle = () => {
 		setTip(null);
-		// Narrow desktop always shows the collapsed rail — ignore expand attempts.
-		if (narrowDesktop) return;
-		setUserCollapsed((c) => {
+		setCollapsed((c) => {
 			localStorage.setItem("hc.sidebar.collapsed", c ? "0" : "1");
 			return !c;
 		});
@@ -289,9 +281,7 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 											title="Delete chat"
 											onClick={() => {
 												if (
-													!window.confirm(
-														`Delete chat "${s.title}"? This cannot be undone.`,
-													)
+													!window.confirm(`Delete chat "${s.title}"? This cannot be undone.`)
 												)
 													return;
 												deleteSession(s.id);
