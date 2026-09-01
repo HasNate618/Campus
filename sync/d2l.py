@@ -122,11 +122,14 @@ class D2LClient:
                 return self._request(method, path, fresh, raw=raw, is_retry=True)
             raise D2LAuthError(f"401 on {path} and no fresh token — re-auth")
         if r.status_code == 429:
-            raise D2LRateLimitError(f"Rate limited on {path}")
+            retry_after = r.headers.get("retry-after", "?")
+            raise D2LRateLimitError(f"Rate limited on {path} (retry-after: {retry_after})")
         if r.status_code == 403:
             raise D2LError(f"403 on {path} (past-semester course or no access)")
         if r.status_code == 404:
             raise D2LError(f"404 on {path}")
+        if r.status_code >= 400:
+            print(f"  [d2l] {r.status_code} {method} {path}", flush=True)
         r.raise_for_status()
         if raw:
             return r

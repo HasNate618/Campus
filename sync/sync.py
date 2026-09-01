@@ -857,9 +857,12 @@ class SyncEngine:
         """Serialize extraction of unprocessed files (one at a time — the
         pdf-extractor worker is single and local engine is slow). Never
         blocks the sync critical path: called after digest."""
-        done = 0
+        done, failed = 0, 0
         rows = self.db.unprocessed_files(course_id) if course_id else \
             self.db.conn.execute("SELECT * FROM files WHERE processed=0").fetchall()
+        total = len(rows)
+        if total:
+            print(f"\n── extraction ({total} file{'s' if total != 1 else ''}) ──", flush=True)
         for row in rows:
             path = Path(self.cfg.data_root) / row["path"]
             # LONG SCAN POLICY: scanned PDFs (no embedded text layer) past
@@ -890,7 +893,13 @@ class SyncEngine:
             if self.extract_pdf(row):
                 done += 1
                 print(f"  extracted: {row['path']}", flush=True)
+            else:
+                failed += 1
         self.stats["pdfs_extracted"] = done
+        if total:
+            parts = [f"{done} extracted"]
+            if failed: parts.append(f"{failed} failed")
+            print(f"  → {', '.join(parts)}", flush=True)
         return done
 
     def _extraction_bg(self) -> None:
@@ -898,6 +907,11 @@ class SyncEngine:
         exiting. The pdf-extractor worker is single and slow (VLM page-by-
         page); the extract CLI pings ntfy when done."""
         try:
+            # count pending files before spawning
+            pending = self.db.conn.execute(
+                "SELECT COUNT(*) FROM files WHERE processed=0").fetchone()[0]
+            if pending:
+                print(f"  extraction: {pending} file(s) pending → extraction.log", flush=True)
             log = self.cfg.data_root / "sync_logs" / "extraction.log"
             log.parent.mkdir(parents=True, exist_ok=True)
             with open(log, "a") as f:
@@ -914,7 +928,7 @@ class SyncEngine:
         """Extract PDFs to markdown. Filters: course code, specific file,
         or size cap. Keeps originals. Idempotent (processed files skipped)."""
         limit = (max_mb or self.cfg.max_extract_size / 1024 / 1024) * 1024 * 1024
-        done, skipped = 0, 0
+        done, skipped, failed = 0, 0, 0
         if file_path:
             rel = str(Path(file_path).relative_to(self.cfg.data_root))
             rows = self.db.conn.execute(
@@ -941,7 +955,11 @@ class SyncEngine:
                 print(f"  extracted: {row['path']}")
             else:
                 print(f"  FAILED: {row['path']}")
-        print(f"Extract done: {done} extracted, {skipped} skipped by size")
+                failed += 1
+        parts = [f"{done} extracted"]
+        if skipped: parts.append(f"{skipped} skipped by size")
+        if failed: parts.append(f"{failed} failed")
+        print(f"Extract done: {', '.join(parts)}")
         return 0
 
     def run(self, code: str | None = None, dry_run: bool = False) -> int:
@@ -973,6 +991,8 @@ class SyncEngine:
 
                 if dry_run:
                     continue
+                # snapshot stats before this course to compute per-course deltas
+                _snap = {k: v for k, v in self.stats.items()}
                 self.sync_content(course["id"], org_unit, course_dir)
                 self.sync_embedded(course["id"], org_unit, course_dir)
                 self.sync_module_media(course["id"], org_unit, course_dir)
@@ -991,6 +1011,16 @@ class SyncEngine:
                 except Exception:
                     pass
                 self.stats["courses_processed"] += 1
+                # per-course summary
+                d_files = self.stats["files_new"] - _snap["files_new"]
+                d_changed = self.stats["files_changed"] - _snap["files_changed"]
+                d_ann = self.stats["announcements_new"] - _snap["announcements_new"]
+                parts = []
+                if d_files: parts.append(f"{d_files} new file{'s' if d_files != 1 else ''}")
+                if d_changed: parts.append(f"{d_changed} changed")
+                if d_ann: parts.append(f"{d_ann} announcement{'s' if d_ann != 1 else ''}")
+                summary = ", ".join(parts) if parts else "no changes"
+                print(f"    → {course['code']}: {summary}", flush=True)
 
             if not dry_run:
                 self.digest_and_log(run_id, courses)
@@ -1024,6 +1054,22 @@ class SyncEngine:
                     "green")
             self.db.finish_sync(run_id, "ok", **self.stats)
             print(f"\nSync OK: {json.dumps(self.stats)}")
+            # post-sync verification: count files/nodes/announcements per course
+            print("\n── verification ──")
+            for course in courses:
+                cid = course["id"]
+                fc = self.db.conn.execute(
+                    "SELECT COUNT(*) FROM files WHERE course_id=?", (cid,)).fetchone()[0]
+                nc = self.db.conn.execute(
+                    "SELECT COUNT(*) FROM content_nodes WHERE course_id=?", (cid,)).fetchone()[0]
+                ac = self.db.conn.execute(
+                    "SELECT COUNT(*) FROM announcements WHERE course_id=?", (cid,)).fetchone()[0]
+                ec = self.db.conn.execute(
+                    "SELECT COUNT(*) FROM files WHERE course_id=? AND processed=0", (cid,)).fetchone()[0]
+                status = "✓" if fc > 0 or nc > 0 else "⚠ empty"
+                pending = f" ({ec} pending extraction)" if ec else ""
+                print(f"  {course['code']}: {fc} files, {nc} nodes, {ac} announcements {status}{pending}")
+            print()
             return 0
         except Exception as e:
             self.db.finish_sync(run_id, "failed", error=str(e))
