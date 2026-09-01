@@ -123,8 +123,8 @@
     scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
   }
 
-  /* AMOLED: true-black canvas on phones */
-  @media (max-width: 860px) {
+  /* AMOLED: true-black canvas on touch phones */
+  @media (max-width: 860px) and (pointer: coarse) {
     html,
     body {
       background: #000;
@@ -937,9 +937,8 @@
     width: 100%;
   }
 
-  /* desktop: course picker pill stays neutral — the inline courseColor is
-     for the mobile solid-button variant only */
-  @media (min-width: 861px) {
+  /* desktop / fine pointer: course picker pill stays neutral */
+  @media (pointer: fine), (min-width: 861px) {
     .chat-head .scope-pill.course-picker-pill {
       background: var(--bg-raised) !important;
       border-color: rgba(255, 255, 255, 0.16) !important;
@@ -1004,7 +1003,7 @@
     align-items: stretch;
   }
 
-  @media (min-width: 861px) {
+  @media (pointer: fine), (min-width: 861px) {
     .popover {
       background: #2a2a30;
       border-color: rgba(255, 255, 255, 0.22);
@@ -1038,9 +1037,11 @@
     left: 8px;
   }
 
-  .popover.course-picker {
+  /* model picker only — header course picker is centered separately */
+  .input-toolbar .popover.course-picker {
     right: 0;
     left: auto;
+    transform: none;
   }
 
   .popover-item {
@@ -1488,7 +1489,7 @@
     white-space: nowrap;
   }
 
-  @media (max-width: 860px) {
+  @media (max-width: 860px) and (pointer: coarse) {
     .input-toolbar .ctx-meter {
       display: none;
     }
@@ -2834,6 +2835,7 @@
     z-index: 5;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
   }
 
   /* Header spacer aligns the ruler's hour labels with the day grid's
@@ -2918,7 +2920,6 @@
     align-items: center;
     justify-content: center;
     text-align: center;
-    color: rgba(255, 255, 255, 0.95);
   }
 
   .tt-block:hover {
@@ -2930,24 +2931,23 @@
     font-weight: 700;
     font-size: 11px;
     letter-spacing: -0.01em;
-    color: rgba(255, 255, 255, 0.95);
   }
 
   .tt-type {
-    color: rgba(255, 255, 255, 0.9);
+    opacity: 0.85;
     font-size: 10px;
     line-height: 1.25;
   }
 
   .tt-time {
-    color: rgba(255, 255, 255, 0.9);
+    opacity: 0.75;
     font-size: 10px;
     line-height: 1.25;
   }
 
   .tt-room {
     display: block;
-    color: rgba(255, 255, 255, 0.9);
+    opacity: 0.75;
     font-size: 10px;
     line-height: 1.25;
   }
@@ -2986,12 +2986,22 @@
     font-size: 11.5px;
   }
 
-  @media (max-width: 860px) {
-    /* pull the timetable toward the screen edge: slimmer page gutters and
-       a narrower ruler put the hour labels close to the left bezel */
+  @media (max-width: 860px) and (pointer: coarse) {
+    /* timetable: fit above fixed bottom nav; let tt-wrap flex to fill */
     .page.page-schedule {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      flex: 1;
+      min-height: 0;
+      height: auto;
       padding-left: 6px;
       padding-right: 6px;
+      padding-bottom: calc(60px + env(safe-area-inset-bottom));
+      box-sizing: border-box;
+    }
+    .page.page-schedule .sched-legend {
+      display: none;
     }
 
     .tt-ruler {
@@ -3006,8 +3016,9 @@
 
     .tt-wrap {
       max-height: none;
-      height: calc(100dvh - 100px);
-      min-height: 320px;
+      height: auto;
+      flex: 1;
+      min-height: 0;
       background: transparent;
       border-color: var(--glass-border);
       box-shadow: none;
@@ -3087,18 +3098,6 @@
       display: none;
     }
 
-    /* timetable scrolls inside the wrap, not the whole page */
-    .page.page-schedule {
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      height: 100dvh;
-      padding-bottom: 0;
-    }
-    .page.page-schedule .sched-legend {
-      display: none;
-    }
-
     .tt-scroll {
       overflow: auto;
       overscroll-behavior: contain;
@@ -3141,7 +3140,14 @@
   }
 
   .chat-head > .course-picker-anchor .popover.course-picker {
+    left: 50% !important;
+    right: auto !important;
+    transform: translateX(-50%) !important;
     width: min(320px, calc(100vw - 32px));
+    max-height: min(60vh, 420px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
   }
 
   .course-picker .popover-item {
@@ -3241,7 +3247,7 @@
     display: none;
   }
 
-  @media (max-width: 860px) {
+  @media (max-width: 860px) and (pointer: coarse) {
     .sidebar {
       display: none;
     }
@@ -3611,6 +3617,14 @@
       backdrop-filter: none !important;
       -webkit-backdrop-filter: none !important;
       box-shadow: 0 10px 32px rgba(0, 0, 0, 0.6) !important;
+    }
+
+    .chat-head > .course-picker-anchor .popover.course-picker {
+      left: 50% !important;
+      right: auto !important;
+      transform: translateX(-50%) !important;
+      max-height: min(50vh, 360px);
+      overflow-y: auto;
     }
   }
 
