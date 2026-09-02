@@ -138,6 +138,8 @@ interface ChatContextValue {
 	lastCourseId: number | null;
 	model: string | null;
 	setModel: (m: string | null) => void;
+	models: string[];
+	contexts: Record<string, number>;
 	pinned: string[];
 	setPinned: (p: string[]) => void;
 	setLastCourse: (c: number) => void;
@@ -406,22 +408,28 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 	// Live model list (for validation: a session's stored model may have been
 	// removed from the provider — fall back to the first available before send).
 	const [models, setModels] = useState<string[]>([]);
+	const [contexts, setContexts] = useState<Record<string, number>>({});
 	const modelsRef = useRef<string[]>([]);
 	modelsRef.current = models;
+	const modelRef = useRef<string | null>(model);
+	modelRef.current = model;
 	useEffect(() => {
 		api
 			.models()
 			.then((d) => {
 				if (d.models?.length) {
 					setModels(d.models);
+					if (d.contexts) setContexts(d.contexts);
 					const cur = localStorage.getItem(MODEL_KEY);
 					if (cur && !d.models.includes(cur)) {
-						// selected model removed from provider → clear so we fall back
-						setModelState(null);
+						// selected model removed → reseed to first available (not null)
+						setModelState(d.models[0] ?? null);
+					} else if (!cur) {
+						// Initial state: nothing selected yet → pick first available
+						setModelState(d.models[0]);
 					}
-					// Initial state: nothing selected yet (no chats) → pick the
-					// first available so the selector is never empty.
-					if (!cur) setModelState(d.models[0]);
+				} else if (d.contexts) {
+					setContexts(d.contexts);
 				}
 			})
 			.catch(() => {});
@@ -1142,8 +1150,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			// (stamped on first send); fall back to the current selector value,
 			// then to the first live model. If the chosen model was removed from
 			// the provider, substitute the first available so we never 402.
+			// Use modelRef to avoid stale closure (picker change must be seen immediately).
 			const live = modelsRef.current;
-			const effective = resolveTurnModel(session, model, live);
+			const effective = resolveTurnModel(session, modelRef.current, live);
 			// Stamp the session's model now (write-through on message) so
 			// reopening restores it — even if the user only picked it in the UI.
 			if (effective && session.model !== effective) {
@@ -1189,7 +1198,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				session.courseId,
 				history,
 				userNode.attachments ?? [],
-				resolveTurnModel(session, model, modelsRef.current),
+				resolveTurnModel(session, modelRef.current, modelsRef.current),
 			);
 		},
 		[sessions, streamTurn],
@@ -1247,7 +1256,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				session.courseId,
 				history,
 				target.attachments ?? [],
-				resolveTurnModel(session, model, modelsRef.current),
+				resolveTurnModel(session, modelRef.current, modelsRef.current),
 			);
 		},
 		[sessions, streamTurn],
@@ -1342,6 +1351,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			lastCourseId,
 			model,
 			setModel,
+			models,
+			contexts,
 			pinned,
 			setPinned,
 			setLastCourse,
@@ -1365,6 +1376,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			lastCourseId,
 			model,
 			setModel,
+			models,
+			contexts,
 			pinned,
 			setPinned,
 			setLastCourse,
