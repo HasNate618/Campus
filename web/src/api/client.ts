@@ -233,6 +233,7 @@ export async function streamChat(
 	branch?: string,
 	attachments: string[] = [],
 	signal?: AbortSignal,
+	sessionId?: number | null,
 ): Promise<void> {
 	const res = await fetch("/api/chat", {
 		method: "POST",
@@ -247,6 +248,7 @@ export async function streamChat(
 			model,
 			branch,
 			attachments,
+			session_id: sessionId ?? null,
 		}),
 		signal,
 	});

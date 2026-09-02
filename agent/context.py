@@ -171,6 +171,11 @@ RULES:
    prose: no filenames, page numbers, "according to…", "found in…", or "on page…"
    alongside the chip. Wrong: "It's in Solutions.md on page 2 [cite:1]."
    Right: "You need 48 hours notice [cite:1]."
+2b. Extracted .md files contain `<!-- page N -->` markers — these are page numbers
+    from the original PDF/slides. The citation system extracts them automatically
+    (check the `page` field in citation results). When answering from slide content,
+    include the page number in your response: "Input sanitization requires multiple
+    layers of defense [cite:1, p.59]." If the citation has a page field, USE it.
 3. For anything about dates/deadlines/status, query the harness tools first —
    do not guess from memory.
 4. To change something (extend a due date, write a note, add a fact/event),
