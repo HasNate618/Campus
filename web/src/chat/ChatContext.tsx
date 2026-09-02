@@ -146,6 +146,7 @@ interface ChatContextValue {
 	sessionsFor: (courseId: number) => ChatSession[];
 	activeFor: (courseId: number) => ChatSession | null;
 	openSession: (courseId: number, sessionId: string) => void;
+	setSessionModel: (sessionId: string, model: string | null) => void;
 	newChat: (courseId: number) => void;
 	renameSession: (sessionId: string, title: string) => void;
 	deleteSession: (sessionId: string) => void;
@@ -601,6 +602,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			/* ignore */
 		}
 	}, []);
+
+	const setSessionModel = useCallback((sessionId: string, m: string | null) => {
+		setSessions((ss) =>
+			ss.map((s) => (s.id === sessionId ? { ...s, model: m, updatedAt: Date.now() } : s)),
+		);
+		// keep global picker in sync so pill reflects what will be used next
+		setModel(m);
+	}, [setModel]);
 
 	const setPinned = useCallback((p: string[]) => {
 		const next = [...new Set(p)];
@@ -1359,6 +1368,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			sessionsFor,
 			activeFor,
 			openSession,
+			setSessionModel,
 			newChat,
 			renameSession,
 			deleteSession,
@@ -1384,6 +1394,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			sessionsFor,
 			activeFor,
 			openSession,
+			setSessionModel,
 			newChat,
 			renameSession,
 			deleteSession,

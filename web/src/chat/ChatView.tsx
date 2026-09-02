@@ -130,6 +130,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		contexts,
 		pinned,
 		setPinned,
+		setSessionModel,
 	} = useChat();
 	const [input, setInput] = useState("");
 	const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -178,14 +179,20 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 
 	const session = activeFor(courseId);
 	const courseSessions = sessionsFor(courseId);
+	// Effective model that will actually be used for the next turn (session
+	// stamp wins over global picker, matching ChatContext.resolveTurnModel)
+	const effectiveModel = useMemo(() => {
+		let e: string | null = session?.model || model || (models[0] ?? null);
+		if (e && models.length && !models.includes(e)) e = models[0] ?? null;
+		return e;
+	}, [session?.model, model, models]);
 	const path = session ? pathFor(session) : [];
 	const lastAssistant = [...path]
 		.reverse()
 		.find((n) => n.role === "assistant" && !n.intermediate);
-	// real context window of the selected model (reported by /api/chat/models);
-	// fall back to the configured default model's window when none is selected
-	const ctxMax = model
-		? (contexts[model] ?? null)
+	// real context window of the effective model (what will actually be used)
+	const ctxMax = effectiveModel
+		? (contexts[effectiveModel] ?? null)
 		: ctxDefault
 			? (contexts[ctxDefault] ?? null)
 			: null;
@@ -203,14 +210,18 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 
 	useEffect(() => {
 		if (!modelOpen) return;
-		const idx = model ? filteredModels.indexOf(model) : -1;
+		const idx = effectiveModel ? filteredModels.indexOf(effectiveModel) : -1;
 		modelList.setCursor(idx >= 0 ? idx : filteredModels.length > 0 ? 0 : -1);
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [modelOpen, filteredModels, model]);
+	}, [modelOpen, filteredModels, effectiveModel]);
 
 	const pickModelAt = (i: number) => {
 		const m = filteredModels[i];
-		if (m) setModel(m);
+		if (!m) return;
+		// Update global picker and, if a chat is active, stamp its session too
+		// so "selected B but used A" can never happen (session precedence is
+		// visible and override is immediate).
+		if (session) setSessionModel(session.id, m);
+		else setModel(m);
 		setModelOpen(false);
 	};
 
@@ -1279,7 +1290,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 										setModelOpen((o) => !o);
 										setModelQuery("");
 									}}
-									title={model ?? models[0] ?? "No model"}
+									title={effectiveModel ?? "No model"}
 								>
 									<Cpu size={12} />
 									<span
@@ -1290,7 +1301,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 											whiteSpace: "nowrap",
 										}}
 									>
-										{model ? shortModel(model) : models[0] ? shortModel(models[0]) : "No model"}
+										{effectiveModel ? shortModel(effectiveModel) : "No model"}
 									</span>
 									<ChevronDown size={11} />
 								</button>
@@ -1334,11 +1345,12 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 												<button
 													key={m}
 													ref={modelList.setRef(i)}
-													className={`popover-item${model === m ? " selected" : ""}${modelList.cursor === i ? " kbd-cursor" : ""}`}
-													onClick={() => {
-														setModel(m);
-														setModelOpen(false);
-													}}
+											className={`popover-item${effectiveModel === m ? " selected" : ""}${modelList.cursor === i ? " kbd-cursor" : ""}`}
+												onClick={() => {
+												if (session) setSessionModel(session.id, m);
+												else setModel(m);
+												setModelOpen(false);
+											}}
 													title={m}
 												>
 													<span
@@ -1350,7 +1362,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 													>
 														{m}
 													</span>
-													{model === m && (
+													{effectiveModel === m && (
 														<Check size={13} style={{ flexShrink: 0 }} />
 													)}
 													<button
