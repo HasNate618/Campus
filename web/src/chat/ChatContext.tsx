@@ -721,6 +721,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			history: { role: "user" | "assistant"; content: string }[],
 			attachments: ChatAttachment[] = [],
 			model?: string | null,
+			serverId?: number | null,
 		) => {
 			let assistantId: string | null = null;
 			let turnThinking = "";
@@ -989,7 +990,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				userNodeId,
 				attachments.map((a) => a.id),
 				ac.signal,
-				session.serverId ?? null,
+				serverId ?? null,
 			)
 				.catch((err) => {
 					closeThought();
@@ -1172,7 +1173,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 					),
 				);
 			}
-			streamTurn(sid, userNodeId, text, courseId, history, attachments, effective);
+			streamTurn(sid, userNodeId, text, courseId, history, attachments, effective, session.serverId ?? null);
 			return true;
 		},
 		[activeFor, sessions, setLastCourse, streamTurn],
