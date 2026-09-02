@@ -67,6 +67,14 @@ def main() -> int:
             return 0 if ok else 1
         n = engine.run_extraction_queue(course_id)
         print(f"extraction queue done: {n} extracted")
+        # re-index so newly extracted PDFs enter the search corpus
+        if n > 0:
+            try:
+                from sync.search import rebuild as rebuild_index
+                idx = rebuild_index(cfg, db)
+                print(f"  re-index: {idx['chunks']} chunks ({idx['embedded_items']} embedded)")
+            except Exception as e:
+                print(f"  re-index skipped: {e}")
         # one completion ping (the sync's own ntfy already fired)
         try:
             import httpx as _h

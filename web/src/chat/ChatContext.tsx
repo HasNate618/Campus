@@ -989,6 +989,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				userNodeId,
 				attachments.map((a) => a.id),
 				ac.signal,
+				session.serverId ?? null,
 			)
 				.catch((err) => {
 					closeThought();
