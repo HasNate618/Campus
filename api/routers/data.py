@@ -71,14 +71,16 @@ def asset(rel_path: str):
 # Brightspace-hosted images inside html content need an authenticated fetch —
 # the browser has no Brightspace session, so we proxy through the API token.
 # The allowlist is config-driven (cfg.brightspace_hosts); empty = proxy disabled.
-from api.config import cfg as _cfg
-_ALLOWED_PROXY_HOSTS = tuple(_cfg.brightspace_hosts)
+# Loaded fresh per-request so config.yaml changes take effect without restart.
 
 
 @router.get("/config")
 def app_config():
     """Frontend bootstrap config: Brightspace hosts/base URL for the content
     proxy + link rebasing. Empty lists = features disabled (portable default)."""
+    from sync.config import Config
+
+    _cfg = Config.load()
     return {
         "brightspace_hosts": list(_cfg.brightspace_hosts),
         "brightspace_base_url": _cfg.brightspace_base_url,
@@ -91,8 +93,12 @@ def proxy(url: str):
     from urllib.parse import urlparse
     from fastapi.responses import Response
     from api.config import cfg
+    from sync.config import Config
+
+    _fresh = Config.load()
+    _allowed = tuple(_fresh.brightspace_hosts)
     u = urlparse(url)
-    if u.hostname not in _ALLOWED_PROXY_HOSTS:
+    if u.hostname not in _allowed:
         raise HTTPException(403, "Host not allowed")
     if u.scheme not in ("http", "https"):
         raise HTTPException(403, "Scheme not allowed")
