@@ -68,8 +68,7 @@ def get_schedule() -> list[dict]:
         """SELECT c.id, c.code, c.name, c.units, c.class_nbr, c.instructor,
                   s.kind, s.section, s.day_of_week, s.start_time, s.end_time, s.room
            FROM courses c JOIN course_sessions s ON s.course_id = c.id
-           WHERE c.is_active = 1
-           ORDER BY c.code, s.kind, s.day_of_week"""
+           ORDER BY c.term DESC, c.code, s.kind, s.day_of_week"""
     )
     courses: dict[int, dict] = {}
     for r in rows:

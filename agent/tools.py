@@ -271,14 +271,22 @@ def content_read_file(db: DB, cfg: Config, args: dict) -> dict:
     offset = max(int(args.get("offset", 0)), 0)
     limit = min(int(args.get("limit", 200)), 1000)
     chunk = "\n".join(lines[offset:offset + limit])
+    # extract page number from <!-- page N --> markers
+    result = {"path": str(path), "content": chunk,
+              "offset": offset, "total_lines": total}
+    try:
+        from agent.citations import build_page_index, page_at_line
+        page_idx = build_page_index(lines)
+        if page_idx:
+            result["currentPage"] = page_at_line(page_idx, offset)
+    except Exception:
+        pass
     if offset >= total:
-        note = f"offset {offset} is past the end — the file has {total} lines; read from offset 0"
+        result["note"] = f"offset {offset} is past the end — the file has {total} lines; read from offset 0"
     else:
         end = min(offset + len(lines[offset:offset + limit]), total)
-        note = f"lines {offset}-{end} of {total}; use offset/limit to page further"
-    return {"path": str(path), "content": chunk,
-            "offset": offset, "total_lines": total,
-            "note": note}
+        result["note"] = f"lines {offset}-{end} of {total}; use offset/limit to page further"
+    return result
 
 
 def content_grep(db: DB, cfg: Config, args: dict) -> dict:
@@ -310,11 +318,38 @@ def content_grep(db: DB, cfg: Config, args: dict) -> dict:
             if p.suffix.lower() in (".md", ".txt") and query.lower() in p.read_text(errors="ignore").lower():
                 lines.append(f"{p}: (matched)")
     matches = []
+    # cache page indices per file to avoid re-reading
+    _page_cache: dict[str, list] = {}
     for ln in lines:
         try:
-            path, rest = ln.split(":", 1)
-            rel = path.replace(str(root) + "/", "")
-            matches.append({"path": rel, "snippet": rest.strip()[:200]})
+            # rg output: path:line_number:content or path:content
+            path_part, rest = ln.split(":", 1)
+            rel = path_part.replace(str(root) + "/", "")
+            line_no = None
+            content_part = rest
+            # try to extract line number (first field after path)
+            parts = rest.split(":", 1)
+            if len(parts) == 2 and parts[0].strip().isdigit():
+                line_no = int(parts[0].strip())
+                content_part = parts[1]
+            match = {"path": rel, "snippet": content_part.strip()[:200]}
+            # add page number if we have a line number and the file has page markers
+            if line_no is not None and rel.endswith(".md"):
+                try:
+                    if rel not in _page_cache:
+                        from agent.citations import build_page_index
+                        full_path = root / rel
+                        if full_path.exists():
+                            _page_cache[rel] = build_page_index(
+                                full_path.read_text(errors="replace").splitlines())
+                        else:
+                            _page_cache[rel] = []
+                    if _page_cache.get(rel):
+                        from agent.citations import page_at_line
+                        match["page"] = page_at_line(_page_cache[rel], line_no)
+                except Exception:
+                    pass
+            matches.append(match)
         except ValueError:
             continue
     # module descriptions live in the DB, not on disk — the model's go-to
