@@ -126,6 +126,8 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		setActiveBranch,
 		model,
 		setModel,
+		models,
+		contexts,
 		pinned,
 		setPinned,
 	} = useChat();
@@ -137,8 +139,6 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const [modelOpen, setModelOpen] = useState(false);
 	const [modelQuery, setModelQuery] = useState("");
-	const [models, setModels] = useState<string[]>([]);
-	const [contexts, setContexts] = useState<Record<string, number>>({});
 	const [renamingTitle, setRenamingTitle] = useState(false);
 	const [renameTitleText, setRenameTitleText] = useState("");
 	const filteredModels = useMemo(
@@ -175,24 +175,6 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 	const historyRef = useRef<HTMLDivElement>(null);
 	const pickerRef = useRef<HTMLDivElement>(null);
 	const modelRef = useRef<HTMLDivElement>(null);
-
-	useEffect(() => {
-		api
-			.models()
-			.then((d) => {
-				if (d.models?.length) {
-					setModels(d.models);
-					// A model persisted in localStorage can go stale (removed upstream,
-					// renamed, or a provider that no longer accepts it) — if the stored
-					// model isn't in the live list, fall back to the first available so
-					// the selector never goes blank / 402s on every turn.
-					if (model && !d.models.includes(model)) setModel(d.models[0] ?? null);
-				}
-				if (d.contexts) setContexts(d.contexts);
-			})
-			.catch(() => {});
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, []);
 
 	const session = activeFor(courseId);
 	const courseSessions = sessionsFor(courseId);
