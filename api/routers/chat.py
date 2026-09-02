@@ -45,7 +45,7 @@ def _inject_reasoning(history: list[dict], key: tuple) -> list[dict]:
 def _store_reasoning(history: list[dict], key: tuple) -> None:
     for m in reversed(history):
         if m.get("role") == "assistant" and (m.get("reasoning") or m.get("reasoning_content")):
-            _reasoning_cache[key] = m.get("reasoning") or m.get("reasoning_content")
+            _reasoning_cache[key] = m.get("reasoning") or m.get("reasoning_content")  # type: ignore[assignment]
             return
 
 
@@ -76,7 +76,7 @@ def _extract_upload(path: Path, mime: str) -> str | None:
     if mime == "application/pdf":
         import fitz
         doc = fitz.open(path)
-        text = "\n\n".join(f"[Page {i + 1}]\n{page.get_text()}" for i, page in enumerate(doc))
+        text = "\n\n".join(f"[Page {i + 1}]\n{page.get_text()}" for i, page in enumerate(doc))  # type: ignore[arg-type]
         return text[:120_000] or None
     if mime.startswith("text/") or mime == "application/json":
         return path.read_text(encoding="utf-8", errors="replace")[:120_000]
@@ -275,18 +275,33 @@ def put_session(sid: int, body: SessionUpdate):
         new_tree = json.dumps({"nodes": body.nodes or [], "activeNodeId": body.activeNodeId},
                               default=str)
         ts = body.updatedAt / 1000 if body.updatedAt else None
+        # model: explicit null must clear (inherit), omitted keeps old —
+        # distinguish via model_fields_set (COALESCE would prevent clearing).
+        model_in = "model" in body.model_fields_set
         if ts is not None:
-            db.conn.execute(
-                "UPDATE chat_sessions SET title=COALESCE(?, title), nodes_json=?, "
-                "model=COALESCE(?, model), "
-                "updated_at=datetime(?, 'unixepoch') WHERE id=?",
-                (body.title, new_tree, body.model, ts, sid))
+            if model_in:
+                db.conn.execute(
+                    "UPDATE chat_sessions SET title=COALESCE(?, title), nodes_json=?, "
+                    "model=?, "
+                    "updated_at=datetime(?, 'unixepoch') WHERE id=?",
+                    (body.title, new_tree, body.model, ts, sid))
+            else:
+                db.conn.execute(
+                    "UPDATE chat_sessions SET title=COALESCE(?, title), nodes_json=?, "
+                    "updated_at=datetime(?, 'unixepoch') WHERE id=?",
+                    (body.title, new_tree, ts, sid))
         else:
-            db.conn.execute(
-                "UPDATE chat_sessions SET title=COALESCE(?, title), nodes_json=?, "
-                "model=COALESCE(?, model), "
-                "updated_at=datetime('now') WHERE id=?",
-                (body.title, new_tree, body.model, sid))
+            if model_in:
+                db.conn.execute(
+                    "UPDATE chat_sessions SET title=COALESCE(?, title), nodes_json=?, "
+                    "model=?, "
+                    "updated_at=datetime('now') WHERE id=?",
+                    (body.title, new_tree, body.model, sid))
+            else:
+                db.conn.execute(
+                    "UPDATE chat_sessions SET title=COALESCE(?, title), nodes_json=?, "
+                    "updated_at=datetime('now') WHERE id=?",
+                    (body.title, new_tree, sid))
         db.conn.commit()
         return {"ok": True, "id": sid}
     finally:
@@ -360,10 +375,11 @@ def list_models():
     failover llm_urls list. Falls back to an empty list (with the error) if
     no endpoint is reachable.
     """
-    from api.config import cfg
+    from sync.config import Config
     from agent.chat import llm_headers
     import httpx
 
+    cfg = Config.load()
     endpoints = cfg.llm_endpoints()
     last_err: str | None = None
     for url in endpoints:
