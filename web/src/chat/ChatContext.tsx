@@ -404,7 +404,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			.then((d) => {
 				if (d?.pinned?.length) setPinnedState(d.pinned);
 			})
-			.catch(() => {})
+			.catch(() => {});
 	}, []);
 	// Live model list (for validation: a session's stored model may have been
 	// removed from the provider — fall back to the first available before send).
@@ -475,8 +475,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 					// server session got appended as a fresh duplicate on EVERY reload.
 					const byId = new Map(list.map((s) => [String(s.id), s]));
 					const merged = prev.map((local) => {
-						const key =
-							local.serverId != null ? String(local.serverId) : local.id;
+						const key = local.serverId != null ? String(local.serverId) : local.id;
 						const srv = byId.get(key);
 						if (!srv) return local;
 						byId.delete(key);
@@ -603,20 +602,25 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 		}
 	}, []);
 
-	const setSessionModel = useCallback((sessionId: string, m: string | null) => {
-		setSessions((ss) =>
-			ss.map((s) => (s.id === sessionId ? { ...s, model: m, updatedAt: Date.now() } : s)),
-		);
-		// keep global picker in sync so pill reflects what will be used next
-		setModel(m);
-	}, [setModel]);
+	const setSessionModel = useCallback(
+		(sessionId: string, m: string | null) => {
+			setSessions((ss) =>
+				ss.map((s) =>
+					s.id === sessionId ? { ...s, model: m, updatedAt: Date.now() } : s,
+				),
+			);
+			// keep global picker in sync so pill reflects what will be used next
+			setModel(m);
+		},
+		[setModel],
+	);
 
 	const setPinned = useCallback((p: string[]) => {
 		const next = [...new Set(p)];
 		setPinnedState(next);
-		api.chatPinnedPut(next).catch((e) =>
-			console.error("[chat-pinned] save failed:", e),
-		);
+		api
+			.chatPinnedPut(next)
+			.catch((e) => console.error("[chat-pinned] save failed:", e));
 	}, []);
 
 	const sessionsFor = useCallback(
@@ -721,6 +725,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			history: { role: "user" | "assistant"; content: string }[],
 			attachments: ChatAttachment[] = [],
 			model?: string | null,
+			serverId?: number | null,
 		) => {
 			let assistantId: string | null = null;
 			let turnThinking = "";
@@ -840,10 +845,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 							steps = [...steps, { kind: "narration", text: seg }];
 							patchNode(sid, id, (n) => ({
 								...n,
-								content: n.content.slice(
-									0,
-									Math.max(0, n.content.length - seg.length),
-								),
+								content: n.content.slice(0, Math.max(0, n.content.length - seg.length)),
 							}));
 						}
 						steps = [
@@ -883,9 +885,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 											...s,
 											updatedAt: Date.now(),
 											nodes: s.nodes.map((n) =>
-												n.role === "tool" &&
-												n.tool === (d.tool as string) &&
-												!n.done
+												n.role === "tool" && n.tool === (d.tool as string) && !n.done
 													? { ...n, done: true, result: d.result }
 													: n,
 											),
@@ -989,6 +989,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				userNodeId,
 				attachments.map((a) => a.id),
 				ac.signal,
+				serverId ?? null,
 				sid,
 			)
 				.catch((err) => {
@@ -1072,8 +1073,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 							streaming: false,
 							thinkingDone: true,
 							content:
-								n.content ||
-								"⚠ The response ended before completing. Try again.",
+								n.content || "⚠ The response ended before completing. Try again.",
 							steps,
 						}));
 					}
@@ -1090,8 +1090,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			text: string,
 			attachments: ChatAttachment[] = [],
 		): boolean => {
-			if (busyRef.current || (!text.trim() && !attachments.length))
-				return false;
+			if (busyRef.current || (!text.trim() && !attachments.length)) return false;
 			let sid = activeFor(courseId)?.id;
 			if (!sid) {
 				// first message of a new session — create it inline (async newChat
@@ -1112,8 +1111,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			};
 			const history = pathFor(session)
 				.filter(
-					(n) =>
-						n.role !== "tool" && !(n.role === "assistant" && n.intermediate),
+					(n) => n.role !== "tool" && !(n.role === "assistant" && n.intermediate),
 				)
 				.map((n) => ({
 					role: n.role as "user" | "assistant",
@@ -1172,7 +1170,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 					),
 				);
 			}
-			streamTurn(sid, userNodeId, text, courseId, history, attachments, effective);
+			streamTurn(sid, userNodeId, text, courseId, history, attachments, effective, activeFor(courseId)?.serverId);
 			return true;
 		},
 		[activeFor, sessions, setLastCourse, streamTurn],
@@ -1209,6 +1207,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				history,
 				userNode.attachments ?? [],
 				resolveTurnModel(session, modelRef.current, modelsRef.current),
+				session.serverId,
 			);
 		},
 		[sessions, streamTurn],
@@ -1267,6 +1266,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				history,
 				target.attachments ?? [],
 				resolveTurnModel(session, modelRef.current, modelsRef.current),
+				session.serverId,
 			);
 		},
 		[sessions, streamTurn],
