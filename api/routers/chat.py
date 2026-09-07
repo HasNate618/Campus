@@ -54,6 +54,9 @@ class ChatRequest(BaseModel):
     course_id: int | None = None
     history: list[dict[str, Any]] = []
     session_id: int | None = None  # optional server-side persistence
+    # Frontend's stable per-conversation id (local UUID). Forwarded as the
+    # upstream x-session-id for gateway session affinity — never persisted.
+    client_session_id: str | None = None
     model: str | None = None  # LLM model override (default = config)
     branch: str | None = None  # user-node id that starts this turn (fork key)
     attachments: list[str] = []
@@ -152,10 +155,17 @@ def _load_attachments(db, cfg, ids: list[str]) -> list[dict[str, Any]]:
     if not ids:
         return []
     clean = list(dict.fromkeys(ids))[:8]
-    rows = db.conn.execute(
-        f"SELECT id, original_name, mime_type, stored_path, extracted_text FROM chat_attachments WHERE id IN ({','.join('?' for _ in clean)})",
-        clean,
-    ).fetchall()
+    # One static query per id (no dynamic IN-list): keeps the SQL string
+    # constant so caller-controlled ids only ever ride as bound parameters.
+    rows = []
+    for aid in clean:
+        row = db.conn.execute(
+            "SELECT id, original_name, mime_type, stored_path, extracted_text "
+            "FROM chat_attachments WHERE id = ?",
+            (aid,),
+        ).fetchone()
+        if row is not None:
+            rows.append(row)
     found = {r["id"] for r in rows}
     if found != set(clean):
         raise HTTPException(404, "One or more attachments were not found")
@@ -403,7 +413,7 @@ def list_models():
 
 def _do_turn(req: ChatRequest, emit) -> None:
     """Blocking run_turn + optional persistence. Runs in a worker thread."""
-    from agent.chat import run_turn
+    from agent.chat import run_turn, sanitize_session_id
     from sync.config import Config
     from sync.db import DB
 
@@ -415,9 +425,16 @@ def _do_turn(req: ChatRequest, emit) -> None:
     try:
         history = _inject_reasoning(req.history, key)
         attachments = _load_attachments(db, cfg, req.attachments)
+        # Stable per-conversation identity for upstream session affinity:
+        # prefer the client's own id, else the server session, else run_turn
+        # mints one fresh id for the turn (intra-turn stable only).
+        conversation_id = sanitize_session_id(req.client_session_id)
+        if conversation_id is None and req.session_id is not None:
+            conversation_id = f"campus-chat-{req.session_id}"
         answer, full_history = run_turn(cfg, db, req.message, course_id=req.course_id,
                                         model=req.model, history=history,
-                                        verbose=False, emit=emit, attachments=attachments)
+                                        verbose=False, emit=emit, attachments=attachments,
+                                        conversation_id=conversation_id)
         _store_reasoning(full_history, key)
         if req.session_id:
             db.conn.execute(
