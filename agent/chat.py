@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import time
+import uuid
 from pathlib import Path
 
 import httpx
@@ -24,16 +26,58 @@ MAX_ITERATIONS = 24
 NUDGE_AT = 22  # after this many rounds, tell the model to stop calling tools
 
 
+LLM_USER_AGENT = "Campus/0.1"
+
+# Allowed chars for a caller-asserted session id, mirroring Bifrost's
+# ValidateOpencodeSessionID (maximhq/bifrost#6818): header-safe only, so the
+# value can ride along verbatim through gateways. Deliberately the same set
+# Bifrost accepts for x-opencode-session — x-session-id falls back into that
+# chain — minus nothing.
+_SESSION_ID_SAFE = re.compile(r"[^A-Za-z0-9._~=-]")
+MAX_SESSION_ID_LEN = 255
+
+
+def sanitize_session_id(value: str | None) -> str | None:
+    """Clean a conversation id for use as x-session-id. Returns None when
+    unusable (empty/only-unsafe chars) so callers fall back to a fresh UUID
+    instead of sending a header the gateway would reject."""
+    if not value:
+        return None
+    v = _SESSION_ID_SAFE.sub("", value.strip())
+    if not v:
+        return None
+    return v[:MAX_SESSION_ID_LEN]
+
+
+def llm_session_headers(conversation_id: str | None) -> dict:
+    """Standard session-affinity headers for chat-completion calls.
+
+    Sends ONLY the generic x-session-id (one stable value per conversation).
+    Never sends x-opencode-session directly: when the endpoint is Bifrost,
+    its transport resolves affinity itself (verbatim x-opencode-session, else
+    the session identity incl. x-session-id, else a synth UUID) and forwards
+    upstream on opencode-family calls only — a provider-specific header from
+    us would leak affinity to every provider behind the gateway.
+    """
+    v = sanitize_session_id(conversation_id)
+    if not v:
+        return {}
+    return {"x-session-id": v}
+
+
 def llm_headers(cfg: Config) -> dict:
     """Headers for OpenAI-compatible calls. Bearer auth only when a key is set
-    (local gateways usually need none)."""
+    (local gateways usually need none). Always identifies as Campus (not a
+    generic HTTP-library UA) so gateways can attribute + route agent traffic."""
+    headers = {"User-Agent": LLM_USER_AGENT}
     if cfg.llm_api_key:
-        return {"Authorization": f"Bearer {cfg.llm_api_key}"}
-    return {}
+        headers["Authorization"] = f"Bearer {cfg.llm_api_key}"
+    return headers
 
 
 def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
-                on_token=None, on_reasoning=None) -> tuple[dict, dict | None]:
+                on_token=None, on_reasoning=None,
+                session_id: str | None = None) -> tuple[dict, dict | None]:
     """Streaming chat completion with LLM failover.
 
     Tries each URL in ``cfg.llm_endpoints()`` (llm_urls / OPENAI_ENDPOINTS,
@@ -46,13 +90,14 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
     endpoints = cfg.llm_endpoints()
     if not endpoints:
         raise RuntimeError("no LLM endpoint configured")
+    headers = {**llm_headers(cfg), **llm_session_headers(session_id)}
     last_err: Exception | None = None
     for url in endpoints:
         try:
             with httpx.stream(
                 "POST",
                 f"{url}/chat/completions",
-                headers=llm_headers(cfg),
+                headers=headers,
                 json={
                     "model": model or cfg.llm_model,
                     "messages": messages,
@@ -129,7 +174,8 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
 
 def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = None,
              model: str | None = None, history: list[dict] | None = None,
-             verbose: bool = True, emit=None, attachments: list[dict] | None = None) -> tuple[str, list[dict]]:
+             verbose: bool = True, emit=None, attachments: list[dict] | None = None,
+             conversation_id: str | None = None) -> tuple[str, list[dict]]:
     """Run one user turn. Returns (final_answer, full_message_history).
 
     emit(event, data) is called for SSE streaming:
@@ -178,6 +224,12 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
         content = user_message + "".join(extracted)
     messages.append({"role": "user", "content": content})
 
+    # One stable session for the whole turn: every tool-loop iteration and
+    # retry below shares it so the gateway keeps one backend/prompt cache.
+    # Falls back to a fresh id per turn (intra-turn stable, no false affinity
+    # across conversations) when the caller has no conversation identity.
+    session_id = sanitize_session_id(conversation_id) or str(uuid.uuid4())
+
     citations = CitationRegistry(db, cfg, course_id)
     total_usage: dict = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     for i in range(MAX_ITERATIONS):
@@ -195,7 +247,8 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
             try:
                 msg, usage = _model_call(cfg, messages, model,
                                          on_token=(lambda t: emit("token", {"text": t}) if emit else None),
-                                         on_reasoning=(lambda t: emit("reasoning", {"text": t}) if emit else None))
+                                         on_reasoning=(lambda t: emit("reasoning", {"text": t}) if emit else None),
+                                         session_id=session_id)
                 break
             except Exception as e:
                 if attempt == 4:
@@ -203,6 +256,7 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
                 delay = attempt  # 1s, 2s, 3s backoff
                 print(f"  [model_call] transient failure ({e.__class__.__name__}: {str(e)[:120]}), retry {attempt}/3 in {delay}s…", flush=True)
                 time.sleep(delay)
+        assert msg is not None  # attempt 4 re-raises, so msg is always set here
         if usage:
             for k in total_usage:
                 total_usage[k] += usage.get(k, 0)
@@ -254,7 +308,7 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
 
 
 def chat_repl(cfg: Config, db: DB, course_code: str | None = None,
-              model: str | None = None) -> int:
+              model: str | None = None, conversation_id: str | None = None) -> int:
     """Interactive terminal chat."""
     course_id = None
     if course_code:
@@ -268,6 +322,8 @@ def chat_repl(cfg: Config, db: DB, course_code: str | None = None,
         else:
             print(f"Unknown course: {course_code} — continuing unscoped")
     print("Campus chat. Type 'exit' to quit. (model: %s)" % (model or cfg.llm_model))
+    # One stable session for the whole REPL process — every turn shares it.
+    conversation_id = sanitize_session_id(conversation_id) or str(uuid.uuid4())
     history: list[dict] = []
     while True:
         try:
@@ -279,7 +335,8 @@ def chat_repl(cfg: Config, db: DB, course_code: str | None = None,
             continue
         if q.lower() in ("exit", "quit"):
             break
-        answer, history = run_turn(cfg, db, q, course_id=course_id, model=model, history=history)
+        answer, history = run_turn(cfg, db, q, course_id=course_id, model=model,
+                                   history=history, conversation_id=conversation_id)
         print(f"\ncampus> {answer}")
         # keep history bounded (drop system + oldest user/assistant pairs)
         if len(history) > 24:
@@ -296,6 +353,8 @@ def main() -> int:
     ap.add_argument("--one", help="single question, no REPL")
     ap.add_argument("--course", help="course code scope, e.g. 'CS 1100A'")
     ap.add_argument("--model", help="LLM model override")
+    ap.add_argument("--session", help="stable conversation id for session affinity "
+                        "(default: fresh id per invocation)")
     ap.add_argument("--verbose/--quiet", dest="verbose", action=argparse.BooleanOptionalAction, default=True)
     args = ap.parse_args()
 
@@ -313,10 +372,12 @@ def main() -> int:
 
     if args.one:
         answer, _ = run_turn(cfg, db, args.one, course_id=course_id,
-                             model=args.model, verbose=args.verbose)
+                             model=args.model, verbose=args.verbose,
+                             conversation_id=args.session)
         print(answer)
         return 0
-    return chat_repl(cfg, db, args.course, model=args.model)
+    return chat_repl(cfg, db, args.course, model=args.model,
+                       conversation_id=args.session)
 
 
 if __name__ == "__main__":
