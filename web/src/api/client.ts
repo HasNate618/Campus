@@ -233,6 +233,7 @@ export async function streamChat(
 	branch?: string,
 	attachments: string[] = [],
 	signal?: AbortSignal,
+	sessionId?: number | null,
 	// stable per-conversation id -> server forwards it as upstream x-session-id
 	clientSessionId?: string,
 ): Promise<void> {
@@ -249,6 +250,7 @@ export async function streamChat(
 			model,
 			branch,
 			attachments,
+			session_id: sessionId ?? null,
 			client_session_id: clientSessionId,
 		}),
 		signal,
