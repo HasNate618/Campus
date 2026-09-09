@@ -27,6 +27,12 @@ from sync.d2l import D2LClient, D2LError
 from sync.db import DB
 from sync.token_store import TokenStore
 
+try:
+    from sync.convert import convert_office_to_pdf
+except Exception:  # pragma: no cover — import guard only
+    def convert_office_to_pdf(path, timeout_s=120):  # type: ignore
+        return None
+
 from agent.chat import llm_headers
 
 TOPIC_TYPE_MAP = {1: "file", 2: "link", 3: "link"}
@@ -255,8 +261,10 @@ class SyncEngine:
         file_id, is_new = self.db.upsert_file(
             course_id, rel, "slide" if filename.lower().endswith((".pdf", ".ppt", ".pptx")) else "other",
             "brightspace", sha, len(body), node["id"] if node else None)
+        wrote = False
         if is_new:
             (subdir / filename).write_bytes(body)
+            wrote = True
             self.stats["files_new"] += 1
             self.deltas.append({"kind": "file_new", "path": rel})
         else:
@@ -264,8 +272,11 @@ class SyncEngine:
                 "SELECT sha256 FROM files WHERE id=?", (file_id,)).fetchone()
             if existing and existing["sha256"] != sha:
                 (subdir / filename).write_bytes(body)
+                wrote = True
                 self.stats["files_changed"] += 1
                 self.deltas.append({"kind": "file_changed", "path": rel})
+        if wrote:
+            self._maybe_convert_office(subdir / filename)
 
     # ── embedded resources (PDFs linked inside content HTML) ─────────────
     EMBEDDED_EXTS = (".pdf", ".ppt", ".pptx", ".doc", ".docx", ".xlsx", ".xls", ".zip")
@@ -326,8 +337,10 @@ class SyncEngine:
                 kind = "slide" if filename.lower().endswith((".pdf", ".ppt", ".pptx")) else "other"
                 file_id, is_new = self.db.upsert_file(
                     course_id, rel, kind, "brightspace", sha, len(body), node_id)
+                wrote = False
                 if is_new:
                     dest.write_bytes(body)
+                    wrote = True
                     self.stats["files_new"] += 1
                     self.deltas.append({"kind": "file_new", "path": rel})
                 else:
@@ -335,8 +348,11 @@ class SyncEngine:
                         "SELECT sha256 FROM files WHERE id=?", (file_id,)).fetchone()
                     if existing and existing["sha256"] != sha:
                         dest.write_bytes(body)
+                        wrote = True
                         self.stats["files_changed"] += 1
                         self.deltas.append({"kind": "file_changed", "path": rel})
+                if wrote:
+                    self._maybe_convert_office(dest)
                 if node_id is not None:
                     rewritten = rewritten.replace(
                         url, f"{asset_base}/{urllib.parse.quote(path_part)}", 1)
@@ -485,6 +501,7 @@ class SyncEngine:
                     print(f"  media fetch failed: {tgt['fetch_url']}")
                     continue
                 dest.write_bytes(body)
+                self._maybe_convert_office(dest)
             # videos stay EMBEDDED in the module HTML (the <video> element) —
             # cache + rewrite the src to the local asset, but never
             # materialize a tree row: the module page plays it inline.
@@ -581,6 +598,7 @@ class SyncEngine:
                         self.client.le(org_unit, f"/dropbox/folders/{folder_id}/attachments/{at['FileId']}"))
                     if resp.status_code == 200 and len(resp.content) > 0:
                         dest.write_bytes(resp.content)
+                        self._maybe_convert_office(dest)
                 except Exception:
                     continue
             if dest.exists() and dest.stat().st_size > 0:
@@ -739,6 +757,17 @@ class SyncEngine:
             (course_dir / "syllabus.html").write_text("\n\n".join(parts))
             self.db.audit("sync", "courses", course_id, "syllabus_saved")
 
+    def _maybe_convert_office(self, dest: Path) -> None:
+        """Best-effort .pptx/.docx → sibling .pdf. Never raises."""
+        try:
+            if not getattr(self.cfg, "office_to_pdf", True):
+                return
+            if dest.suffix.lower() not in (".pptx", ".docx"):
+                return
+            convert_office_to_pdf(dest, timeout_s=getattr(self.cfg, "office_convert_timeout_s", 120))
+        except Exception:
+            pass
+
     # ── pdf-extractor (cloud engine by default; serialized queue after sync)
     def extract_pdf(self, file_row) -> bool:
         """PUT raw PDF to pdf-extractor → write .md beside it → mark processed.
@@ -878,7 +907,30 @@ class SyncEngine:
                     self.db.mark_processed(row["id"])
                     print(f"  skipped long scan ({pages}p): {row['path']}", flush=True)
                     continue
-            if path.suffix.lower() in (".doc", ".docx"):
+            if path.suffix.lower() in (".pptx", ".docx"):
+                # office → converted sibling pdf → existing pdf pipeline.
+                # the converted pdf's .md lands at the office basename
+                # (Lecture.pdf → Lecture.md == Lecture.pptx → Lecture.md).
+                from sync.convert import converted_pdf_path as _cpp
+                try:
+                    pdf = convert_office_to_pdf(
+                        path, timeout_s=getattr(self.cfg, "office_convert_timeout_s", 120))
+                except Exception:
+                    pdf = None
+                pdf_path = pdf or _cpp(path)
+                if pdf_path.exists() and pdf_path.stat().st_size > 0:
+                    pdf_row = {k: row[k] for k in row.keys()}
+                    pdf_row["path"] = str(pdf_path.relative_to(Path(self.cfg.data_root)))
+                    if self.extract_pdf(pdf_row):
+                        done += 1
+                        print(f"  extracted (via pdf): {row['path']}", flush=True)
+                    else:
+                        failed += 1
+                else:
+                    failed += 1
+                self.db.mark_processed(row["id"])
+                continue
+            if path.suffix.lower() == ".doc":
                 if self._extract_doc(path):
                     done += 1
                     print(f"  extracted: {row['path']}", flush=True)
