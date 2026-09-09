@@ -47,7 +47,7 @@ def main() -> int:
 
     cfg = Config.load()
     # prevent concurrent extraction processes
-    lock_path = Path(cfg.data_root).parent / ".extraction.lock"
+    lock_path = Path(cfg.data_root) / ".extraction.lock"
     if lock_path.exists():
         try:
             lock_pid = int(lock_path.read_text().strip())
