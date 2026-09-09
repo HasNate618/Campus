@@ -205,6 +205,13 @@ def get_file_content(file_id: int) -> dict | None:
         sibling = full.with_suffix(".md")
         content = _read_text(sibling) if sibling.exists() else ""
         return {"content": content, "format": "pdf", "rawUrl": raw_url}
+    if ext in (".pptx", ".docx"):
+        pdf = full.with_suffix(".pdf")
+        if pdf.exists() and pdf.stat().st_size > 0:
+            md_sibling = full.with_suffix(".md")
+            content = _read_text(md_sibling) if md_sibling.exists() else ""
+            return {"content": content, "format": "pdf", "rawUrl": f"/api/files/{file_id}/converted-pdf"}
+        return {"content": "", "format": "download", "rawUrl": raw_url}
     if ext in DOWNLOAD_EXTS:
         return {"content": "", "format": "download", "rawUrl": raw_url}
     if ext in {".html", ".htm"}:
@@ -221,6 +228,18 @@ def get_file_raw_path(file_id: int) -> Path | None:
         return None
     full = (SCHOOL_ROOT / f["path"]).resolve()
     return full if full.exists() else None
+
+
+def get_converted_pdf_path(file_id: int) -> Path | None:
+    """Sibling .pdf for a .pptx/.docx file, or None."""
+    f = get_file(file_id)
+    if not f:
+        return None
+    full = (SCHOOL_ROOT / f["path"]).resolve()
+    if full.suffix.lower() not in (".pptx", ".docx"):
+        return None
+    pdf = full.with_suffix(".pdf")
+    return pdf if pdf.exists() and pdf.stat().st_size > 0 else None
 
 
 # ── assignments / announcements ─────────────────────────────────────────
