@@ -19,10 +19,15 @@ def converted_pdf_path(path: Path) -> Path:
 
 
 def _run_soffice(src: Path, out_dir: Path, timeout_s: int) -> subprocess.CompletedProcess:
+    # LibreOffice needs a writable HOME for its user profile
+    import os
+    env = os.environ.copy()
+    env["HOME"] = "/tmp/lo-profile"
+    os.makedirs(env["HOME"], exist_ok=True)
     return subprocess.run(
         ["soffice", "--headless", "--nologo", "--nolockcheck",
          "--convert-to", "pdf", "--outdir", str(out_dir), str(src)],
-        capture_output=True, text=True, timeout=timeout_s,
+        capture_output=True, text=True, timeout=timeout_s, env=env,
     )
 
 
