@@ -93,6 +93,8 @@ class Config:
     max_file_size: int = 200 * 1024 * 1024  # skip downloads above this
     max_extract_size: int = 20 * 1024 * 1024  # PDFs above this are never extracted
     auto_extract_pdfs: bool = True  # extract after sync (cloud engine by default)
+    office_to_pdf: bool = True  # convert .pptx/.docx → sibling .pdf via soffice at sync time
+    office_convert_timeout_s: int = 120  # per-file soffice timeout
     digest_pdf_excerpt_chars: int = 2000  # PDF markdown excerpt fed to the digest
     long_scan_skip_pages: int = 30  # scanned PDFs (no text layer) at/above this many
     # pages are skipped instead of OCR'd — local OCR runs ~2 min/page, so a
