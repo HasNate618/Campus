@@ -37,3 +37,15 @@ def test_non_office_returns_none(tmp_path: Path):
     p = tmp_path / "x.pdf"
     p.write_bytes(b"fake")
     assert convert.convert_office_to_pdf(p) is None
+
+
+def test_config_defaults():
+    from sync.config import Config
+    cfg = Config()
+    assert cfg.office_to_pdf is True
+    assert cfg.office_convert_timeout_s == 120
+
+
+def test_sync_imports_converter():
+    import sync.sync as s
+    assert hasattr(s, "convert_office_to_pdf") or "convert_office_to_pdf" in open("sync/sync.py").read()
