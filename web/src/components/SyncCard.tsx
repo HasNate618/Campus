@@ -71,9 +71,9 @@ export function SyncCard() {
         </div>
         {tokenValid === false && <span className="chip red">token expired</span>}
         {lastRun && <span className={chipCls}>{lastRun.status}</span>}
-        <button className="btn btn-outline btn-sm" onClick={trigger} disabled={triggering}>
+        <button className="btn btn-outline btn-sm" onClick={trigger} disabled={triggering || tokenValid === false}>
           {triggering ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
-          Sync
+          {tokenValid === false ? 'Re-auth needed' : 'Sync'}
         </button>
       </div>
     </div>
