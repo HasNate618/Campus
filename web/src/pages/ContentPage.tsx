@@ -30,7 +30,9 @@ function kindChip(file: FileRecord, format?: FileFormat): { label: string; cls: 
     format ??
     (ext === 'pdf'
       ? 'pdf'
-      : ext === 'html' || ext === 'htm'
+      : ext === 'pptx' || ext === 'docx'
+        ? 'pdf' // converted sibling served as pdf (converted-pdf endpoint)
+        : ext === 'html' || ext === 'htm'
         ? 'html'
         : ext === 'zip'
           ? 'download'
@@ -41,7 +43,9 @@ function kindChip(file: FileRecord, format?: FileFormat): { label: string; cls: 
               : undefined)
   switch (fmt) {
     case 'pdf':
-      return { label: 'pdf', cls: 'chip red' }
+      return ext === 'pptx' || ext === 'docx'
+        ? { label: `${ext}→pdf`, cls: 'chip red' }
+        : { label: 'pdf', cls: 'chip red' }
     case 'html':
       return { label: 'html', cls: 'chip' }
     case 'code':
