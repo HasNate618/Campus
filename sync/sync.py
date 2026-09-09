@@ -797,14 +797,14 @@ class SyncEngine:
             else:
                 import pymupdf  # keep import available for _scan_pages
             # external parser: send raw bytes, get markdown back
-            timeout = 3600 if size_mb > 2 else 120
+            timeout = 600 if size_mb > 2 else 300
             r = httpx.put(f"{self.cfg.pdf_extractor_url}/process",
                           content=path.read_bytes(), timeout=timeout)
             r.raise_for_status()
             data = r.json()
             content = data.get("page_content", "")
             if not content:
-                self.db.mark_processed(file_row["id"])
+                # empty content = parser failed — do NOT mark processed so it's retried
                 return False
             md = path.with_suffix(".md")
             md.write_text(content)

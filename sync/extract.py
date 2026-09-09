@@ -33,6 +33,7 @@ def list_models() -> int:
 
 
 def main() -> int:
+    import os
     from sync.config import Config
     from sync.db import DB
     from sync.d2l import D2LClient
@@ -45,6 +46,17 @@ def main() -> int:
     args = ap.parse_args()
 
     cfg = Config.load()
+    # prevent concurrent extraction processes
+    lock_path = Path(cfg.data_root).parent / ".extraction.lock"
+    if lock_path.exists():
+        try:
+            lock_pid = int(lock_path.read_text().strip())
+            os.kill(lock_pid, 0)  # check if process exists
+            print(f"Extraction already running (pid {lock_pid}) — skipping")
+            return 0
+        except (ValueError, OSError):
+            pass  # stale lock — proceed
+    lock_path.write_text(str(os.getpid()))
     db = DB(cfg.db_path)
     client = D2LClient(cfg.base_url, lambda: None)  # token not needed for extraction
     engine = SyncEngine(cfg, db, client)
@@ -87,6 +99,7 @@ def main() -> int:
     finally:
         client.close()
         db.close()
+        lock_path.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
