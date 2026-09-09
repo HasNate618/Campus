@@ -103,9 +103,9 @@ export function SyncPage() {
             <div className="sync-tags">
               {tokenValid === false && <span className="chip red">token expired</span>}
               {lastRun && <span className={statusChip(lastRun.status)}>{lastRun.status}</span>}
-              <button className="btn btn-primary" onClick={trigger} disabled={triggering}>
+              <button className="btn btn-primary" onClick={trigger} disabled={triggering || tokenValid === false}>
                 {triggering ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} />}
-                Sync now
+                {tokenValid === false ? 'Token expired — re-auth needed' : 'Sync now'}
               </button>
             </div>
           </div>
