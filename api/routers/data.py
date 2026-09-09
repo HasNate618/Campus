@@ -57,6 +57,18 @@ def file_raw(file_id: int):
     raise HTTPException(403, "Forbidden")
 
 
+@router.get("/files/{file_id}/converted-pdf")
+def file_converted_pdf(file_id: int):
+    """Derived sibling PDF for .pptx/.docx (for the zen viewer)."""
+    from fastapi.responses import FileResponse
+    p = services.get_converted_pdf_path(file_id)
+    if not p:
+        raise HTTPException(404, "No converted PDF")
+    if p.resolve().is_relative_to(services.SCHOOL_ROOT.resolve()):
+        return FileResponse(p, media_type="application/pdf")
+    raise HTTPException(403, "Forbidden")
+
+
 @router.get("/assets/{rel_path:path}")
 def asset(rel_path: str):
     """Serve locally-cached content assets (images downloaded by
