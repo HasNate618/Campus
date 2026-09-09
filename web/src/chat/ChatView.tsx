@@ -214,6 +214,12 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		modelList.setCursor(idx >= 0 ? idx : filteredModels.length > 0 ? 0 : -1);
 	}, [modelOpen, filteredModels, effectiveModel]);
 
+	// opening the history popover always starts on "New chat"
+	useEffect(() => {
+		if (historyOpen) histList.setCursor(0);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [historyOpen]);
+
 	const pickModelAt = (i: number) => {
 		const m = filteredModels[i];
 		if (!m) return;
@@ -269,10 +275,20 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 				setHistoryOpen(false);
 				return true;
 			}
+			// 'h' closes the history it opened
+			if (key === "h") {
+				setHistoryOpen(false);
+				return true;
+			}
 			return listKeys(key, histList, () => pick(histList.cursor));
 		}
 		if (modelOpen) {
 			if (key === "Escape") {
+				setModelOpen(false);
+				return true;
+			}
+			// 'm' closes the picker it opened
+			if (key === "m") {
 				setModelOpen(false);
 				return true;
 			}
@@ -305,9 +321,12 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 				return true;
 			case "r": {
 				const la = lastAssistant;
-				if (la && session && !busy && la.thinkingDone && !la.streaming)
+				if (la && session && !busy && la.thinkingDone && !la.streaming) {
 					regenerate(session.id, la.id);
-				return true;
+					return true;
+				}
+				// can't regenerate right now — don't swallow, let it fall through
+				return false;
 			}
 			case "h":
 				setHistoryOpen((o) => !o);
@@ -902,6 +921,13 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		if (e.key === "Enter" && !e.shiftKey) {
 			e.preventDefault();
 			void submit();
+		}
+		if (e.key === "Escape") {
+			// single-Esc exit: close popovers here; the provider's typing
+			// branch blurs the input on the same press (bubbles to window)
+			setHistoryOpen(false);
+			setPickerOpen(false);
+			setModelOpen(false);
 		}
 	};
 

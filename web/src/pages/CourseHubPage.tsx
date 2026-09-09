@@ -99,10 +99,12 @@ export function CourseLayout() {
 	}, [cid, setLastCourse]);
 
 	// [ / ] switch course tabs (Overview · Content · Assignments · Workspace),
-	// wrapping at the ends. Registered for the course zone; page-level
-	// handlers (ContentPage j/k etc.) run first and return false for these.
-	useZoneKeys("course", (key) => {
+	// wrapping at the ends. Registered in every zone so the tabs stay
+	// reachable from sidebar/chat too; page-level handlers (ContentPage j/k
+	// etc.) run first within the course zone and return false for these.
+	const tabSwitch = (key: string) => {
 		if (key !== "[" && key !== "]") return false;
+		if (!pathname.startsWith("/courses/")) return false;
 		const seg = pathname.split("/")[3] ?? "";
 		let idx = TAB_ORDER.indexOf(seg);
 		if (idx === -1) idx = 0;
@@ -111,7 +113,10 @@ export function CourseLayout() {
 		setTabAnim(true);
 		navigate(`/courses/${cid}${TAB_ORDER[next] ? `/${TAB_ORDER[next]}` : ""}`);
 		return true;
-	});
+	};
+	useZoneKeys("course", tabSwitch);
+	useZoneKeys("chat", tabSwitch);
+	useZoneKeys("sidebar", tabSwitch);
 
 	const page = (
 		<div className="page course-page">

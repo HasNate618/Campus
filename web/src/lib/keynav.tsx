@@ -113,7 +113,10 @@ export function listKeys(
       return true
     case 'Enter':
     case 'l':
-      if (c.cursor >= 0) onEnter()
+      // nothing selected: don't swallow — let the key fall through
+      // instead of silently doing nothing
+      if (c.cursor < 0) return false
+      onEnter()
       return true
     default:
       return false
@@ -126,6 +129,7 @@ const HELP: { title: string; rows: [string, string][] }[] = [
     rows: [
       ['1 / 2 / 3', 'Focus sidebar / course / chat'],
       ['Alt+1 / 2 / 3', 'Toggle sidebar / course / chat'],
+      ['c', 'Collapse / expand sidebar'],
       ['?', 'Show this help'],
       ['Esc', 'Leave input or close popups'],
     ],
@@ -136,7 +140,6 @@ const HELP: { title: string; rows: [string, string][] }[] = [
       ['j / k', 'Move cursor'],
       ['Enter / l', 'Open item'],
       ['g / G', 'First / last'],
-      ['c', 'Collapse sidebar'],
     ],
   },
   {
@@ -159,10 +162,10 @@ const HELP: { title: string; rows: [string, string][] }[] = [
       ['j / k', 'Scroll'],
       ['g / G', 'Top / bottom'],
       ['Enter / i', 'Focus the input'],
-      ['m', 'Model selector'],
+      ['m', 'Open / close model selector'],
       ['n', 'New chat'],
       ['r', 'Regenerate last answer'],
-      ['h', 'Chat history'],
+      ['h', 'Open / close history'],
     ],
   },
 ]
@@ -196,6 +199,11 @@ export function KeyNavProvider({ children }: { children: ReactNode }) {
       // Alt+1/2/3 toggle pane visibility (sidebar collapse, course, chat) —
       // handled before the browser-shortcut bail so they work anywhere.
       if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === '1' || e.key === '2' || e.key === '3')) {
+        // ...except behind the help modal: don't toggle panes the user can't see
+        if (helpRef.current) {
+          e.preventDefault()
+          return
+        }
         const pane = e.key === '1' ? 'sidebar' : e.key === '2' ? 'course' : 'chat'
         window.dispatchEvent(new CustomEvent('campus:toggle-pane', { detail: { pane } }))
         e.preventDefault()
@@ -220,6 +228,9 @@ export function KeyNavProvider({ children }: { children: ReactNode }) {
         if (e.key === 'Escape' || e.key === '?') {
           e.preventDefault()
           setHelpOpen(false)
+        } else if (e.key === 'Tab') {
+          // no focusable controls inside — keep focus from escaping behind the modal
+          e.preventDefault()
         }
         return
       }
@@ -243,10 +254,19 @@ export function KeyNavProvider({ children }: { children: ReactNode }) {
         return
       }
 
+      // 'c' collapses the sidebar from any zone (Sidebar listens for the event)
+      if (e.key === 'c') {
+        window.dispatchEvent(new CustomEvent('campus:toggle-pane', { detail: { pane: 'sidebar' } }))
+        e.preventDefault()
+        return
+      }
+
       // native Enter/Space on a focused button/link must keep working
       const interactive =
         !!target && (target.tagName === 'BUTTON' || target.tagName === 'A' || target.tagName === 'SELECT')
       if (interactive && (e.key === 'Enter' || e.key === ' ')) return
+      // a native <select> owns arrow keys (option navigation) — don't move the kbd cursor too
+      if (!!target && target.tagName === 'SELECT' && e.key.startsWith('Arrow')) return
 
       if (run(e.key)) e.preventDefault()
     }

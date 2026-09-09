@@ -55,6 +55,11 @@ export function AssignmentsPage() {
     [untagged, tags, openItems, closedItems],
   )
   const cursor = useListCursor(ordered.length)
+  // switching courses reuses the component — don't point at the old list's row
+  useEffect(() => {
+    cursor.setCursor(-1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cid])
   const idxById = useMemo(() => {
     const m = new Map<number, number>()
     ordered.forEach((a, i) => m.set(a.id, i))
