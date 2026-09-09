@@ -528,6 +528,19 @@ export function ContentPage() {
 
   const treeCursor = useListCursor(flatRows.length)
 
+  // course switches reset the cursor; topic navigation keeps it on the open row
+  useEffect(() => {
+    treeCursor.setCursor(-1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cid])
+  useEffect(() => {
+    if (nid == null) return
+    let idx = flatRows.findIndex((r) => r.node.id === nid && (fileParam == null || r.file?.id === fileParam))
+    if (idx === -1) idx = flatRows.findIndex((r) => r.node.id === nid)
+    if (idx >= 0) treeCursor.setCursor(idx)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nid, fileParam])
+
   // scroll the content pane (non-PDF viewer mode): the tree and viewer
   // share the course-scroll container
   const scrollViewer = (dy: number) => {
@@ -585,6 +598,12 @@ export function ContentPage() {
           return true
         case 'h':
           navigate(`/courses/${cid}/content`)
+          return true
+        case 'f':
+          setViewMode((m) => (m === 'fullWidth' ? 'sideBySide' : 'fullWidth'))
+          return true
+        case 'm':
+          if (contentInfo?.format === 'pdf') setShowMd((s) => !s)
           return true
         default:
           return false

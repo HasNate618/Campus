@@ -241,6 +241,11 @@ export function WorkspacePage() {
   }, [tree, openDirs])
 
   const wsCursor = useListCursor(flatNodes.length)
+  // switching courses reuses the component — don't point at the old tree's row
+  useEffect(() => {
+    wsCursor.setCursor(-1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cid])
 
   useZoneKeys('course', (key) => {
     const row = flatNodes[wsCursor.cursor]

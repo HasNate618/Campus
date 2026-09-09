@@ -1964,27 +1964,13 @@ input[type="range"] { accent-color: #4ade7f; }
         return;
       }
       
-      // Tab cycles through user-assigned bookmarks (no-op if none)
+      // Tab always returns focus to the app (campus owns Tab for tree ⇄
+      // viewer switching) — bookmarks stay reachable via 1-9 / Alt+1-9.
       if (e.key === 'Tab') {
-        const assigned = Array.from(state.bookmarks.keys()).sort((a, b) => a - b);
-        if (assigned.length === 0) {
-          if (isEmbedded) {
-            notifyParent('zenpdf-tab');
-            e.preventDefault();
-          }
-          return;
+        if (isEmbedded) {
+          notifyParent('zenpdf-tab');
+          e.preventDefault();
         }
-        e.preventDefault();
-        let last = state.lastBookmarkCycleSlot || null;
-        let idx = last !== null ? assigned.indexOf(last) : -1;
-        if (idx === -1) {
-          idx = e.shiftKey ? assigned.length - 1 : 0;
-        } else {
-          idx = e.shiftKey ? (idx - 1 + assigned.length) % assigned.length : (idx + 1) % assigned.length;
-        }
-        const slot = assigned[idx];
-        state.lastBookmarkCycleSlot = slot;
-        goToBookmark(slot);
         return;
       }
 

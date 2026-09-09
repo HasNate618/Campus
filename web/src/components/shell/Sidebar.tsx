@@ -144,10 +144,7 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 	}, [collapsed, cursor.cursor]);
 
 	useZoneKeys("sidebar", (key) => {
-		if (key === "c") {
-			toggle();
-			return true;
-		}
+		// 'c' (collapse) is handled globally in the provider via campus:toggle-pane
 		return listKeys(key, cursor, () => {
 			const row = rows[cursor.cursor];
 			if (!row) return;
