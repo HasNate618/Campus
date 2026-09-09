@@ -104,6 +104,11 @@ llm_api_key: ""               # Bearer auth when set (OpenAI, OpenRouter, ...); 
 # auto-extract PDFs to markdown after sync? Set false if you don't want
 # API credits spent on old content.
 auto_extract_pdfs: true
+# convert .pptx/.docx → sibling .pdf via soffice (LibreOffice headless)
+# so parsing + the zen viewer treat them like any other PDF.
+office_to_pdf: true
+# per-file conversion timeout
+# office_convert_timeout_s: 120
 
 # how many chars of extracted markdown feed the digest's PDF deltas
 digest_pdf_excerpt_chars: 2000
