@@ -22,7 +22,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
         libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2 \
         fonts-liberation fonts-dejavu-core \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /usr/lib/libreoffice/user \
+    && chown -R 1000:100 /usr/lib/libreoffice/user
+
+RUN useradd -u 1000 -g 100 -m -s /bin/bash nate || true
 
 WORKDIR /app
 COPY requirements.txt ./
