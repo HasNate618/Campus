@@ -547,3 +547,35 @@ def trigger_sync(course_id: int | None = None) -> dict:
 
     threading.Thread(target=_run, daemon=True).start()
     return {"run_id": 0, "status": "started", "message": "sync running in background"}
+
+
+# ── auth ────────────────────────────────────────────────────────────────────
+_auth_in_progress = False
+
+
+def trigger_auth() -> dict:
+    global _auth_in_progress
+    if _auth_in_progress:
+        return {"status": "in_progress", "message": "Auth already running — approve Duo push"}
+    _auth_in_progress = True
+
+    def _run() -> None:
+        global _auth_in_progress
+        try:
+            from sync.config import Config as HarnessConfig
+            from sync.token_store import TokenStore
+            from sync.auth import auth as do_auth
+            cfg = HarnessConfig.load()
+            store = TokenStore(cfg.token_dir, ttl=cfg.token_ttl, refresh_buffer=cfg.refresh_buffer)
+            do_auth(cfg, store)
+        except Exception:
+            pass
+        finally:
+            _auth_in_progress = False
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "started", "message": "Auth started — approve Duo push on your device"}
+
+
+def auth_status() -> dict:
+    return {"in_progress": _auth_in_progress}

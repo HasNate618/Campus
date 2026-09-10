@@ -50,6 +50,23 @@ export function SyncPage() {
     setTriggering(true)
     setTriggerMsg(null)
     try {
+      // if token expired, auth first then sync
+      if (tokenValid === false) {
+        setTriggerMsg("Authenticating... approve Duo push on your device")
+        await api.triggerAuth()
+        // poll until token is valid (max 60s)
+        for (let i = 0; i < 60; i++) {
+          await new Promise(r => setTimeout(r, 1000))
+          const s = await api.syncStatus()
+          if (s.token_valid) break
+        }
+        const final = await api.syncStatus()
+        if (!final.token_valid) {
+          setTriggerMsg("Auth timed out — try again")
+          setTriggering(false)
+          return
+        }
+      }
       const res = await api.triggerSync()
       setTriggerMsg(res.message)
       refresh()
@@ -103,9 +120,9 @@ export function SyncPage() {
             <div className="sync-tags">
               {tokenValid === false && <span className="chip red">token expired</span>}
               {lastRun && <span className={statusChip(lastRun.status)}>{lastRun.status}</span>}
-              <button className="btn btn-primary" onClick={trigger} disabled={triggering || tokenValid === false}>
+              <button className="btn btn-primary" onClick={trigger} disabled={triggering}>
                 {triggering ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} />}
-                {tokenValid === false ? 'Token expired — re-auth needed' : 'Sync now'}
+                {tokenValid === false ? 'Sync now (will re-auth)' : 'Sync now'}
               </button>
             </div>
           </div>

@@ -35,3 +35,15 @@ def sync_log(run_id: int):
 @router.post("/trigger")
 def trigger_sync(course_id: int | None = None):
     return services.trigger_sync(course_id=course_id)
+
+
+@router.post("/auth")
+def trigger_auth():
+    """Start Brightspace auth (Duo push) in background. Poll /status for token_valid."""
+    return services.trigger_auth()
+
+
+@router.get("/auth/status")
+def auth_status():
+    """Check if auth is in progress."""
+    return services.auth_status()
