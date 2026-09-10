@@ -122,7 +122,7 @@ export function SyncPage() {
               {lastRun && <span className={statusChip(lastRun.status)}>{lastRun.status}</span>}
               <button className="btn btn-primary" onClick={trigger} disabled={triggering}>
                 {triggering ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} />}
-                {tokenValid === false ? 'Sync now (will re-auth)' : 'Sync now'}
+                Sync now
               </button>
             </div>
           </div>
