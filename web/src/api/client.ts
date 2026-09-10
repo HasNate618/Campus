@@ -138,6 +138,10 @@ export const api = {
 		post<{ run_id: number; status: string; message: string }>(
 			`/sync/trigger${courseId != null ? `?course_id=${courseId}` : ""}`,
 		),
+	triggerAuth: () =>
+		post<{ status: string; message: string }>("/sync/auth"),
+	authStatus: () =>
+		get<{ in_progress: boolean }>("/sync/auth/status"),
 	digest: () =>
 		get<{ generated_at: string; markdown: string; source: string }>(
 			"/digest/latest",

@@ -30,6 +30,16 @@ export function SyncCard() {
   const trigger = async () => {
     setTriggering(true)
     try {
+      // if token expired, auth first
+      if (tokenValid === false) {
+        await api.triggerAuth()
+        // poll until token valid (max 60s)
+        for (let i = 0; i < 60; i++) {
+          await new Promise(r => setTimeout(r, 1000))
+          const s = await api.syncStatus()
+          if (s.token_valid) break
+        }
+      }
       await api.triggerSync()
       setTimeout(refresh, 1500)
     } catch {
@@ -71,9 +81,9 @@ export function SyncCard() {
         </div>
         {tokenValid === false && <span className="chip red">token expired</span>}
         {lastRun && <span className={chipCls}>{lastRun.status}</span>}
-        <button className="btn btn-outline btn-sm" onClick={trigger} disabled={triggering || tokenValid === false}>
+        <button className="btn btn-outline btn-sm" onClick={trigger} disabled={triggering}>
           {triggering ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
-          {tokenValid === false ? 'Re-auth needed' : 'Sync'}
+          {tokenValid === false ? 'Sync (will re-auth)' : 'Sync'}
         </button>
       </div>
     </div>
