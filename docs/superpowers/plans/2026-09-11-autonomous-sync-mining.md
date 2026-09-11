@@ -4,14 +4,14 @@
 
 **Goal:** Every sync automatically mines important info from ANY file (outlines, slides, announcements, assignment descriptions, module HTML) into the memory card and the schedule (events/exams/assignment dates), with a one-shot backfill over the 6 existing 2026F courses.
 
-**Architecture:** New `sync/mine.py` module (pure helpers + corpus builder + output parser + applier) called by `SyncEngine` AFTER extraction completes (so `.md` content exists), grouped per-course so facts keep their `course_id`. Miner output is strict JSON `{facts, events, exams, assignment_updates}`; applier dedupes via stable UIDs and writes `audit_log` rows. Backfill is the same code path over existing `.md` files.
+**Architecture:** New `sync/mine.py` module (pure helpers + corpus builder + output parser + applier) called per-course right after that course's foreground extraction (so `.md` content exists the same run — slower syncs, full context), grouped per-course so facts keep their `course_id`. Miner output is strict JSON `{facts, events, exams, assignment_updates}`; applier dedupes via stable UIDs and writes `audit_log` rows. Backfill is the same code path over existing `.md` files.
 
-**Tech Stack:** Python 3.12, SQLite (WAL), httpx (existing LLM endpoint via `llm_headers`), pytest, existing `sync.config.Config` / `sync.db.DB`. All LLM calls (chat, digest, mining) use `llm_model: opencode-go/mimo-v2.5` via bifrost (`llm_url: http://bifrost:8080/v1`); no separate mining model.
+**Tech Stack:** Python 3.12, SQLite (WAL), httpx (existing LLM endpoint via `llm_headers`), pytest, existing `sync.config.Config` / `sync.db.DB`. LLM calls (chat + per-course mining only) use `llm_model: opencode-go/mimo-v2.5` via bifrost (`llm_url: http://bifrost:8080/v1`); the sync log, counts, and dedupe are deterministic code with no model involved.
 
 ## Global Constraints
 
 - Python 3.12 only; no new third-party dependencies (stdlib + httpx + existing reqs).
-- Deterministic first: regex/dedupe/UID logic must be pure and unit-tested; only the extraction call itself hits the LLM.
+- Deterministic first: regex/dedupe/UID/log-rendering logic must be pure and unit-tested; the LLM is used only where comprehension is required (chat answers, per-course mining). The sync digest renders from counts — no model call.
 - Never re-download or re-extract: mining reads existing `.md`/DB rows only; `files.sha256` change detection stays the source of truth for "new".
 - Auto-add policy (user-approved): mined dates create `events`/`exams` rows and backfill `assignments.due_at`/`weight` immediately, deduped; every write gets an `audit_log` row.
 - Memory card stays regenerated (never hand-edited); structured rows beat facts.
@@ -300,7 +300,7 @@ git commit -m "feat: add per-course mining corpus builder"
 - Consumes: corpus dict from Task 2.
 - Produces (used by Task 4):
   - `MINER_SYSTEM: str` — prompt with absolute-date rules + category whitelist + output schema.
-  - `parse_miner_output(raw: str) -> dict` returns `{"facts": [{"fact","category","confidence"}], "events": [{"title","starts_at","ends_at","kind","notes"}], "exams": [{"title","starts_at","weight","notes"}], "assignment_updates": [{"title","due_at","weight"}]}`; coerces bad categories to `"general"`, drops rows with unparseable dates, never raises on model garbage (returns empty lists).
+  - `parse_miner_output(raw: str) -> dict` returns `{"facts": [{"fact","category","confidence"}], "events": [{"title","starts_at","ends_at","kind","notes","confidence"}], "exams": [{"title","starts_at","weight","notes","confidence"}], "assignment_updates": [{"title","due_at","weight"}]}`; coerces bad categories to `"general"`, drops rows with unparseable dates, drops schedule rows with explicit confidence < 0.7 (missing confidence defaults to 0.9 — the prompt mandates it), never raises on model garbage (returns empty lists).
 
 Date rule (locked): miner must emit `starts_at`/`due_at` as `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM`; relative dates ("next Friday", "tomorrow") resolved against `corpus["today"]`; lab-section variants ("Sec 3 Thu 9:30") collapse to one event with the section in `notes`, never 3 duplicate events. Categories locked to `general,scheduling,grading,course-policy,prof-note,exam,assignment,logistics`.
 
@@ -310,13 +310,16 @@ Date rule (locked): miner must emit `starts_at`/`due_at` as `YYYY-MM-DD` or `YYY
 def test_parse_miner_output_coerces_and_drops():
     from sync.mine import parse_miner_output
     raw = '{"facts": [{"fact": "Midterm is 25%", "category": "bogus", "confidence": 0.9}], '
-    raw += '"events": [{"title": "Lab 1 due", "starts_at": "2026-09-14", "kind": "assignment"}], '
-    raw += '"exams": [{"title": "Midterm", "starts_at": "sometime soon"}], '
+    raw += '"events": [{"title": "Lab 1 due", "starts_at": "2026-09-14", "kind": "assignment"}, '
+    raw += '{"title": "Maybe quiz", "starts_at": "2026-10-01", "kind": "exam", "confidence": 0.2}], '
+    raw += '"exams": [{"title": "Midterm", "starts_at": "sometime soon"}, '
+    raw += '{"title": "Final", "starts_at": "2026-12-15", "confidence": 0.3}], '
     raw += '"assignment_updates": [{"title": "Lab 1", "due_at": "2026-09-14"}]}'
     out = parse_miner_output("```json\n" + raw + "\n```")
     assert out["facts"][0]["category"] == "general"
+    assert len(out["events"]) == 1  # low-confidence rumor dropped
     assert out["events"][0]["starts_at"] == "2026-09-14"
-    assert out["exams"] == []
+    assert out["exams"] == []  # bad date + low confidence dropped
     assert out["assignment_updates"][0]["due_at"] == "2026-09-14"
 
 
@@ -335,16 +338,24 @@ Expected: FAIL with "parse_miner_output not defined".
 
 ```python
 MINER_SYSTEM = (
-    "You mine a university course corpus into durable memory + schedule rows. "
-    "Rules: (1) resolve relative dates against TODAY to YYYY-MM-DD or YYYY-MM-DDTHH:MM; "
-    "never emit 'tomorrow/next week'. (2) category must be one of general,scheduling,"
-    "grading,course-policy,prof-note,exam,assignment,logistics. "
-    "(3) SKIP 'file X was posted' noise — only durable facts. "
-    "(4) lab-section variants collapse to ONE event with sections in notes. "
-    "(5) only emit dates explicitly stated in the corpus, with confidence >= 0.5. "
+    "You are the memory miner for a student's course assistant. "
+    "Input is a corpus of course material (outline, assignments, announcements, module pages, slide excerpts). "
+    "Output durable memory + schedule rows the student will rely on for months. "
+    "QUALITY BAR (most important rule): only add information the student would act on or ask about weeks from now — "
+    "grading breakdowns, exam dates and weights, assignment due dates, late/penalty policies, "
+    "accommodation rules, instructor contact and office hours, recurring class times. "
+    "SKIP everything else: file listings, 'X was posted', slide coverage summaries, "
+    "generic course descriptions, one-off instructions with no date. "
+    "EMPTY IS CORRECT: if nothing in the corpus clears the bar, return empty arrays. "
+    "Never invent filler to look productive; never restate the input. "
+    "DATES: emit starts_at/due_at as YYYY-MM-DD or YYYY-MM-DDTHH:MM only, resolved against TODAY; "
+    "never 'tomorrow/next week'. Only dates explicitly stated in the corpus. "
+    "Schedule rows (events/exams/assignment_updates) need confidence >= 0.7; facts need >= 0.5. "
+    "Lab-section variants collapse to ONE event with sections in notes. "
+    "category must be one of general,scheduling,grading,course-policy,prof-note,exam,assignment,logistics. "
     'Return STRICT JSON: {"facts": [{"fact": str, "category": str, "confidence": float}], '
-    '"events": [{"title": str, "starts_at": str, "ends_at": str|None, "kind": str, "notes": str|None}], '
-    '"exams": [{"title": str, "starts_at": str, "weight": float|None, "notes": str|None}], '
+    '"events": [{"title": str, "starts_at": str, "ends_at": str|None, "kind": str, "notes": str|None, "confidence": float}], '
+    '"exams": [{"title": str, "starts_at": str, "weight": float|None, "notes": str|None, "confidence": float}], '
     '"assignment_updates": [{"title": str, "due_at": str|None, "weight": float|None}]}. '
     'event kind must be one of class,assignment,exam,personal.'
 )
@@ -384,6 +395,12 @@ def parse_miner_output(raw: str) -> dict:
         starts = str(e.get("starts_at") or "").strip()
         if not title or not _DATE_RE.match(starts):
             continue
+        try:
+            conf = float(e.get("confidence", 0.9))
+        except (TypeError, ValueError):
+            conf = 0.0
+        if conf < 0.7:  # auto-add bar: uncertain schedule rows never enter the calendar
+            continue
         kind = e.get("kind") or "assignment"
         if kind not in _ALLOWED_KINDS:
             kind = "assignment"
@@ -397,6 +414,12 @@ def parse_miner_output(raw: str) -> dict:
         title = str(x.get("title") or "").strip()
         starts = str(x.get("starts_at") or "").strip()
         if not title or not _DATE_RE.match(starts):
+            continue
+        try:
+            xconf = float(x.get("confidence", 0.9))
+        except (TypeError, ValueError):
+            xconf = 0.0
+        if xconf < 0.7:
             continue
         try:
             w = float(x["weight"]) if x.get("weight") is not None else None
@@ -636,7 +659,7 @@ git commit -m "feat: add mining applier with dedupe and audit"
   - `SyncEngine.mine_course(course_id: int, force: bool = False) -> dict` — returns zeros immediately when not forced and `course_has_mining_deltas` is False; otherwise corpus → LLM POST → parse → apply; never raises. Uses `self.model` from config (`opencode-go/mimo-v2.5` on `home`; `--model` flag overrides per run).
   - CLI: `python -m sync mine --backfill [--code CS 1100A]` runs `mine_course(..., force=True)` per active course then `regenerate_cards`.
 
-Wiring rules (locked): `run()` keeps the fast deterministic digest first (announcements/chats). Mining is GATED per course: `mine_course` runs only when that course has relevant deltas this sync (`file_new`/`file_changed` under its data dir, new announcements, or new/changed assignments) or when `force=True` (the backfill CLI always forces). Newly extracted files are mined on the NEXT sync via their deltas — so no pipeline reorder, and idle syncs cost zero LLM calls. `digest_and_log` attribution is fixed in the same task: instead of `courses[0]["id"] if len(courses) == 1 else None`, each fact is attributed by course-code mention in the fact text (matched against the synced courses, case-insensitive), falling back to the single course when only one synced, else `None`. Sync log gains one line per mined course: `mined SE3352A: +3 facts, +2 events, +1 exam, backfilled 1 assignment`.
+Wiring rules (locked): per-course order inside `run()` — content → embedded → module media → dropbox → news → syllabus → FOREGROUND `run_extraction_queue(course_id)` (same caps as today: long-scan skip, size cap) → `mine_course(course_id)` gated on that course's deltas (deltas OR undigested announcements — see gate). The old detached `_extraction_bg` spawn is removed (kept for manual use): the user accepts slower syncs in exchange for mining with full context the same run. Idle courses (no deltas, nothing undigested) skip extraction + mining entirely, so quiet syncs stay fast. `digest_and_log` loses its LLM call entirely (see Task 7): it renders the markdown log from counts + per-course mining results. Sync log gains one line per mined course: `mined SE3352A: +3 facts, +2 events, +1 exam, backfilled 1 assignment`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -711,6 +734,11 @@ def course_has_mining_deltas(self, course_id: int) -> bool:
             return True
         if d.get("kind") in ("announcement", "assignment"):
             return True
+    undig = self.db.conn.execute(
+        "SELECT 1 FROM announcements WHERE course_id=? AND digested_at IS NULL LIMIT 1",
+        (course_id,)).fetchone()
+    if undig:
+        return True
     return False
 
 def mine_course(self, course_id: int, force: bool = False) -> dict:
@@ -732,7 +760,7 @@ def mine_course(self, course_id: int, force: bool = False) -> dict:
     return out
 ```
 
-Caller change in `SyncEngine.run` (after the search-index rebuild, before `_extraction_bg`): loop active courses, call `mine_course` (gated, no force), accumulate counts, append one sync-log line per course with nonzero counts. In the same task, fix `DB.upsert_assignment` (`sync/db.py`): the existing-row UPDATE must use `due_at=COALESCE(?, due_at), weight=COALESCE(?, weight)` so a Brightspace `NULL` never wipes a mined backfill (registrar non-NULL values still win). Also fix `digest_and_log` fact attribution: replace `(courses[0]["id"] if len(courses) == 1 else None, ...)` with a per-fact lookup — first course whose normalized code appears in the fact text (case-insensitive, whitespace stripped), else the single synced course when `len(courses) == 1`, else `None`. CLI in `sync/__main__.py`: add `mine --backfill [--code X]` that loads Config/DB (no D2L client needed), calls `mine_course(..., force=True)` per course, then `regenerate_cards`, prints counts.
+Caller change in `SyncEngine.run`: inside the per-course loop, after `sync_syllabus` and image caching, call `self.run_extraction_queue(course["id"])` then `mine_course(course["id"])` (gated, no force); accumulate counts, append one sync-log line per course with nonzero counts. Remove the `_extraction_bg` detached spawn from `run()` (keep the method for manual `extract` use). In the same task, fix `DB.upsert_assignment` (`sync/db.py`): the existing-row UPDATE must use `due_at=COALESCE(?, due_at), weight=COALESCE(?, weight)` so a Brightspace `NULL` never wipes a mined backfill (registrar non-NULL values still win). `digest_and_log` itself is replaced by the deterministic renderer from Task 7 (its LLM prompt, backlog passes, and per-fact attribution disappear with it — mining attributes per-course by construction). CLI in `sync/__main__.py`: add `mine --backfill [--code X]` that loads Config/DB (no D2L client needed), calls `mine_course(..., force=True)` per course, then `regenerate_cards`, prints counts.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -830,6 +858,90 @@ git add agent/memory.py tests/test_mine.py
 git commit -m "feat: filter mining noise from memory card, grading first"
 ```
 
+### Task 7: Deterministic digest (no LLM)
+
+**Files:**
+
+- Modify: `sync/sync.py` (replace `digest_and_log` body; delete `_undigested_chats` + `_undigested_announcements`)
+- Test: `tests/test_mine.py` (append log test)
+
+**Interfaces:**
+
+- Consumes: per-course counts + mining results from Task 5's `run()` loop.
+- Produces:
+  - `render_sync_log(date_str: str, stats: dict, per_course: list[dict]) -> str` — pure function, no I/O, no LLM. `per_course` entries are `{"code": str, "files_new": int, "files_changed": int, "announcements_new": int, "mined": {"facts","events","exams","assignments"}}`.
+  - `digest_and_log(run_id, courses, mining: dict[int, dict])` — renders via `render_sync_log`, writes `sync_logs/YYYY-MM-DD.md`, updates `sync_runs.log_path`. Signature change is internal (only `run()` calls it).
+
+Rules (locked): zero model involvement — the old prompt, backlog passes, and chat safety-net are deleted, not bypassed. Announcements are mined through the Task 2 corpus (and stamped by Task 4); chat facts are recorded live by the agent's existing `add_fact` tool, so no batch pass is needed. Empty syncs render `# Sync <date>` + `Nothing new in any course.`
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+def test_render_sync_log_deterministic():
+    from sync.sync import render_sync_log
+    md = render_sync_log("2026-09-11",
+        {"files_new": 3, "files_changed": 1},
+        [{"code": "SE 3352A", "files_new": 3, "files_changed": 1,
+          "announcements_new": 0,
+          "mined": {"facts": 4, "events": 2, "exams": 0, "assignments": 1}}])
+    assert "SE 3352A" in md and "3 new" in md
+    assert "mined +4 facts" in md and "+2 events" in md and "backfilled 1 assignment" in md
+    assert "Nothing new" in render_sync_log("2026-09-11", {}, [])
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pytest tests/test_mine.py::test_render_sync_log_deterministic -v`
+Expected: FAIL with "render_sync_log not defined" (ImportError).
+
+- [ ] **Step 3: Write minimal implementation**
+
+```python
+def render_sync_log(date_str: str, stats: dict, per_course: list[dict]) -> str:
+    """Deterministic sync log — counts only, no LLM. Pure function."""
+    lines = [f"# Sync {date_str}", ""]
+    if not per_course and not any(stats.get(k, 0) for k in
+                                  ("files_new", "files_changed", "announcements_new")):
+        lines.append("Nothing new in any course.")
+        return "\n".join(lines) + "\n"
+    for c in per_course:
+        parts = []
+        if c.get("files_new"):
+            parts.append(f"{c['files_new']} new file{'s' if c['files_new'] != 1 else ''}")
+        if c.get("files_changed"):
+            parts.append(f"{c['files_changed']} changed")
+        if c.get("announcements_new"):
+            n = c['announcements_new']
+            parts.append(f"{n} announcement{'s' if n != 1 else ''}")
+        m = c.get("mined") or {}
+        mine_parts = []
+        if m.get("facts"): mine_parts.append(f"+{m['facts']} facts")
+        if m.get("events"): mine_parts.append(f"+{m['events']} events")
+        if m.get("exams"): mine_parts.append(f"+{m['exams']} exams")
+        if m.get("assignments"):
+            n = m['assignments']
+            mine_parts.append(f"backfilled {n} assignment{'s' if n != 1 else ''}")
+        line = f"- {c['code']}: " + (", ".join(parts) if parts else "no changes")
+        if mine_parts:
+            line += " — mined " + ", ".join(mine_parts)
+        lines.append(line)
+    return "\n".join(lines) + "\n"
+```
+
+`digest_and_log` replacement: delete the prompt/`httpx` block, the backlog/chat queries, and the `_undigested_*` helpers; new body gathers per-course counts (files/announcements from `self.deltas` + `self.stats`, mining from the Task 5 loop), calls `render_sync_log(time.strftime('%Y-%m-%d'), self.stats, per_course)`, writes the file, updates `sync_runs.log_path`.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `pytest tests/test_mine.py::test_render_sync_log_deterministic -v`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add sync/sync.py tests/test_mine.py
+git commit -m "feat: deterministic sync digest, no LLM"
+```
+
 ## Verification (deployment `home`)
 
 1. `ssh home "cd ~/campus && python -m sync mine --backfill"` → expect per-course lines, e.g. `SE3352A: +N facts, +M events, +K exams`.
@@ -840,6 +952,6 @@ git commit -m "feat: filter mining noise from memory card, grading first"
 
 ## Self-Review
 
-- Spec coverage: any-file mining (Tasks 2–3 corpus covers outlines/assignments/announcements/modules/other mds + on-disk html) ✓; auto-add dates (Task 4 events/exams/assignment backfill + audit) ✓; backfill now (Task 5 CLI) ✓; attribution bug fixed by per-course `mine_course` AND the digest per-fact lookup ✓. Reviewer round 2 (13 findings) folded in: audit actor, fuzzy match, test seeding, mining gate, outlines-first prompt, dropbox COALESCE, digest attribution, budget caps, html scope, digested_at stamping, uid normalization, card ordering test, robustness nits.
+- Spec coverage: any-file mining (Tasks 2–3 corpus covers outlines/assignments/announcements/modules/other mds + on-disk html) ✓; auto-add dates (Task 4 events/exams/assignment backfill + audit) ✓; backfill now (Task 5 CLI) ✓; attribution by per-course mining (digest writes no facts anymore, Task 7) ✓; deterministic digest with zero LLM (Task 7) ✓. Reviewer round 2 (13 findings) folded in: audit actor, fuzzy match, test seeding, mining gate, outlines-first prompt, dropbox COALESCE, digest attribution, budget caps, html scope, digested_at stamping, uid normalization, card ordering test, robustness nits.
 - Placeholder scan: no TBD/TODO; every step has exact code, exact test, exact command.
 - Type consistency: `mined` dict shape defined once in Task 3, consumed verbatim in Tasks 4–5; `build_course_corpus`/`apply_mining`/`mine_course` signatures match across tasks.
