@@ -1308,17 +1308,37 @@ def mine_main() -> int:
     """Backfill entry: mine existing corpora without downloading anything.
     No D2L client needed — mining reads the DB + on-disk markdown only."""
     ap = argparse.ArgumentParser(description="Mine course corpora into memory + schedule")
-    ap.add_argument("--backfill", action="store_true", required=True,
+    ap.add_argument("--backfill", action="store_true", required=False,
                     help="mine even with no new sync deltas")
+    ap.add_argument("--clean", action="store_true",
+                    help="retire noise facts, regen cards, exit (no mining)")
     ap.add_argument("--code", help="course code to mine (default: all active)")
     ap.add_argument("--model", help="LLM model override (default: config llm_model)")
     args = ap.parse_args()
+    if not args.backfill and not args.clean:
+        ap.error("pass --backfill or --clean")
 
     cfg = Config.load()
     db = DB(cfg.db_path)
     from unittest.mock import MagicMock  # mining never touches the D2L client
     engine = SyncEngine(cfg, db, client=MagicMock(), model=args.model)
     try:
+        if args.clean:
+            from sync.mine import retire_noise_facts
+            from agent.memory import regenerate_cards
+            if args.code:
+                course = db.get_course_by_code(args.code)
+                if not course:
+                    print(f"Unknown course: {args.code}")
+                    return 2
+                courses = [course]
+            else:
+                courses = db.conn.execute(
+                    "SELECT * FROM courses WHERE is_active=1").fetchall()
+            total = sum(retire_noise_facts(db, c["id"]) for c in courses)
+            regenerate_cards(cfg, db, courses=[c["id"] for c in courses])
+            print(f"retired {total} noise fact(s) across {len(courses)} course(s)")
+            return 0
         if args.code:
             course = db.get_course_by_code(args.code)
             if not course:

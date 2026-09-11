@@ -375,6 +375,27 @@ def _truncate_blocks(blocks: list[dict], limit: int) -> list[dict]:
     return out
 
 
+def retire_noise_facts(db, course_id: int | None = None) -> int:
+    """Deactivate active facts matching the noise filter (pre-mining digest
+    debt). Audited per row so the cleanup is reversible from audit_log."""
+    if course_id:
+        rows = db.conn.execute(
+            "SELECT id, course_id, fact FROM memory_facts WHERE is_active=1 AND course_id=?",
+            (course_id,)).fetchall()
+    else:
+        rows = db.conn.execute(
+            "SELECT id, course_id, fact FROM memory_facts WHERE is_active=1").fetchall()
+    n = 0
+    for r in rows:
+        if is_noise_fact(r["fact"]):
+            db.conn.execute("UPDATE memory_facts SET is_active=0 WHERE id=?", (r["id"],))
+            db.audit("sync", "memory_facts", r["id"], "retire-noise",
+                     {"fact": r["fact"][:200]})
+            n += 1
+    db.conn.commit()
+    return n
+
+
 def _insert_event(db, course_id: int, code: str, title: str, starts_at: str,
                   kind: str = "assignment", ends_at: str | None = None,
                   notes: str | None = None) -> int | None:
