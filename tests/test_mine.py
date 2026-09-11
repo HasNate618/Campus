@@ -118,3 +118,28 @@ def test_mine_course_writes_fact_and_counts(db, cfg, monkeypatch):
         "SELECT COUNT(*) FROM memory_facts WHERE course_id=?",
         (course["id"],)).fetchone()[0] == 1
     db.close()
+
+
+def test_card_filters_noise_and_keeps_grading(db, cfg):
+    from agent.memory import build_card
+    course = db.get_course_by_code("CS 1100A")
+    db.conn.execute(
+        "INSERT INTO memory_facts (course_id, fact, category, confidence, source) VALUES (?,?,?,?,?)",
+        (course["id"], "5 slides were added", "general", 0.9, "sync:2026-09-10"))
+    db.conn.execute(
+        "INSERT INTO memory_facts (course_id, fact, category, confidence, source) VALUES (?,?,?,?,?)",
+        (course["id"], "2 files were posted", "logistics", 0.9, "sync:2026-09-10"))
+    db.conn.execute(
+        "INSERT INTO memory_facts (course_id, fact, category, confidence, source) VALUES (?,?,?,?,?)",
+        (course["id"], "Midterm is worth 20%; final 45%; pass needs 50% on the final.", "grading", 0.9, "t"))
+    db.conn.execute(
+        "INSERT INTO memory_facts (course_id, fact, category, confidence, source) VALUES (?,?,?,?,?)",
+        (course["id"], "Lab sessions begin the week of 2026-09-21.", "scheduling", 0.8, "t"))
+    db.conn.commit()
+    card = build_card(cfg, db, course["id"])
+    assert "slides were added" not in card
+    assert "files were posted" not in card
+    assert "Midterm is worth 20%" in card
+    assert "week of 2026-09-21" in card
+    assert card.index("Midterm is worth 20%") < card.index("week of 2026-09-21")
+    db.close()
