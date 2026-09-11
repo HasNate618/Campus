@@ -267,3 +267,132 @@ def parse_miner_output(raw: str) -> dict:
             updates.append({"title": title, "due_at": due, "weight": w})
     return {"facts": facts, "events": events, "exams": exams,
             "assignment_updates": updates}
+
+
+# ── applier ───────────────────────────────────────────────────────────
+def _norm_title(s: str) -> str:
+    s = re.sub(r"\s+", " ", (s or "").strip().casefold())
+    return re.sub(r"[^a-z0-9 ]", "", s)
+
+
+def _norm_dt(s: str) -> str:
+    """Normalize datetime strings so format variants hash identically:
+    strip seconds (`...T09:00:00` -> `...T09:00`) and stray whitespace."""
+    s = (s or "").strip()
+    m = re.match(r"^(20\d\d-\d\d-\d\dT\d\d:\d\d)(:\d\d)?(.*)$", s)
+    return (m.group(1) + m.group(3)).strip() if m else s
+
+
+def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int] | None = None) -> dict:
+    """Apply parsed miner output: facts, events, exams, assignment backfill.
+
+    Idempotent: re-applying the same output returns all zeros. Every write
+    is audited (actor='sync'). `course_id` is ALWAYS the mined course."""
+    res = {"facts": 0, "events": 0, "exams": 0, "assignments": 0}
+    course = db.conn.execute(
+        "SELECT code FROM courses WHERE id=?", (course_id,)).fetchone()
+    code = course["code"] if course else str(course_id)
+
+    for f in mined.get("facts", []):
+        fact = str(f.get("fact", "")).strip()
+        if not fact or is_noise_fact(fact):
+            continue
+        dup = db.conn.execute(
+            "SELECT 1 FROM memory_facts WHERE course_id=? AND fact=? AND is_active=1",
+            (course_id, fact)).fetchone()
+        if dup:
+            continue
+        try:
+            conf = min(1.0, max(0.0, float(f.get("confidence", 0.5))))
+        except (TypeError, ValueError):
+            conf = 0.5
+        cur = db.conn.execute(
+            "INSERT INTO memory_facts (course_id, fact, category, confidence, source) VALUES (?,?,?,?,?)",
+            (course_id, fact, f.get("category") or "general", conf, source))
+        res["facts"] += 1
+        db.audit("sync", "memory_facts", cur.lastrowid, "mine-insert",
+                 {"course_id": course_id, "fact": fact})
+
+    for e in mined.get("events", []):
+        title = str(e.get("title") or "").strip()
+        starts = str(e.get("starts_at") or "").strip()
+        if not title or not starts:
+            continue
+        dup = db.conn.execute(
+            "SELECT 1 FROM events WHERE course_id=? AND lower(title)=lower(?)"
+            " AND substr(starts_at,1,10)=substr(?,1,10)",
+            (course_id, title, starts)).fetchone()
+        if dup:
+            continue
+        uid = stable_uid(code, title, _norm_dt(starts))
+        cur = db.conn.execute(
+            "INSERT OR IGNORE INTO events (course_id, kind, title, starts_at, ends_at, notes, ics_uid)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (course_id, e.get("kind") or "assignment", title, starts,
+             e.get("ends_at"), e.get("notes"), uid))
+        if cur.rowcount:
+            res["events"] += 1
+            db.audit("sync", "events", cur.lastrowid, "mine-insert",
+                     {"course_id": course_id, "title": title,
+                      "starts_at": starts, "uid": uid})
+
+    for x in mined.get("exams", []):
+        xtitle = str(x.get("title") or "").strip()
+        xstarts = str(x.get("starts_at") or "").strip()
+        if not xtitle or not xstarts:
+            continue
+        dup = db.conn.execute(
+            "SELECT 1 FROM exams WHERE course_id=? AND lower(title)=lower(?) AND starts_at=?",
+            (course_id, xtitle, xstarts)).fetchone()
+        if dup:
+            continue
+        try:
+            xw = float(x["weight"]) if x.get("weight") is not None else None
+        except (TypeError, ValueError):
+            xw = None
+        cur = db.conn.execute(
+            "INSERT INTO exams (course_id, title, starts_at, weight, notes, source)"
+            " VALUES (?,?,?,?,?, 'ai')",
+            (course_id, xtitle, xstarts, xw, x.get("notes")))
+        res["exams"] += 1
+        db.audit("sync", "exams", cur.lastrowid, "mine-insert",
+                 {"course_id": course_id, "title": xtitle, "starts_at": xstarts})
+
+    assigns = db.conn.execute(
+        "SELECT id, title, due_at, weight FROM assignments WHERE course_id=?",
+        (course_id,)).fetchall()
+    for u in mined.get("assignment_updates", []):
+        want = _norm_title(u.get("title"))
+        if len(want) < 4:
+            continue
+        target = None
+        for a in assigns:
+            have = _norm_title(a["title"])
+            if want == have or want in have or have in want:
+                target = a
+                break
+        if not target:
+            continue
+        sets: dict = {}
+        if u.get("due_at") and not target["due_at"]:
+            sets["due_at"] = u["due_at"]
+        if u.get("weight") is not None and target["weight"] is None:
+            try:
+                sets["weight"] = float(u["weight"])
+            except (TypeError, ValueError):
+                pass
+        if sets:
+            db.conn.execute(
+                f"UPDATE assignments SET {', '.join(k + '=?' for k in sets)},"
+                " updated_at=datetime('now') WHERE id=?",
+                (*sets.values(), target["id"]))
+            res["assignments"] += 1
+            db.audit("sync", "assignments", target["id"], "mine-backfill",
+                     {"before": {"due_at": target["due_at"], "weight": target["weight"]},
+                      "after": sets})
+    if ann_ids:
+        db.conn.executemany(
+            "UPDATE announcements SET digested_at=datetime('now') WHERE id=?",
+            [(i,) for i in ann_ids])
+    db.conn.commit()
+    return res

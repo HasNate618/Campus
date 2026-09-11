@@ -63,3 +63,36 @@ def test_parse_miner_output_coerces_and_drops():
     assert out["events"][0]["starts_at"] == "2026-09-14"
     assert out["exams"] == []  # bad date + low confidence dropped
     assert out["assignment_updates"][0]["due_at"] == "2026-09-14"
+
+
+def test_apply_mining_dedupes_and_backfills(db):
+    from sync.mine import apply_mining
+    course = db.get_course_by_code("CS 1100A")
+    db.conn.execute(
+        "INSERT INTO assignments (course_id, title, description, source) VALUES (?,?,?,?)",
+        (course["id"], "Lab 1 – HTML+CSS", "Build a page.", "brightspace"))
+    db.conn.commit()
+    mined = {
+        "facts": [{"fact": "2 files were added", "category": "general", "confidence": 0.9},
+                  {"fact": "Final is worth 45%.", "category": "grading", "confidence": 0.9}],
+        "events": [{"title": "Lab 1 due", "starts_at": "2026-09-14",
+                      "ends_at": None, "kind": "assignment", "notes": None}],
+        "exams": [{"title": "Midterm", "starts_at": "2026-10-20", "weight": 25.0,
+                     "notes": None}],
+        "assignment_updates": [{"title": "Lab 1", "due_at": "2026-09-14", "weight": None},
+                               {"title": "Quiz 9 (nonexistent)", "due_at": "2026-10-01", "weight": None}],
+    }
+    r1 = apply_mining(db, course["id"], mined, source="mine:test")
+    assert r1 == {"facts": 1, "events": 1, "exams": 1, "assignments": 1}
+    assert db.conn.execute(
+        "SELECT COUNT(*) FROM assignments WHERE course_id=?",
+        (course["id"],)).fetchone()[0] == 1  # non-matching update creates nothing
+    r2 = apply_mining(db, course["id"], mined, source="mine:test")
+    assert r2 == {"facts": 0, "events": 0, "exams": 0, "assignments": 0}
+    assert db.conn.execute(
+        "SELECT due_at FROM assignments WHERE course_id=?",
+        (course["id"],)).fetchone()[0] == "2026-09-14"
+    assert db.conn.execute(
+        "SELECT COUNT(*) FROM audit_log WHERE actor='sync'"
+        " AND action IN ('mine-insert','mine-backfill')").fetchone()[0] == 4
+    db.close()
