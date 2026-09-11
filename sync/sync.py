@@ -729,6 +729,7 @@ class SyncEngine:
             if is_new:
                 self.stats["announcements_new"] += 1
                 self.deltas.append({"kind": "announcement",
+                                    "course_id": course_id,
                                     "title": n.get("Title"),
                                     "body": body[:800],  # excerpt for the digest
                                     "posted_at": n.get("StartDate")})
@@ -947,7 +948,7 @@ class SyncEngine:
                 print(f"  extracted: {row['path']}", flush=True)
             else:
                 failed += 1
-        self.stats["pdfs_extracted"] = done
+        self.stats["pdfs_extracted"] = self.stats.get("pdfs_extracted", 0) + done
         if total:
             parts = [f"{done} extracted"]
             if failed: parts.append(f"{failed} failed")
@@ -974,6 +975,66 @@ class SyncEngine:
                     start_new_session=True)
         except Exception as e:
             print(f"  extraction spawn failed: {e}")
+
+    # ── autonomous mining ─────────────────────────────────────────────
+    def course_has_mining_deltas(self, course_id: int) -> bool:
+        """True when this sync produced anything worth mining for the course."""
+        course = self.db.conn.execute(
+            "SELECT term, code FROM courses WHERE id=?", (course_id,)).fetchone()
+        prefix = f"{course['term']}/{course['code'].replace(' ', '')}/" if course else ""
+        for d in self.deltas:
+            if (d.get("path") or "").startswith(prefix):
+                return True
+            if d.get("kind") == "announcement" and d.get("course_id") == course_id:
+                return True
+        undig = self.db.conn.execute(
+            "SELECT 1 FROM announcements WHERE course_id=? AND digested_at IS NULL LIMIT 1",
+            (course_id,)).fetchone()
+        if undig:
+            return True
+        return False
+
+    def _call_miner(self, corpus: dict) -> dict:
+        """One LLM call per course; never raises (returns empty mining on failure)."""
+        import json as _json
+        from sync.mine import MINER_SYSTEM, parse_miner_output
+        ordered = sorted(corpus["blocks"], key=lambda b: 0 if b["kind"] == "outline" else 1)
+        prompt = (MINER_SYSTEM + f"\n\nTODAY: {corpus['today']}\nCOURSE: {corpus['code']} ({corpus['term']})\n"
+                  f"CORPUS:\n{_json.dumps(ordered[:30], indent=1)[:60000]}")
+        try:
+            endpoints = self.cfg.llm_endpoints()
+            if not endpoints:
+                raise RuntimeError("no LLM endpoint configured")
+            r = httpx.post(f"{endpoints[0]}/chat/completions",
+                           headers=llm_headers(self.cfg),
+                           json={"model": self.model,
+                                 "messages": [{"role": "user", "content": prompt}],
+                                 "temperature": 0.2},
+                           timeout=180)
+            r.raise_for_status()
+            content = r.json()["choices"][0]["message"]["content"]
+            return parse_miner_output(content)
+        except Exception as e:
+            print(f"  mining failed for {corpus['code']}: {e}")
+            return {"facts": [], "events": [], "exams": [], "assignment_updates": []}
+
+    def mine_course(self, course_id: int, force: bool = False) -> dict:
+        """Mine one course corpus and apply results (per-course => correct attribution)."""
+        import time as _time
+        from sync.mine import apply_mining, build_course_corpus
+        if not force and not self.course_has_mining_deltas(course_id):
+            return {"facts": 0, "events": 0, "exams": 0, "assignments": 0}
+        corpus = build_course_corpus(self.cfg, self.db, course_id)
+        if not corpus["blocks"]:
+            return {"facts": 0, "events": 0, "exams": 0, "assignments": 0}
+        mined = self._call_miner(corpus)
+        course = self.db.conn.execute(
+            "SELECT code FROM courses WHERE id=?", (course_id,)).fetchone()
+        src = f"mine:{_time.strftime('%Y-%m-%d')}:{course['code'] if course else course_id}"
+        out = apply_mining(self.db, course_id, mined, source=src,
+                           ann_ids=corpus.get("ann_ids"))
+        self.stats["facts_added"] = self.stats.get("facts_added", 0) + out["facts"]
+        return out
 
     def extract(self, code: str | None = None, file_path: str | None = None,
                 max_mb: float | None = None) -> int:
@@ -1026,6 +1087,7 @@ class SyncEngine:
             if not dry_run:
                 self._notify(f"Sync started — {len(courses)} course(s)", "default")
 
+            mining: dict[int, dict] = {}
             for course in courses:
                 ou = self.match_course(enrollments, course["code"])
                 if not ou:
@@ -1051,10 +1113,22 @@ class SyncEngine:
                 self.sync_dropbox(course["id"], org_unit)
                 self.sync_news(course["id"], org_unit)
                 self.sync_syllabus(course["id"], org_unit, course_dir)
-                # NOTE: extraction is NOT done here — it runs as a detached
-                # background job after the digest (see _extraction_bg). The
-                # old inline loop made syncs hang on the single pdf-extractor
-                # VLM worker for 10min per file.
+                # foreground extraction + mining, per course (full context same run;
+                # idle courses skip both via the mining gate)
+                try:
+                    self.run_extraction_queue(course["id"])
+                except Exception as e:
+                    print(f"    extraction failed for {course['code']}: {e}")
+                try:
+                    mined = self.mine_course(course["id"])
+                except Exception as e:
+                    print(f"    mining failed for {course['code']}: {e}")
+                    mined = {"facts": 0, "events": 0, "exams": 0, "assignments": 0}
+                mining[course["id"]] = mined
+                if any(mined.values()):
+                    print(f"    → mined {course['code']}: +{mined['facts']} facts,"
+                          f" +{mined['events']} events, +{mined['exams']} exams,"
+                          f" backfilled {mined['assignments']} assignment(s)")
                 # cache Brightspace-hosted images locally (best-effort; needs
                 # session cookies from auth) so html renders offline
                 try:
@@ -1075,7 +1149,7 @@ class SyncEngine:
                 print(f"    → {course['code']}: {summary}", flush=True)
 
             if not dry_run:
-                self.digest_and_log(run_id, courses)
+                self.digest_and_log(run_id, courses, mining)
                 # semantic corpus index (incremental — embeddings via the LLM
                 # endpoint; best-effort: a blip there must never fail the sync)
                 try:
@@ -1084,12 +1158,8 @@ class SyncEngine:
                     print(f"  index: {idx['chunks']} chunks ({idx['embedded_items']} embedded)")
                 except Exception as e:
                     print(f"  index rebuild skipped: {e}")
-                # extraction is a BACKGROUND job — never blocks the sync.
-                # The pdf-extractor worker is single and slow (VLM page-by-
-                # page); an inline queue made every sync hang for minutes.
-                if self.cfg.auto_extract_pdfs:
-                    print("  extraction queued (background)...", flush=True)
-                    self._extraction_bg()
+                # extraction already ran per-course foreground (see loop above);
+                # _extraction_bg is kept for manual `extract` use only.
                 # memory card regen (only when something changed)
                 if self.stats["facts_added"] > 0 or self.deltas:
                     try:
@@ -1101,8 +1171,7 @@ class SyncEngine:
                     f"Sync done — {self.stats['files_new']} new files, "
                     f"{self.stats['files_changed']} changed, "
                     f"{self.stats['announcements_new']} announcements, "
-                    f"{self.stats['facts_added']} facts"
-                    + (", extraction running" if self.cfg.auto_extract_pdfs else ""),
+                    f"{self.stats['facts_added']} facts",
                     "green")
             self.db.finish_sync(run_id, "ok", **self.stats)
             print(f"\nSync OK: {json.dumps(self.stats)}")
@@ -1175,7 +1244,7 @@ class SyncEngine:
         except Exception:
             return []
 
-    def digest_and_log(self, run_id: int, courses) -> None:
+    def digest_and_log(self, run_id: int, courses, mining: dict | None = None) -> None:
         """LLM digest pass: delta digest (+ undigested announcement backlog)
         → memory_facts + markdown sync log. (Notification is sent once by
         run(), covering the whole sync.)"""
@@ -1250,6 +1319,10 @@ class SyncEngine:
             category = f.get("category", "general")
             if category not in allowed:
                 category = "general"  # model strayed — coerce, don't crash
+            try:
+                conf = min(1.0, max(0.0, float(f.get("confidence", 0.5))))
+            except (TypeError, ValueError):
+                conf = 0.5
             self.db.conn.execute(
                 """INSERT INTO memory_facts (course_id, fact, category, confidence, source)
                    VALUES (?,?,?,?,?)""",
@@ -1279,7 +1352,7 @@ class SyncEngine:
     def _notify(self, message: str, priority: str = "default") -> None:
         try:
             httpx.post(f"{self.cfg.ntfy_url}/campus",
-                       data=message.encode(),
+                       content=message.encode(),
                        headers={"Priority": priority, "Title": "Campus"},
                        timeout=10)
         except Exception:
@@ -1307,6 +1380,44 @@ def main() -> int:
         return engine.run(code=args.code, dry_run=args.dry_run)
     finally:
         client.close()
+        db.close()
+
+
+def mine_main() -> int:
+    """Backfill entry: mine existing corpora without downloading anything.
+    No D2L client needed — mining reads the DB + on-disk markdown only."""
+    ap = argparse.ArgumentParser(description="Mine course corpora into memory + schedule")
+    ap.add_argument("--backfill", action="store_true", required=True,
+                    help="mine even with no new sync deltas")
+    ap.add_argument("--code", help="course code to mine (default: all active)")
+    ap.add_argument("--model", help="LLM model override (default: config llm_model)")
+    args = ap.parse_args()
+
+    cfg = Config.load()
+    db = DB(cfg.db_path)
+    engine = SyncEngine(cfg, db, client=None, model=args.model)  # type: ignore[arg-type]
+    try:
+        if args.code:
+            course = db.get_course_by_code(args.code)
+            if not course:
+                print(f"Unknown course: {args.code}")
+                return 2
+            courses = [course]
+        else:
+            courses = db.conn.execute(
+                "SELECT * FROM courses WHERE is_active=1").fetchall()
+        total = {"facts": 0, "events": 0, "exams": 0, "assignments": 0}
+        for course in courses:
+            out = engine.mine_course(course["id"], force=True)
+            for k in total:
+                total[k] += out[k]
+            print(f"  {course['code']}: +{out['facts']} facts, +{out['events']} events,"
+                  f" +{out['exams']} exams, backfilled {out['assignments']} assignment(s)")
+        from agent.memory import regenerate_cards
+        regenerate_cards(cfg, db, courses=[c["id"] for c in courses])
+        print(f"mined {len(courses)} course(s): {total}")
+        return 0
+    finally:
         db.close()
 
 

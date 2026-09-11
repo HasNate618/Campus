@@ -96,3 +96,25 @@ def test_apply_mining_dedupes_and_backfills(db):
         "SELECT COUNT(*) FROM audit_log WHERE actor='sync'"
         " AND action IN ('mine-insert','mine-backfill')").fetchone()[0] == 4
     db.close()
+
+
+def test_mine_course_writes_fact_and_counts(db, cfg, monkeypatch):
+    from sync.sync import SyncEngine
+    course = db.get_course_by_code("CS 1100A")
+    db.conn.execute(
+        "INSERT INTO assignments (course_id, title, description, source) VALUES (?,?,?,?)",
+        (course["id"], "Midterm", "Covers units 1-4 including binary arithmetic and logic gates.", "brightspace"))
+    db.conn.commit()
+    fake = {"facts": [{"fact": "Final is worth 45%.", "category": "grading", "confidence": 0.9}],
+            "events": [], "exams": [], "assignment_updates": []}
+    import sync.sync as sync_mod
+    monkeypatch.setattr(sync_mod.SyncEngine, "_call_miner", lambda self, c: fake)
+    from unittest.mock import MagicMock
+    eng = SyncEngine(cfg, db, client=MagicMock())
+    out = eng.mine_course(course["id"], force=True)
+    assert eng.course_has_mining_deltas(course["id"]) is False  # bare DB: gate works
+    assert out == {"facts": 1, "events": 0, "exams": 0, "assignments": 0}
+    assert db.conn.execute(
+        "SELECT COUNT(*) FROM memory_facts WHERE course_id=?",
+        (course["id"],)).fetchone()[0] == 1
+    db.close()

@@ -8,6 +8,9 @@ Commands:
   extract [--code X]   PDF → markdown via pdf-extractor (keeps originals)
           [--file P]   extract a single file
           [--max-mb N] size cap
+  mine --backfill    mine existing corpora into memory + schedule (no downloads)
+          [--code X]   mine one course (default: all active)
+          [--model M]  LLM model override
   models               list models served by the LLM endpoint (for --model / config)
 """
 import sys
@@ -31,7 +34,10 @@ def main() -> int:
         from sync.extract import main as extract_main
         sys.argv = ["sync.extract"] + rest
         return extract_main()
-    if cmd == "models":
+    if cmd == "mine":
+        from sync.sync import mine_main
+        sys.argv = ["sync.mine"] + rest
+        return mine_main()
         from sync.extract import list_models
         return list_models()
     print(f"Unknown command: {cmd}\n{__doc__}")
