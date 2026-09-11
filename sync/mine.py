@@ -340,10 +340,19 @@ _MONTH_NAMES = {"01": ("jan", "january"), "02": ("feb", "february"), "03": ("mar
                 "10": ("oct", "october"), "11": ("nov", "november"), "12": ("dec", "december")}
 
 
+_DATE_HINT_RE = re.compile(
+    r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|january|february|"
+    r"march|april|june|july|august|september|october|november|december)\b"
+    r"|\b20\d\d-\d\d-\d\d\b", re.I)
+
+
 def _fact_mentions_date(fact: str, due_at: str) -> bool:
     """True when the fact text contains the due date in any common phrasing
-    (10-23, 10/23, Oct 23, October 23, zero-padded variants). Unparseable due
-    dates and invalid months can't be judged — never flag those."""
+    (10-23, 10/23, Oct 23, October 23, zero-padded variants), OR when the
+    fact mentions no date at all (silent facts can't contradict).
+    Unparseable due dates and invalid months can't be judged — never flag.
+    NOTE: numeric-only dates (10/23) without a month name are NOT treated as
+    date evidence — they're indistinguishable from scores like 8/10."""
     m = re.match(r"^(20\d\d)-(\d\d)-(\d\d)", due_at or "")
     if not m:
         return True
@@ -359,7 +368,9 @@ def _fact_mentions_date(fact: str, due_at: str) -> bool:
              f"{short} {day}", f"{long} {day}",
              f"{short} {d}", f"{long} {d}"]
     low = (fact or "").casefold()
-    return any(c in low for c in cands)
+    if any(c in low for c in cands):
+        return True
+    return not bool(_DATE_HINT_RE.search(low))
 
 
 def _truncate_blocks(blocks: list[dict], limit: int) -> list[dict]:

@@ -336,3 +336,22 @@ def test_retire_noise_facts(db):
         "SELECT COUNT(*) FROM memory_facts WHERE course_id=? AND is_active=1",
         (course["id"],)).fetchone()[0] == 1
     db.close()
+
+
+def test_backfill_fact_without_date_is_not_conflict(db):
+    from sync.mine import apply_mining
+    course = db.get_course_by_code("CS 1100A")
+    db.conn.execute(
+        "INSERT INTO assignments (course_id, title, description, source) VALUES (?,?,?,?)",
+        (course["id"], "Lab 3", "ReST APIs with many requirements here.", "brightspace"))
+    db.conn.execute(
+        "INSERT INTO memory_facts (course_id, fact, category, confidence, source) VALUES (?,?,?,?,?)",
+        (course["id"], "Evaluation: 40% labs (Lab 1 15%, Lab 2 10%, Lab 3 24%), best 8/10 quizzes.", "grading", 0.9, "mine:old"))
+    db.conn.commit()
+    mined = {"facts": [], "events": [], "exams": [],
+             "assignment_updates": [{"title": "Lab 3", "due_at": "2026-10-23"}]}
+    out = apply_mining(db, course["id"], mined, source="mine:test")
+    assert out["assignments"] == 1
+    assert db.conn.execute(
+        "SELECT COUNT(*) FROM audit_log WHERE action='mine-conflict'").fetchone()[0] == 0
+    db.close()
