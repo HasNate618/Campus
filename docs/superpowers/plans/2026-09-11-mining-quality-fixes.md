@@ -24,6 +24,14 @@
 - `agent/memory.py` — owns: `build_card`. Gains: word-boundary clip.
 - `tests/test_mine.py` — append all new tests (reuses `cfg`, `db`, `MagicMock` patterns already in the file).
 
+## As-built deviations (folded during implementation)
+
+- Task 4 `_fact_mentions_date` is three-way: fact mentions the due date → consistent; fact mentions a DIFFERENT date (month name or ISO date only — numeric `10/23` is indistinguishable from scores like `8/10`) → conflict; fact mentions no date at all → silent, never flagged. (The two-way version flagged every dateless fact, e.g. the evaluation breakdown.)
+- Task 5 `_outline_year` reads the FILENAME only — the `2026F/` directory prefix matches `2026` and tied every file (caught by the Task-5 test).
+- Task 10 gap: round-1 backfills already filled `due_at`, so re-runs never touch them — no `mine-conflict` rows and no backfill events exist for Labs 1-4. Step 1 therefore scans live `assignments`+`memory_facts` read-only with the Task-4 helpers instead of querying `mine-conflict`; Step 3 must INSERT the calendar event when none exists (not just UPDATE).
+- Task 9 `retire_noise_facts` uses two static SELECTs (no dynamic SQL construction).
+- Task 8 clip test uses a programmatic >140-char fact with the cut provably inside a long word (hand-counted windows were off by one twice).
+
 ---
 
 ### Task 1: Ban class/personal events (prompt + parser + applier)
