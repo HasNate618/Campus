@@ -211,3 +211,23 @@ def test_apply_stores_raw_provenance(db):
         "SELECT detail FROM audit_log WHERE action='mine-run'").fetchone()
     assert row is not None and "Final is worth 45%" in row["detail"]
     db.close()
+
+
+def test_backfill_conflicting_fact_is_flagged(db):
+    from sync.mine import apply_mining
+    course = db.get_course_by_code("CS 1100A")
+    db.conn.execute(
+        "INSERT INTO assignments (course_id, title, description, source) VALUES (?,?,?,?)",
+        (course["id"], "Lab 3", "ReST APIs with many requirements here.", "brightspace"))
+    db.conn.execute(
+        "INSERT INTO memory_facts (course_id, fact, category, confidence, source) VALUES (?,?,?,?,?)",
+        (course["id"], "Lab 3 is on ReST APIs due Oct 31.", "assignment", 0.9, "mine:old"))
+    db.conn.commit()
+    mined = {"facts": [], "events": [], "exams": [],
+             "assignment_updates": [{"title": "Lab 3", "due_at": "2026-10-23"}]}
+    out = apply_mining(db, course["id"], mined, source="mine:test")
+    assert out["assignments"] == 1  # still fills the NULL
+    row = db.conn.execute(
+        "SELECT detail FROM audit_log WHERE action='mine-conflict'").fetchone()
+    assert row is not None and "Oct 31" in row["detail"]
+    db.close()
