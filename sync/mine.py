@@ -443,7 +443,8 @@ def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int
         if not xtitle or not xstarts:
             continue
         dup = db.conn.execute(
-            "SELECT 1 FROM exams WHERE course_id=? AND lower(title)=lower(?) AND starts_at=?",
+            "SELECT 1 FROM exams WHERE course_id=? AND lower(title)=lower(?)"
+            " AND substr(starts_at,1,10)=substr(?,1,10)",
             (course_id, xtitle, xstarts)).fetchone()
         if dup:
             continue
@@ -468,8 +469,7 @@ def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int
             continue
         target = None
         for a in assigns:
-            have = _norm_title(a["title"])
-            if want == have or want in have or have in want:
+            if _titles_match(u.get("title"), a["title"]):
                 target = a
                 break
         if not target:
