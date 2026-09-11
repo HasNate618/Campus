@@ -47,13 +47,18 @@ def classify_file(rel: str) -> str:
 def is_noise_fact(text: str) -> bool:
     """True for sync-chatter facts that must never reach memory cards.
 
-    Matches 'X file(s) were added/updated/posted' phrasing in any case.
+    Matches 'X file(s) were added/updated/posted' phrasing in any case,
+    plus availability/posted notices ('Week 1 materials are available...').
     Deliberately narrow: real facts ('Final is worth 45%') never match."""
-    return bool(re.search(
-        r"\b\d*\s*(files?|slides?|documents?|announcements?)\b.{0,20}"
-        r"\b(were|was|has been|have been)\b.{0,20}"
-        r"\b(added|updated|posted|synced|uploaded)\b",
-        text or "", re.I))
+    return bool(_NOISE_RE.search(text or "") or _NOISE_EXTRA_RE.search(text or ""))
+
+
+_NOISE_RE = re.compile(
+    r"\b\d*\s*(files?|slides?|documents?|announcements?)\b.{0,20}"
+    r"\b(were|was|has been|have been)\b.{0,20}"
+    r"\b(added|updated|posted|synced|uploaded)\b", re.I)
+_NOISE_EXTRA_RE = re.compile(
+    r"\b(has been posted|have been posted|are available|is available|now includes)\b", re.I)
 
 
 # ── corpus builder ────────────────────────────────────────────────────
