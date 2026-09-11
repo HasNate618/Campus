@@ -319,3 +319,20 @@ def test_card_clips_at_word_boundary(db, cfg):
     assert "supercalifragilisticexpialidocious" in card
     assert "supercalifragilisti…" not in card
     db.close()
+
+
+def test_retire_noise_facts(db):
+    from sync.mine import retire_noise_facts
+    course = db.get_course_by_code("CS 1100A")
+    db.conn.execute(
+        "INSERT INTO memory_facts (course_id, fact, category, confidence, source) VALUES (?,?,?,?,?)",
+        (course["id"], "3 files were added", "general", 0.9, "sync:2026-09-10"))
+    db.conn.execute(
+        "INSERT INTO memory_facts (course_id, fact, category, confidence, source) VALUES (?,?,?,?,?)",
+        (course["id"], "Final is worth 45%.", "grading", 0.9, "sync:2026-09-10"))
+    db.conn.commit()
+    assert retire_noise_facts(db, course["id"]) == 1
+    assert db.conn.execute(
+        "SELECT COUNT(*) FROM memory_facts WHERE course_id=? AND is_active=1",
+        (course["id"],)).fetchone()[0] == 1
+    db.close()
