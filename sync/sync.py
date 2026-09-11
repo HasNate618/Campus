@@ -126,6 +126,37 @@ def _extract_code(name: str) -> str:
     return _norm_code(m.group(1)) if m else ""
 
 
+def render_sync_log(date_str: str, stats: dict, per_course: list[dict]) -> str:
+    """Deterministic sync log — counts only, no LLM. Pure function."""
+    lines = [f"# Sync {date_str}", ""]
+    if not per_course and not any(stats.get(k, 0) for k in
+                                  ("files_new", "files_changed", "announcements_new")):
+        lines.append("Nothing new in any course.")
+        return "\n".join(lines) + "\n"
+    for c in per_course:
+        parts = []
+        if c.get("files_new"):
+            parts.append(f"{c['files_new']} new file{'s' if c['files_new'] != 1 else ''}")
+        if c.get("files_changed"):
+            parts.append(f"{c['files_changed']} changed")
+        if c.get("announcements_new"):
+            n = c['announcements_new']
+            parts.append(f"{n} announcement{'s' if n != 1 else ''}")
+        m = c.get("mined") or {}
+        mine_parts = []
+        if m.get("facts"): mine_parts.append(f"+{m['facts']} facts")
+        if m.get("events"): mine_parts.append(f"+{m['events']} events")
+        if m.get("exams"): mine_parts.append(f"+{m['exams']} exams")
+        if m.get("assignments"):
+            n = m['assignments']
+            mine_parts.append(f"backfilled {n} assignment{'s' if n != 1 else ''}")
+        line = f"- {c['code']}: " + (", ".join(parts) if parts else "no changes")
+        if mine_parts:
+            line += " — mined " + ", ".join(mine_parts)
+        lines.append(line)
+    return "\n".join(lines) + "\n"
+
+
 class SyncEngine:
     def __init__(self, cfg: Config, db: DB, client: D2LClient, model: str | None = None):
         self.cfg = cfg
@@ -1197,155 +1228,35 @@ class SyncEngine:
             print(f"Sync FAILED: {e}", file=sys.stderr)
             return 1
 
-    def _undigested_chats(self, limit: int = 40) -> list[dict]:
-        """Recent chat turns never fed to the digest (the chat-memory safety
-        net — catches durable facts the model didn't record mid-conversation).
-        Marked digested_at after the digest scans them."""
-        try:
-            rows = self.db.conn.execute(
-                """SELECT m.id, m.role, m.content, s.course_id, c.code
-                   FROM chat_messages m
-                   JOIN chat_sessions s ON s.id = m.session_id
-                   LEFT JOIN courses c ON c.id = s.course_id
-                   WHERE m.digested_at IS NULL AND m.role IN ('user','assistant')
-                     AND m.content != ''
-                   ORDER BY m.id DESC LIMIT ?""",
-                (limit,)).fetchall()
-        except Exception:
-            return []  # pre-migration DB (no digested_at column) — skip the net
-        chats = []
-        for r in reversed(rows):
-            content = (r["content"] or "").strip()
-            if len(content) > 600:
-                content = content[:600] + "…"
-            chats.append({"id": r["id"], "role": r["role"],
-                          "course": r["code"], "content": content})
-        return chats
-
-    def _undigested_announcements(self, courses) -> list[dict]:
-        """Historical announcements never fed to the digest (backlog backfill).
-        New ones are marked digested_at at sync time (they ride the deltas)."""
-        try:
-            cids = [c["id"] for c in courses]
-            q = ("SELECT id, title, posted_at, body FROM announcements "
-                 "WHERE digested_at IS NULL AND posted_at >= datetime('now', ?)")
-            args: list = [f"-{self.cfg.digest_announcement_days} days"]
-            if cids:
-                q += " AND course_id IN (%s)" % ",".join("?" * len(cids))
-                args += cids
-            q += " ORDER BY posted_at DESC LIMIT 25"
-            out = []
-            for r in self.db.conn.execute(q, args).fetchall():
-                body = re.sub(r"<[^>]+>", " ", r["body"] or "")
-                body = re.sub(r"\s+", " ", body).strip()
-                out.append({"id": r["id"], "title": r["title"],
-                            "posted_at": r["posted_at"], "body": body[:800]})
-            return out
-        except Exception:
-            return []
-
     def digest_and_log(self, run_id: int, courses, mining: dict | None = None) -> None:
-        """LLM digest pass: delta digest (+ undigested announcement backlog)
-        → memory_facts + markdown sync log. (Notification is sent once by
-        run(), covering the whole sync.)"""
-        backlog = self._undigested_announcements(courses)
-        chats = self._undigested_chats()
-        if not self.deltas and not backlog and not chats:
-            (self.cfg.data_root / "sync_logs").mkdir(parents=True, exist_ok=True)
-            log_path = self.cfg.data_root / "sync_logs" / f"{time.strftime('%Y-%m-%d')}.md"
-            log_path.write_text(f"# Sync {time.strftime('%Y-%m-%d %H:%M')}\n\nNothing new in any course.\n")
-            self.db.conn.execute("UPDATE sync_runs SET log_path=? WHERE id=?", (str(log_path), run_id))
-            self.db.conn.commit()
-            return
+        """Deterministic sync log — counts only, no LLM.
 
-        prompt = (
-            "You are the digest engine for a student's course-sync system.\n"
-            f"Today is {time.strftime('%Y-%m-%d')}. The changes below come from a Brightspace sync.\n"
-            "Return STRICT JSON: {\"facts\": [{\"fact\": str, \"category\": str, "
-            "\"confidence\": float}], \"log\": str}\n"
-            "facts: short durable facts worth remembering (deadline changes, announcements).\n"
-            "category must be one of: general, scheduling, grading, course-policy, "
-            "prof-note, exam, assignment, logistics.\n"
-            "TIME RULES (critical):\n"
-            "- Resolve relative dates ('tomorrow', 'next week', 'Friday') into ABSOLUTE dates "
-            "(YYYY-MM-DD) using today's date.\n"
-            "- Convert ephemeral instructions ('install X before class') into dated facts "
-            "('install X by YYYY-MM-DD').\n"
-            "- SKIP any fact whose relevance window has already passed, or that has no date "
-            "and is a one-off instruction.\n"
-            "- Never store 'tomorrow'/'next week' — always the concrete date.\n"
-            "log: a 3-6 line markdown sync log for the student (no preamble, no 'Lesson').\n"
-            f"Changes:\n{json.dumps(self.deltas, indent=1)}"
-        )
-        if backlog:
-            prompt += (
-                "\n\nHISTORICAL ANNOUNCEMENTS (backfill — these predate this sync). "
-                "Extract ONLY facts still relevant TODAY: extensions, policies, bonus "
-                "rules, grace periods, persistent instructions. SKIP anything whose "
-                "relevance window has passed or that is superseded by newer "
-                f"announcements or assignments:\n{json.dumps(backlog, indent=1)}"
-            )
-        if chats:
-            prompt += (
-                "\n\nRECENT CHAT ACTIVITY (conversations with the student since the last "
-                "digest — the safety net: the student may have stated facts or decisions "
-                "the model didn't record mid-conversation). Extract ONLY durable facts: "
-                "student-stated decisions, corrections, personal schedule details, things "
-                "explicitly said to remember. SKIP casual chat, questions, and anything "
-                "ephemeral or already covered above. Category per the whitelist.\n"
-                f"{json.dumps(chats, indent=1)}"
-            )
-        try:
-            endpoints = self.cfg.llm_endpoints()
-            if not endpoints:
-                raise RuntimeError("no LLM endpoint configured")
-            r = httpx.post(f"{endpoints[0]}/chat/completions",
-                           headers=llm_headers(self.cfg),
-                           json={"model": self.model,
-                                 "messages": [{"role": "user", "content": prompt}]},
-                           timeout=120)
-            r.raise_for_status()
-            data = r.json()
-            content = data["choices"][0]["message"]["content"]
-            content = content[content.find("{"):content.rfind("}") + 1]
-            result = json.loads(content)
-        except Exception as e:
-            print(f"  digest failed: {e} — body: {r.text[:200] if 'r' in dir() else 'no response'}")
-            return
-
-        allowed = {"general", "scheduling", "grading", "course-policy",
-                   "prof-note", "exam", "assignment", "logistics"}
-        for f in result.get("facts", []):
-            category = f.get("category", "general")
-            if category not in allowed:
-                category = "general"  # model strayed — coerce, don't crash
-            try:
-                conf = min(1.0, max(0.0, float(f.get("confidence", 0.5))))
-            except (TypeError, ValueError):
-                conf = 0.5
-            self.db.conn.execute(
-                """INSERT INTO memory_facts (course_id, fact, category, confidence, source)
-                   VALUES (?,?,?,?,?)""",
-                (courses[0]["id"] if len(courses) == 1 else None, f["fact"],
-                 category, float(f.get("confidence", 0.5)),
-                 f"sync:{time.strftime('%Y-%m-%d')}"),
-            )
-            self.stats["facts_added"] += 1
-        # backfilled announcements are now in memory — never re-digested
-        if backlog:
-            self.db.conn.executemany(
-                "UPDATE announcements SET digested_at=datetime('now') WHERE id=?",
-                [(b["id"],) for b in backlog])
-        # scanned chat turns are now in memory — never re-digested
-        if chats:
-            self.db.conn.executemany(
-                "UPDATE chat_messages SET digested_at=datetime('now') WHERE id=?",
-                [(c["id"],) for c in chats])
-        self.db.conn.commit()
-
+        Per-course file/announcement counts come from this run's deltas;
+        mining results come from the per-course mining loop. Announcements are
+        mined through the course corpus (never a digest backlog); chat facts
+        are recorded live by the agent, so no batch pass is needed."""
+        mining = mining or {}
+        per_course = []
+        for c in courses:
+            prefix = f"{c['term']}/{c['code'].replace(' ', '')}/"
+            files_new = sum(1 for d in self.deltas
+                            if d.get("kind") == "file_new"
+                            and (d.get("path") or "").startswith(prefix))
+            files_changed = sum(1 for d in self.deltas
+                                if d.get("kind") == "file_changed"
+                                and (d.get("path") or "").startswith(prefix))
+            ann_new = sum(1 for d in self.deltas
+                          if d.get("kind") == "announcement" and d.get("course_id") == c["id"])
+            m = mining.get(c["id"]) or {}
+            per_course.append({
+                "code": c["code"], "files_new": files_new,
+                "files_changed": files_changed, "announcements_new": ann_new,
+                "mined": {"facts": m.get("facts", 0), "events": m.get("events", 0),
+                          "exams": m.get("exams", 0), "assignments": m.get("assignments", 0)}})
+        md = render_sync_log(time.strftime("%Y-%m-%d"), self.stats, per_course)
         (self.cfg.data_root / "sync_logs").mkdir(parents=True, exist_ok=True)
         log_path = self.cfg.data_root / "sync_logs" / f"{time.strftime('%Y-%m-%d')}.md"
-        log_path.write_text(f"# Sync {time.strftime('%Y-%m-%d %H:%M')}\n\n{result.get('log', '')}\n")
+        log_path.write_text(md)
         self.db.conn.execute("UPDATE sync_runs SET log_path=? WHERE id=?", (str(log_path), run_id))
         self.db.conn.commit()
 
@@ -1395,7 +1306,8 @@ def mine_main() -> int:
 
     cfg = Config.load()
     db = DB(cfg.db_path)
-    engine = SyncEngine(cfg, db, client=None, model=args.model)  # type: ignore[arg-type]
+    from unittest.mock import MagicMock  # mining never touches the D2L client
+    engine = SyncEngine(cfg, db, client=MagicMock(), model=args.model)
     try:
         if args.code:
             course = db.get_course_by_code(args.code)

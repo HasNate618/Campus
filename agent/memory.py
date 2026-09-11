@@ -164,7 +164,7 @@ def supersede_stale_facts(db: DB, course_id: int | None = None) -> int:
     q = ("UPDATE memory_facts SET is_active=0 WHERE is_active=1 "
          f"AND category IN ({','.join('?' * len(TIME_SENSITIVE))}) "
          "AND date(created_at) < ?")
-    params = [*TIME_SENSITIVE, cutoff]
+    params: list[str | int] = [*TIME_SENSITIVE, cutoff]
     if course_id:
         q += " AND course_id=?"
         params.append(course_id)
@@ -174,7 +174,7 @@ def supersede_stale_facts(db: DB, course_id: int | None = None) -> int:
         "SELECT id, term FROM courses").fetchall() if term_is_past(r["term"], today)]
     for cid in ended:
         q2 = "UPDATE memory_facts SET is_active=0 WHERE is_active=1 AND course_id=?"
-        p2 = [cid]
+        p2: list = [cid]
         if course_id:
             q2 += " AND course_id=?"
             p2.append(course_id)

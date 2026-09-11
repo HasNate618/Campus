@@ -143,3 +143,15 @@ def test_card_filters_noise_and_keeps_grading(db, cfg):
     assert "week of 2026-09-21" in card
     assert card.index("Midterm is worth 20%") < card.index("week of 2026-09-21")
     db.close()
+
+
+def test_render_sync_log_deterministic():
+    from sync.sync import render_sync_log
+    md = render_sync_log("2026-09-11",
+        {"files_new": 3, "files_changed": 1},
+        [{"code": "SE 3352A", "files_new": 3, "files_changed": 1,
+          "announcements_new": 0,
+          "mined": {"facts": 4, "events": 2, "exams": 0, "assignments": 1}}])
+    assert "SE 3352A" in md and "3 new" in md
+    assert "mined +4 facts" in md and "+2 events" in md and "backfilled 1 assignment" in md
+    assert "Nothing new" in render_sync_log("2026-09-11", {}, [])
