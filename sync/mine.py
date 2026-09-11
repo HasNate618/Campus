@@ -285,6 +285,48 @@ def _norm_dt(s: str) -> str:
     return (m.group(1) + m.group(3)).strip() if m else s
 
 
+def _titles_match(want: str, have: str) -> bool:
+    """Whole-token match: every token of the shorter title must appear as a
+    whole token of the longer one. Lab 1 matches 'Lab 1 – HTML+CSS' but NOT
+    'Lab 10' (a wrong due_at backfill is worse than a missing one)."""
+    w, h = _norm_title(want), _norm_title(have)
+    if not w or not h:
+        return False
+    if w == h:
+        return True
+    short, long = (w, h) if len(w) <= len(h) else (h, w)
+    toks = set(long.split())
+    return all(t in toks for t in short.split())
+
+
+_MONTH_NAMES = {"01": ("jan", "january"), "02": ("feb", "february"), "03": ("mar", "march"),
+                "04": ("apr", "april"), "05": ("may", "may"), "06": ("jun", "june"),
+                "07": ("jul", "july"), "08": ("aug", "august"), "09": ("sep", "september"),
+                "10": ("oct", "october"), "11": ("nov", "november"), "12": ("dec", "december")}
+
+
+def _fact_mentions_date(fact: str, due_at: str) -> bool:
+    """True when the fact text contains the due date in any common phrasing
+    (10-23, 10/23, Oct 23, October 23, zero-padded variants). Unparseable due
+    dates and invalid months can't be judged — never flag those."""
+    m = re.match(r"^(20\d\d)-(\d\d)-(\d\d)", due_at or "")
+    if not m:
+        return True
+    _, mo, d = m.groups()
+    pair = _MONTH_NAMES.get(mo)
+    if not pair:
+        return True
+    short, long = pair
+    day = d.lstrip("0")
+    if not day:
+        return True
+    cands = [f"{mo}-{d}", f"{mo}/{d}",
+             f"{short} {day}", f"{long} {day}",
+             f"{short} {d}", f"{long} {d}"]
+    low = (fact or "").casefold()
+    return any(c in low for c in cands)
+
+
 def _insert_event(db, course_id: int, code: str, title: str, starts_at: str,
                   kind: str = "assignment", ends_at: str | None = None,
                   notes: str | None = None) -> int | None:
@@ -411,6 +453,16 @@ def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int
                                     kind="assignment", notes="Backfilled from course materials")
                 if eid:
                     res["events"] += 1
+                for fr in db.conn.execute(
+                        "SELECT fact FROM memory_facts WHERE course_id=? AND is_active=1",
+                        (course_id,)).fetchall():
+                    if _titles_match(target["title"], fr["fact"]) and not _fact_mentions_date(fr["fact"], sets["due_at"]):
+                        db.audit("sync", "assignments", target["id"], "mine-conflict",
+                                 {"title": target["title"], "backfilled_due_at": sets["due_at"],
+                                  "contradicting_fact": fr["fact"]})
+                        print(f"  mining conflict: {target['title']} backfilled {sets['due_at']}"
+                              f" vs fact: {fr['fact'][:120]}")
+                        break
     if ann_ids:
         db.conn.executemany(
             "UPDATE announcements SET digested_at=datetime('now') WHERE id=?",
