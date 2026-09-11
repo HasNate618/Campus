@@ -47,3 +47,19 @@ def test_build_course_corpus_outlines_first(cfg, db, tmp_path):
     corpus = build_course_corpus(cfg, db, course["id"])
     assert corpus["blocks"][0]["kind"] == "outline"
     assert "2026-09-14" not in str(corpus)  # nothing dated, no leakage
+
+
+def test_parse_miner_output_coerces_and_drops():
+    from sync.mine import parse_miner_output
+    raw = '{"facts": [{"fact": "Midterm is 25%", "category": "bogus", "confidence": 0.9}], '
+    raw += '"events": [{"title": "Lab 1 due", "starts_at": "2026-09-14", "kind": "assignment"}, '
+    raw += '{"title": "Maybe quiz", "starts_at": "2026-10-01", "kind": "exam", "confidence": 0.2}], '
+    raw += '"exams": [{"title": "Midterm", "starts_at": "sometime soon"}, '
+    raw += '{"title": "Final", "starts_at": "2026-12-15", "confidence": 0.3}], '
+    raw += '"assignment_updates": [{"title": "Lab 1", "due_at": "2026-09-14"}]}'
+    out = parse_miner_output("```json\n" + raw + "\n```")
+    assert out["facts"][0]["category"] == "general"
+    assert len(out["events"]) == 1  # low-confidence rumor dropped
+    assert out["events"][0]["starts_at"] == "2026-09-14"
+    assert out["exams"] == []  # bad date + low confidence dropped
+    assert out["assignment_updates"][0]["due_at"] == "2026-09-14"
