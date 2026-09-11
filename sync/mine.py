@@ -157,3 +157,113 @@ def build_course_corpus(cfg, db, course_id: int,
     return {"course_id": course_id, "code": code, "term": term,
             "today": datetime.date.today().isoformat(),
             "ann_ids": ann_ids, "blocks": blocks}
+
+
+# ── miner prompt + strict parser ──────────────────────────────────────
+MINER_SYSTEM = (
+    "You are the memory miner for a student's course assistant. "
+    "Input is a corpus of course material (outline, assignments, announcements, module pages, slide excerpts). "
+    "Output durable memory + schedule rows the student will rely on for months. "
+    "QUALITY BAR (most important rule): only add information the student would act on or ask about weeks from now — "
+    "grading breakdowns, exam dates and weights, assignment due dates, late/penalty policies, "
+    "accommodation rules, instructor contact and office hours, recurring class times. "
+    "SKIP everything else: file listings, 'X was posted', slide coverage summaries, "
+    "generic course descriptions, one-off instructions with no date. "
+    "EMPTY IS CORRECT: if nothing in the corpus clears the bar, return empty arrays. "
+    "Never invent filler to look productive; never restate the input. "
+    "DATES: emit starts_at/due_at as YYYY-MM-DD or YYYY-MM-DDTHH:MM only, resolved against TODAY; "
+    "never 'tomorrow/next week'. Only dates explicitly stated in the corpus. "
+    "Schedule rows (events/exams/assignment_updates) need confidence >= 0.7; facts need >= 0.5. "
+    "Lab-section variants collapse to ONE event with sections in notes. "
+    "category must be one of general,scheduling,grading,course-policy,prof-note,exam,assignment,logistics. "
+    'Return STRICT JSON: {"facts": [{"fact": str, "category": str, "confidence": float}], '
+    '"events": [{"title": str, "starts_at": str, "ends_at": str|None, "kind": str, "notes": str|None, "confidence": float}], '
+    '"exams": [{"title": str, "starts_at": str, "weight": float|None, "notes": str|None, "confidence": float}], '
+    '"assignment_updates": [{"title": str, "due_at": str|None, "weight": float|None}]}. '
+    'event kind must be one of class,assignment,exam,personal.'
+)
+
+_CATS = {"general", "scheduling", "grading", "course-policy",
+         "prof-note", "exam", "assignment", "logistics"}
+_DATE_RE = re.compile(r"^20\d\d-\d\d-\d\d(T\d\d:\d\d)?$")
+
+
+def parse_miner_output(raw: str) -> dict:
+    """Parse miner JSON strictly; coerce junk, never raise on model garbage."""
+    import json as _json
+    text = (raw or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```\w*\n?|\n?```$", "", text).strip()
+    try:
+        data = _json.loads(text)
+    except Exception:
+        return {"facts": [], "events": [], "exams": [], "assignment_updates": []}
+    if not isinstance(data, dict):
+        return {"facts": [], "events": [], "exams": [], "assignment_updates": []}
+
+    facts = []
+    for f in (data.get("facts") or [])[:30]:
+        fact = str(f.get("fact") or "").strip()
+        if len(fact) < 10:
+            continue
+        cat = f.get("category") if f.get("category") in _CATS else "general"
+        try:
+            conf = min(1.0, max(0.0, float(f.get("confidence", 0.5))))
+        except (TypeError, ValueError):
+            conf = 0.5
+        facts.append({"fact": fact, "category": cat, "confidence": conf})
+
+    events = []
+    for e in (data.get("events") or [])[:30]:
+        title = str(e.get("title") or "").strip()
+        starts = str(e.get("starts_at") or "").strip()
+        if not title or not _DATE_RE.match(starts):
+            continue
+        try:
+            conf = float(e.get("confidence", 0.9))
+        except (TypeError, ValueError):
+            conf = 0.0
+        if conf < 0.7:  # auto-add bar: uncertain schedule rows never enter the calendar
+            continue
+        kind = e.get("kind") or "assignment"
+        if kind not in ("class", "assignment", "exam", "personal"):
+            kind = "assignment"
+        events.append({"title": title, "starts_at": starts,
+                       "ends_at": e.get("ends_at"), "kind": kind,
+                       "notes": e.get("notes"), "confidence": conf})
+
+    exams = []
+    for x in (data.get("exams") or [])[:10]:
+        title = str(x.get("title") or "").strip()
+        starts = str(x.get("starts_at") or "").strip()
+        if not title or not _DATE_RE.match(starts):
+            continue
+        try:
+            xconf = float(x.get("confidence", 0.9))
+        except (TypeError, ValueError):
+            xconf = 0.0
+        if xconf < 0.7:
+            continue
+        try:
+            w = float(x["weight"]) if x.get("weight") is not None else None
+        except (TypeError, ValueError):
+            w = None
+        exams.append({"title": title, "starts_at": starts, "weight": w,
+                      "notes": x.get("notes"), "confidence": xconf})
+
+    updates = []
+    for u in (data.get("assignment_updates") or [])[:20]:
+        title = str(u.get("title") or "").strip()
+        if not title:
+            continue
+        due = str(u.get("due_at") or "").strip() or None
+        if due and not _DATE_RE.match(due):
+            due = None
+        try:
+            w = float(u["weight"]) if u.get("weight") is not None else None
+        except (TypeError, ValueError):
+            w = None
+        if due or w is not None:
+            updates.append({"title": title, "due_at": due, "weight": w})
+    return {"facts": facts, "events": events, "exams": exams,
+            "assignment_updates": updates}
