@@ -257,3 +257,15 @@ def test_truncate_blocks_keeps_whole_blocks():
     out = _truncate_blocks(blocks, 150)
     assert [b["path"] for b in out] == ["a"]
     assert sum(len(b["text"]) for b in out) <= 150
+
+
+def test_parser_drops_low_confidence_facts_and_updates():
+    from sync.mine import parse_miner_output
+    raw = ('{"facts": [{"fact": "Maybe the prof is nice.", "category": "prof-note", "confidence": 0.3}, '
+           '{"fact": "Final is worth 45%.", "category": "grading", "confidence": 0.9}], '
+           '"events": [], "exams": [], '
+           '"assignment_updates": [{"title": "Lab 1", "due_at": "2026-09-14", "confidence": 0.4}, '
+           '{"title": "Lab 2", "due_at": "2026-10-09"}]}')
+    out = parse_miner_output(raw)
+    assert [f["fact"] for f in out["facts"]] == ["Final is worth 45%."]
+    assert [u["title"] for u in out["assignment_updates"]] == ["Lab 2"]

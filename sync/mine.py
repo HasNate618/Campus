@@ -201,7 +201,7 @@ MINER_SYSTEM = (
     'Return STRICT JSON: {"facts": [{"fact": str, "category": str, "confidence": float}], '
     '"events": [{"title": str, "starts_at": str, "ends_at": str|None, "kind": str, "notes": str|None, "confidence": float}], '
     '"exams": [{"title": str, "starts_at": str, "weight": float|None, "notes": str|None, "confidence": float}], '
-    '"assignment_updates": [{"title": str, "due_at": str|None, "weight": float|None}]}. '
+    '"assignment_updates": [{"title": str, "due_at": str|None, "weight": float|None, "confidence": float}]}. '
     'event kind must be one of class,assignment,exam,personal.'
 )
 
@@ -233,6 +233,8 @@ def parse_miner_output(raw: str) -> dict:
             conf = min(1.0, max(0.0, float(f.get("confidence", 0.5))))
         except (TypeError, ValueError):
             conf = 0.5
+        if conf < 0.5:  # quality-bar floor: guesses never become memory
+            continue
         facts.append({"fact": fact, "category": cat, "confidence": conf})
 
     events = []
@@ -287,6 +289,12 @@ def parse_miner_output(raw: str) -> dict:
             w = float(u["weight"]) if u.get("weight") is not None else None
         except (TypeError, ValueError):
             w = None
+        try:
+            uconf = float(u.get("confidence", 0.9))
+        except (TypeError, ValueError):
+            uconf = 0.0
+        if uconf < 0.7:  # auto-add bar: uncertain due dates never backfill
+            continue
         if due or w is not None:
             updates.append({"title": title, "due_at": due, "weight": w})
     return {"facts": facts, "events": events, "exams": exams,
