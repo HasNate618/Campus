@@ -167,6 +167,7 @@ class SyncEngine:
                       "files_changed": 0, "announcements_new": 0,
                       "facts_added": 0, "pdfs_extracted": 0}
         self.deltas: list[dict] = []  # for the AI digest
+        self._last_miner_raw: str | None = None  # raw miner output for audit provenance
 
     # ── enrollments ─────────────────────────────────────────────────────
     def fetch_enrollments(self, active_only: bool = False) -> list[dict]:
@@ -1044,8 +1045,10 @@ class SyncEngine:
                            timeout=180)
             r.raise_for_status()
             content = r.json()["choices"][0]["message"]["content"]
+            self._last_miner_raw = content
             return parse_miner_output(content)
         except Exception as e:
+            self._last_miner_raw = None
             print(f"  mining failed for {corpus['code']}: {e}")
             return {"facts": [], "events": [], "exams": [], "assignment_updates": []}
 
@@ -1063,7 +1066,8 @@ class SyncEngine:
             "SELECT code FROM courses WHERE id=?", (course_id,)).fetchone()
         src = f"mine:{_time.strftime('%Y-%m-%d')}:{course['code'] if course else course_id}"
         out = apply_mining(self.db, course_id, mined, source=src,
-                           ann_ids=corpus.get("ann_ids"))
+                           ann_ids=corpus.get("ann_ids"),
+                           raw=getattr(self, "_last_miner_raw", None))
         self.stats["facts_added"] = self.stats.get("facts_added", 0) + out["facts"]
         return out
 

@@ -311,7 +311,7 @@ def _insert_event(db, course_id: int, code: str, title: str, starts_at: str,
     return cur.lastrowid
 
 
-def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int] | None = None) -> dict:
+def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int] | None = None, raw: str | None = None) -> dict:
     """Apply parsed miner output: facts, events, exams, assignment backfill.
 
     Idempotent: re-applying the same output returns all zeros. Every write
@@ -415,5 +415,8 @@ def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int
         db.conn.executemany(
             "UPDATE announcements SET digested_at=datetime('now') WHERE id=?",
             [(i,) for i in ann_ids])
+    if raw:
+        db.audit("sync", "mine_run", course_id, "mine-run",
+                 {"source": source, "counts": res, "raw": (raw or "")[:4000]})
     db.conn.commit()
     return res
