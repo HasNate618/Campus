@@ -833,7 +833,13 @@ git commit -m "feat: retire legacy noise facts via mine --clean"
 
 ---
 
-### Task 10: Resolve the SE3316A lab-date conflict (user-gated)
+### Task 10: Resolve the SE3316A lab-date conflict (user-gated) — DONE 2026-09-11
+
+**Verdict (user): backfilled dates correct.** Lab 1 Sep 25 / Lab 2 Oct 9 / Lab 3 Oct 23 / Lab 4 Nov 27. The outline fact was stale (2025 Fridays).
+
+**Applied:** retired fact 75 (outline labs, `retire-stale`) + fact 87 (chat-added, same stale dates — its non-date content about the lab4 branch/test run is preserved in audit detail, unverified); created 4 `ensure-event` rows (labs had due_at but zero events — re-runs never touch filled assignments); card re-rendered with 0 stale dates. All rows audited with actor=`user`.
+
+**Files:** None (live-data correction only — no code).
 
 **Files:** None (live-data correction only — no code).
 **Requires:** the user's verdict on which dates are correct (Step 1 presents the evidence; do not proceed past Step 2 without an explicit answer).
