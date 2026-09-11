@@ -198,3 +198,16 @@ def test_backfill_creates_assignment_event(db):
     r2 = apply_mining(db, course["id"], mined, source="mine:test")
     assert r2 == {"facts": 0, "events": 0, "exams": 0, "assignments": 0}
     db.close()
+
+
+def test_apply_stores_raw_provenance(db):
+    from sync.mine import apply_mining
+    course = db.get_course_by_code("CS 1100A")
+    raw = '{"facts": [{"fact": "Final is worth 45%.", "confidence": 0.9}]}'
+    apply_mining(db, course["id"], {"facts": [{"fact": "Final is worth 45%.", "category": "grading", "confidence": 0.9}],
+                                    "events": [], "exams": [], "assignment_updates": []},
+                 source="mine:test", raw=raw)
+    row = db.conn.execute(
+        "SELECT detail FROM audit_log WHERE action='mine-run'").fetchone()
+    assert row is not None and "Final is worth 45%" in row["detail"]
+    db.close()
