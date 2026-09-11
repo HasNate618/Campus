@@ -269,3 +269,26 @@ def test_parser_drops_low_confidence_facts_and_updates():
     out = parse_miner_output(raw)
     assert [f["fact"] for f in out["facts"]] == ["Final is worth 45%."]
     assert [u["title"] for u in out["assignment_updates"]] == ["Lab 2"]
+
+
+def test_titles_match_whole_tokens():
+    from sync.mine import _titles_match
+    assert _titles_match("Lab 1", "Lab 1 – HTML+CSS") is True
+    assert _titles_match("Lab 1", "Lab 10") is False
+    assert _titles_match("Midterm", "Midterm Exam") is True
+    assert _titles_match("Quiz 9 (nonexistent)", "Lab 1") is False
+
+
+def test_exam_dedupe_ignores_time_format(db):
+    from sync.mine import apply_mining
+    course = db.get_course_by_code("CS 1100A")
+    db.conn.execute(
+        "INSERT INTO exams (course_id, title, starts_at, source) VALUES (?,?,?,?)",
+        (course["id"], "Midterm", "2026-10-20", "manual"))
+    db.conn.commit()
+    out = apply_mining(db, course["id"], {
+        "facts": [], "events": [],
+        "exams": [{"title": "Midterm", "starts_at": "2026-10-20T09:00", "weight": None}],
+        "assignment_updates": []}, source="mine:test")
+    assert out["exams"] == 0
+    db.close()
