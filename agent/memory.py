@@ -54,6 +54,15 @@ def _course_dir(cfg: Config, course) -> Path:
     return Path(cfg.data_root) / course["term"] / course["code"].replace(" ", "")
 
 
+def _clip(text: str, cap: int) -> str:
+    """Clip to cap chars at a word boundary (never mid-word) + ellipsis."""
+    text = text or ""
+    if len(text) <= cap:
+        return text
+    cut = text[:cap].rsplit(" ", 1)[0] or text[:cap]
+    return cut + "…"
+
+
 def build_card(cfg: Config, db: DB, course_id: int) -> str:
     course = db.conn.execute("SELECT * FROM courses WHERE id=?", (course_id,)).fetchone()
     if not course:
@@ -105,7 +114,7 @@ def build_card(cfg: Config, db: DB, course_id: int) -> str:
     kept.sort(key=lambda f: _CATC.get(f["category"], 8))
     for f in kept:
         cap = 300 if f["category"] == "grading" else 140
-        bullets.append(f"- [{f['category']}] {f['fact'][:cap]}")
+        bullets.append(f"- [{f['category']}] {_clip(f['fact'], cap)}")
 
     # OPEN THREADS — most recent note files
     notes_dir = _course_dir(cfg, course) / "notes"

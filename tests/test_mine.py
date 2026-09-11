@@ -292,3 +292,30 @@ def test_exam_dedupe_ignores_time_format(db):
         "assignment_updates": []}, source="mine:test")
     assert out["exams"] == 0
     db.close()
+
+
+def test_noise_filter_catches_availability_notices():
+    from sync.mine import is_noise_fact
+    assert is_noise_fact("SE3352A course outline (outline.pdf) has been posted under Content") is True
+    assert is_noise_fact("Week 1 materials are available in both PDF and PPTX formats") is True
+    assert is_noise_fact("Final is worth 45%.") is False
+    assert is_noise_fact("Office hours are by appointment in TEB.") is False
+
+
+def test_card_clips_at_word_boundary(db, cfg):
+    from agent.memory import build_card
+    course = db.get_course_by_code("CS 1100A")
+    # 44 + 3x35 chars: char 140 falls strictly inside the 3rd long word,
+    # so a naive [:140] chop leaves a mid-word fragment.
+    fact = ("Midterm covers chapters one through twelve. "
+            + "supercalifragilisticexpialidocious " * 3
+            + "ends here with more words pushing past the cap.")
+    assert len(fact) > 140 and " " not in fact[114:148]
+    db.conn.execute(
+        "INSERT INTO memory_facts (course_id, fact, category, confidence, source) VALUES (?,?,?,?,?)",
+        (course["id"], fact, "general", 0.9, "t"))
+    db.conn.commit()
+    card = build_card(cfg, db, course["id"])
+    assert "supercalifragilisticexpialidocious" in card
+    assert "supercalifragilisti…" not in card
+    db.close()
