@@ -231,3 +231,29 @@ def test_backfill_conflicting_fact_is_flagged(db):
         "SELECT detail FROM audit_log WHERE action='mine-conflict'").fetchone()
     assert row is not None and "Oct 31" in row["detail"]
     db.close()
+
+
+def test_outlines_prefer_current_term(cfg, db, tmp_path):
+    from sync.mine import build_course_corpus
+    course = db.get_course_by_code("CS 1100A")
+    root = tmp_path / "2026F" / "CS1100A"
+    (root / "content").mkdir(parents=True)
+    (root / "old-outline-2025.md").write_text("# Old\nMidterm Oct 1 worth 10%.\n")
+    (root / "new-outline-2026.md").write_text("# New\nMidterm Oct 20 worth 25%.\n")
+    for rel in ("2026F/CS1100A/old-outline-2025.md", "2026F/CS1100A/new-outline-2026.md"):
+        db.conn.execute(
+            "INSERT INTO files (course_id, path, size, sha256, processed) VALUES (?,?,?,?,1)",
+            (course["id"], rel, 10, "y" + rel))
+    db.conn.commit()
+    corpus = build_course_corpus(cfg, db, course["id"], excerpt_chars=40)
+    assert corpus["blocks"][0]["path"].endswith("new-outline-2026.md")
+    db.close()
+
+
+def test_truncate_blocks_keeps_whole_blocks():
+    from sync.mine import _truncate_blocks
+    blocks = [{"kind": "outline", "path": "a", "text": "x" * 100},
+              {"kind": "other", "path": "b", "text": "y" * 100}]
+    out = _truncate_blocks(blocks, 150)
+    assert [b["path"] for b in out] == ["a"]
+    assert sum(len(b["text"]) for b in out) <= 150

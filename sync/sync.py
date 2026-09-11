@@ -1029,10 +1029,16 @@ class SyncEngine:
     def _call_miner(self, corpus: dict) -> dict:
         """One LLM call per course; never raises (returns empty mining on failure)."""
         import json as _json
-        from sync.mine import MINER_SYSTEM, parse_miner_output
+        from sync.mine import MINER_SYSTEM, _truncate_blocks, parse_miner_output
         ordered = sorted(corpus["blocks"], key=lambda b: 0 if b["kind"] == "outline" else 1)
+        kept = _truncate_blocks(ordered[:30], 55000)
+        if not kept:
+            print(f"  mining skipped for {corpus['code']}: corpus empty after truncation")
+            return {"facts": [], "events": [], "exams": [], "assignment_updates": []}
+        if len(kept) < len(ordered[:30]):
+            print(f"  mining truncated for {corpus['code']}: {len(ordered[:30]) - len(kept)} block(s) dropped")
         prompt = (MINER_SYSTEM + f"\n\nTODAY: {corpus['today']}\nCOURSE: {corpus['code']} ({corpus['term']})\n"
-                  f"CORPUS:\n{_json.dumps(ordered[:30], indent=1)[:60000]}")
+                  f"CORPUS:\n{_json.dumps(kept, indent=1)}")
         try:
             endpoints = self.cfg.llm_endpoints()
             if not endpoints:

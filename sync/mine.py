@@ -62,6 +62,17 @@ def _strip_html(html: str | None) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _outline_year(rel: str) -> int:
+    """Best year guess from the FILENAME only (never the full path — the
+    term directory like 2026F/ would match every file)."""
+    name = (rel or "").rsplit("/", 1)[-1]
+    try:
+        years = [int(y) for y in re.findall(r"(?:19|20)\d\d", name)]
+    except (TypeError, ValueError):
+        return 0
+    return max(years) if years else 0
+
+
 def build_course_corpus(cfg, db, course_id: int,
                         excerpt_chars: int = 12000,
                         other_chars: int = 4000) -> dict:
@@ -78,18 +89,29 @@ def build_course_corpus(cfg, db, course_id: int,
         except OSError:
             return ""
 
-    # 1. outlines first (filename match): ONE shared budget, max 2 files
-    outline_budget = excerpt_chars
+    # 1. outlines first (filename match): ONE shared budget, max 2 files,
+    # current term first (a stale outline's dates are worse than no outline)
+    mterm = re.match(r"(\d{4})", term or "")
+    try:
+        term_year = int(mterm.group(1)) if mterm else 0
+    except (TypeError, ValueError):
+        term_year = 0
+    cands = []
     for r in db.conn.execute(
-            "SELECT path FROM files WHERE course_id=? ORDER BY id", (course_id,)).fetchall():
+            "SELECT id, path FROM files WHERE course_id=? ORDER BY id", (course_id,)).fetchall():
         rel = r["path"]
+        if OUTLINE_NAME_RE.search(rel or "") and rel.endswith(".md"):
+            y = _outline_year(rel)
+            cands.append(((abs(y - term_year) if y and term_year else 999), r["id"], rel))
+    cands.sort()
+    outline_budget = excerpt_chars
+    for _, _, rel in cands[:2]:
         if outline_budget <= 0:
             break
-        if OUTLINE_NAME_RE.search(rel or "") and rel.endswith(".md"):
-            text = _read_md(rel, outline_budget)
-            if text.strip():
-                blocks.append({"kind": "outline", "path": rel, "text": text})
-                outline_budget -= len(text)
+        text = _read_md(rel, outline_budget)
+        if text.strip():
+            blocks.append({"kind": "outline", "path": rel, "text": text})
+            outline_budget -= len(text)
 
     # 2. undigested announcements + recent ones
     ann_ids: list[int] = []
@@ -325,6 +347,19 @@ def _fact_mentions_date(fact: str, due_at: str) -> bool:
              f"{short} {d}", f"{long} {d}"]
     low = (fact or "").casefold()
     return any(c in low for c in cands)
+
+
+def _truncate_blocks(blocks: list[dict], limit: int) -> list[dict]:
+    """Keep whole blocks within a char budget — never a mid-block cut that
+    breaks the miner JSON and voids the whole course (fail shut, loudly)."""
+    out, total = [], 0
+    for b in blocks:
+        n = len(b.get("text", ""))
+        if total + n > limit:
+            break
+        out.append(b)
+        total += n
+    return out
 
 
 def _insert_event(db, course_id: int, code: str, title: str, starts_at: str,
