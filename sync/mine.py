@@ -166,7 +166,7 @@ MINER_SYSTEM = (
     "Output durable memory + schedule rows the student will rely on for months. "
     "QUALITY BAR (most important rule): only add information the student would act on or ask about weeks from now — "
     "grading breakdowns, exam dates and weights, assignment due dates, late/penalty policies, "
-    "accommodation rules, instructor contact and office hours, recurring class times. "
+    'accommodation rules, instructor contact and office hours, recurring class times (as facts ONLY — the timetable already exists; NEVER emit them as events). '
     "SKIP everything else: file listings, 'X was posted', slide coverage summaries, "
     "generic course descriptions, one-off instructions with no date. "
     "EMPTY IS CORRECT: if nothing in the corpus clears the bar, return empty arrays. "
@@ -228,6 +228,8 @@ def parse_miner_output(raw: str) -> dict:
         kind = e.get("kind") or "assignment"
         if kind not in ("class", "assignment", "exam", "personal"):
             kind = "assignment"
+        if kind in ("class", "personal"):
+            continue  # recurring meetings live in course_sessions, never the mined calendar
         events.append({"title": title, "starts_at": starts,
                        "ends_at": e.get("ends_at"), "kind": kind,
                        "notes": e.get("notes"), "confidence": conf})
@@ -314,6 +316,8 @@ def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int
                  {"course_id": course_id, "fact": fact})
 
     for e in mined.get("events", []):
+        if (e.get("kind") or "assignment") in ("class", "personal"):
+            continue
         title = str(e.get("title") or "").strip()
         starts = str(e.get("starts_at") or "").strip()
         if not title or not starts:

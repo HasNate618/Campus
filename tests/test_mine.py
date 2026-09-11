@@ -155,3 +155,26 @@ def test_render_sync_log_deterministic():
     assert "SE 3352A" in md and "3 new" in md
     assert "mined +4 facts" in md and "+2 events" in md and "backfilled 1 assignment" in md
     assert "Nothing new" in render_sync_log("2026-09-11", {}, [])
+
+
+def test_parser_rejects_class_and_personal_events():
+    from sync.mine import parse_miner_output
+    raw = ('{"facts": [], "events": ['
+           '{"title": "Lecture", "starts_at": "2026-09-16T12:30", "kind": "class", "confidence": 0.9}, '
+           '{"title": "Dentist", "starts_at": "2026-09-17", "kind": "personal", "confidence": 0.9}, '
+           '{"title": "Lab 1 due", "starts_at": "2026-09-18", "kind": "assignment", "confidence": 0.9}], '
+           '"exams": [], "assignment_updates": []}')
+    out = parse_miner_output(raw)
+    assert [e["title"] for e in out["events"]] == ["Lab 1 due"]
+
+
+def test_apply_skips_class_events_even_if_parsed(db):
+    from sync.mine import apply_mining
+    course = db.get_course_by_code("CS 1100A")
+    mined = {"facts": [], "events": [
+        {"title": "Lecture", "starts_at": "2026-09-16T12:30", "kind": "class"}],
+        "exams": [], "assignment_updates": []}
+    out = apply_mining(db, course["id"], mined, source="mine:test")
+    assert out["events"] == 0
+    assert db.conn.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 0
+    db.close()
