@@ -75,24 +75,37 @@ def build_card(cfg: Config, db: DB, course_id: int) -> str:
     for r in exams:
         bullets.append(f"- EXAM {_fmt(r['starts_at'])}: {r['title']}")
 
-    # POLICIES / PROF NOTES — from facts. Two gates: the fact must belong to
-    # a current/future-term course (past terms are history), and time-sensitive
-    # facts must be recent. Timeless categories always qualify on recency.
+    # POLICIES / PROF NOTES — from facts. Three gates: the fact must belong to
+    # a current/future-term course (past terms are history), time-sensitive
+    # facts must be recent, and sync-chatter noise never qualifies. Survivors
+    # are ordered grading → exam → scheduling → course-policy → prof-note →
+    # general → logistics → assignment (grading keeps full detail).
+    from sync.mine import is_noise_fact as _is_noise_fact
+    _CATC = {"grading": 0, "exam": 1, "scheduling": 2, "course-policy": 3,
+             "prof-note": 4, "general": 5, "logistics": 6, "assignment": 7}
     facts = db.conn.execute(
         """SELECT f.fact, f.category, f.created_at, c.term
            FROM memory_facts f JOIN courses c ON c.id = f.course_id
            WHERE f.course_id=? AND f.is_active=1 AND f.category IN
-                 ('course-policy','prof-note','logistics','grading','general')
-           ORDER BY f.id DESC LIMIT 20""", (course_id,)).fetchall()
+                 ('course-policy','prof-note','logistics','grading','general',
+                  'scheduling','exam','assignment')
+           ORDER BY f.id DESC LIMIT 30""", (course_id,)).fetchall()
     cutoff = datetime.date.today() - datetime.timedelta(days=FACT_TTL_DAYS)
+    kept = []
     for f in facts:
         if term_is_past(f["term"]):
             continue  # course term ended — facts are history
+        if _is_noise_fact(f["fact"]):
+            continue  # sync chatter, never card-worthy
         created = (f["created_at"] or "")[:10]
         if f["category"] in TIME_SENSITIVE:
             if not created or created < cutoff.isoformat():
                 continue
-        bullets.append(f"- [{f['category']}] {f['fact'][:140]}")
+        kept.append(f)
+    kept.sort(key=lambda f: _CATC.get(f["category"], 8))
+    for f in kept:
+        cap = 300 if f["category"] == "grading" else 140
+        bullets.append(f"- [{f['category']}] {f['fact'][:cap]}")
 
     # OPEN THREADS — most recent note files
     notes_dir = _course_dir(cfg, course) / "notes"
