@@ -83,7 +83,7 @@ def test_apply_mining_dedupes_and_backfills(db):
                                {"title": "Quiz 9 (nonexistent)", "due_at": "2026-10-01", "weight": None}],
     }
     r1 = apply_mining(db, course["id"], mined, source="mine:test")
-    assert r1 == {"facts": 1, "events": 1, "exams": 1, "assignments": 1}
+    assert r1 == {"facts": 1, "events": 2, "exams": 1, "assignments": 1}
     assert db.conn.execute(
         "SELECT COUNT(*) FROM assignments WHERE course_id=?",
         (course["id"],)).fetchone()[0] == 1  # non-matching update creates nothing
@@ -94,7 +94,7 @@ def test_apply_mining_dedupes_and_backfills(db):
         (course["id"],)).fetchone()[0] == "2026-09-14"
     assert db.conn.execute(
         "SELECT COUNT(*) FROM audit_log WHERE actor='sync'"
-        " AND action IN ('mine-insert','mine-backfill')").fetchone()[0] == 4
+        " AND action IN ('mine-insert','mine-backfill')").fetchone()[0] == 5
     db.close()
 
 
@@ -177,4 +177,24 @@ def test_apply_skips_class_events_even_if_parsed(db):
     out = apply_mining(db, course["id"], mined, source="mine:test")
     assert out["events"] == 0
     assert db.conn.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 0
+    db.close()
+
+
+def test_backfill_creates_assignment_event(db):
+    from sync.mine import apply_mining
+    course = db.get_course_by_code("CS 1100A")
+    db.conn.execute(
+        "INSERT INTO assignments (course_id, title, description, source) VALUES (?,?,?,?)",
+        (course["id"], "Lab 2", "Build a longer page with many parts.", "brightspace"))
+    db.conn.commit()
+    mined = {"facts": [], "events": [], "exams": [],
+             "assignment_updates": [{"title": "Lab 2", "due_at": "2026-10-09"}]}
+    r1 = apply_mining(db, course["id"], mined, source="mine:test")
+    assert r1["assignments"] == 1 and r1["events"] == 1
+    row = db.conn.execute(
+        "SELECT title, starts_at, kind FROM events WHERE course_id=?",
+        (course["id"],)).fetchone()
+    assert (row["title"], row["starts_at"], row["kind"]) == ("Lab 2", "2026-10-09", "assignment")
+    r2 = apply_mining(db, course["id"], mined, source="mine:test")
+    assert r2 == {"facts": 0, "events": 0, "exams": 0, "assignments": 0}
     db.close()

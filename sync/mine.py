@@ -285,6 +285,32 @@ def _norm_dt(s: str) -> str:
     return (m.group(1) + m.group(3)).strip() if m else s
 
 
+def _insert_event(db, course_id: int, code: str, title: str, starts_at: str,
+                  kind: str = "assignment", ends_at: str | None = None,
+                  notes: str | None = None) -> int | None:
+    """Insert one event with normalized dedupe. Returns row id, or None on dupe/skip."""
+    title = (title or "").strip()
+    starts = (starts_at or "").strip()
+    if not title or not starts:
+        return None
+    dup = db.conn.execute(
+        "SELECT 1 FROM events WHERE course_id=? AND lower(title)=lower(?)"
+        " AND substr(starts_at,1,10)=substr(?,1,10)",
+        (course_id, title, starts)).fetchone()
+    if dup:
+        return None
+    uid = stable_uid(code, title, _norm_dt(starts))
+    cur = db.conn.execute(
+        "INSERT OR IGNORE INTO events (course_id, kind, title, starts_at, ends_at, notes, ics_uid)"
+        " VALUES (?,?,?,?,?,?,?)",
+        (course_id, kind, title, starts, ends_at, notes, uid))
+    if not cur.rowcount:
+        return None
+    db.audit("sync", "events", cur.lastrowid, "mine-insert",
+             {"course_id": course_id, "title": title, "starts_at": starts, "uid": uid})
+    return cur.lastrowid
+
+
 def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int] | None = None) -> dict:
     """Apply parsed miner output: facts, events, exams, assignment backfill.
 
@@ -318,27 +344,13 @@ def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int
     for e in mined.get("events", []):
         if (e.get("kind") or "assignment") in ("class", "personal"):
             continue
-        title = str(e.get("title") or "").strip()
-        starts = str(e.get("starts_at") or "").strip()
-        if not title or not starts:
-            continue
-        dup = db.conn.execute(
-            "SELECT 1 FROM events WHERE course_id=? AND lower(title)=lower(?)"
-            " AND substr(starts_at,1,10)=substr(?,1,10)",
-            (course_id, title, starts)).fetchone()
-        if dup:
-            continue
-        uid = stable_uid(code, title, _norm_dt(starts))
-        cur = db.conn.execute(
-            "INSERT OR IGNORE INTO events (course_id, kind, title, starts_at, ends_at, notes, ics_uid)"
-            " VALUES (?,?,?,?,?,?,?)",
-            (course_id, e.get("kind") or "assignment", title, starts,
-             e.get("ends_at"), e.get("notes"), uid))
-        if cur.rowcount:
+        kind = e.get("kind") or "assignment"
+        if kind not in ("assignment", "exam"):
+            kind = "assignment"
+        rowid = _insert_event(db, course_id, code, e.get("title"), e.get("starts_at"),
+                              kind=kind, ends_at=e.get("ends_at"), notes=e.get("notes"))
+        if rowid:
             res["events"] += 1
-            db.audit("sync", "events", cur.lastrowid, "mine-insert",
-                     {"course_id": course_id, "title": title,
-                      "starts_at": starts, "uid": uid})
 
     for x in mined.get("exams", []):
         xtitle = str(x.get("title") or "").strip()
@@ -394,6 +406,11 @@ def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int
             db.audit("sync", "assignments", target["id"], "mine-backfill",
                      {"before": {"due_at": target["due_at"], "weight": target["weight"]},
                       "after": sets})
+            if sets.get("due_at"):
+                eid = _insert_event(db, course_id, code, target["title"], sets["due_at"],
+                                    kind="assignment", notes="Backfilled from course materials")
+                if eid:
+                    res["events"] += 1
     if ann_ids:
         db.conn.executemany(
             "UPDATE announcements SET digested_at=datetime('now') WHERE id=?",
