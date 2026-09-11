@@ -200,8 +200,11 @@ class DB:
             (course_id, a["brightspace_folder_id"]),
         ).fetchone()
         if existing:
+            # COALESCE guards mined backfills: a Brightspace NULL must never
+            # wipe a due_at/weight the miner filled in (registrar non-NULLs still win).
             self.conn.execute(
-                """UPDATE assignments SET title=?, description=?, due_at=?, weight=?,
+                """UPDATE assignments SET title=?, description=?,
+                   due_at=COALESCE(?, due_at), weight=COALESCE(?, weight),
                    url=?, rubrics_json=?, category=?, group_category=?, points=?,
                    attachments_json=?, availability_json=?,
                    status=CASE WHEN status='extended' THEN 'extended' ELSE 'open' END,
