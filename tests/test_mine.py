@@ -600,3 +600,19 @@ def test_apply_skips_paraphrase_facts_and_retitled_events(db):
         "exams": [], "assignment_updates": []}, source="mine:test")
     assert out == {"facts": 0, "events": 0, "exams": 0, "assignments": 0}
     db.close()
+
+
+def test_exam_event_dupes_exams_row(db):
+    from sync.mine import apply_mining
+    course = db.get_course_by_code("CS 1100A")
+    db.conn.execute(
+        "INSERT INTO exams (course_id, title, starts_at, source) VALUES (?,?,?,?)",
+        (course["id"], "Midterm Test", "2026-10-27", "manual"))
+    db.conn.commit()
+    out = apply_mining(db, course["id"], {
+        "facts": [],
+        "events": [{"title": "Midterm Test (Tentative Date)", "starts_at": "2026-10-27",
+                      "kind": "exam", "notes": "Closed book."}],
+        "exams": [], "assignment_updates": []}, source="mine:test")
+    assert out["events"] == 0  # exams-table row already covers this date+title
+    db.close()
