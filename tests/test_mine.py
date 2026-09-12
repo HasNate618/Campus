@@ -355,3 +355,47 @@ def test_backfill_fact_without_date_is_not_conflict(db):
     assert db.conn.execute(
         "SELECT COUNT(*) FROM audit_log WHERE action='mine-conflict'").fetchone()[0] == 0
     db.close()
+
+
+def test_extract_pdf_registers_md_sibling(db, cfg, tmp_path, monkeypatch):
+    from unittest.mock import MagicMock
+    import sync.sync as sync_mod
+    from sync.sync import SyncEngine
+    cfg.pdf_extractor_url = "http://parser:8000"
+    (tmp_path / "2026F" / "CS1100A").mkdir(parents=True)
+    pdf = tmp_path / "2026F" / "CS1100A" / "outline.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    course = db.get_course_by_code("CS 1100A")
+    db.conn.execute(
+        "INSERT INTO files (course_id, path, kind, source, size, sha256, processed)"
+        " VALUES (?,?,'slide','brightspace',10,?,0)",
+        (course["id"], "2026F/CS1100A/outline.pdf", "p" * 64))
+    db.conn.commit()
+    row = db.conn.execute("SELECT * FROM files").fetchone()
+    fake_resp = MagicMock()
+    fake_resp.json.return_value = {"page_content": "# Outline\nFinal Dec 15 worth 45%."}
+    monkeypatch.setattr(sync_mod.httpx, "put", lambda *a, **k: fake_resp)
+    eng = SyncEngine(cfg, db, client=MagicMock())
+    assert eng.extract_pdf(row) is True
+    mdrow = db.conn.execute(
+        "SELECT kind, source, processed FROM files WHERE path=?",
+        ("2026F/CS1100A/outline.md",)).fetchone()
+    assert mdrow is not None and (mdrow["kind"], mdrow["source"], mdrow["processed"]) == ("other", "manual", 1)
+    db.close()
+
+
+def test_registered_md_reaches_corpus_outlines(db, cfg, tmp_path):
+    from sync.mine import build_course_corpus
+    course = db.get_course_by_code("CS 1100A")
+    root = tmp_path / "2026F" / "CS1100A"
+    root.mkdir(parents=True)
+    (root / "cs1100-outline.md").write_text("# Outline\nFinal exam Dec 15 worth 45%.\n")
+    db.conn.execute(
+        "INSERT INTO files (course_id, path, kind, source, size, sha256, processed)"
+        " VALUES (?,?,'other','manual',10,?,1)",
+        (course["id"], "2026F/CS1100A/cs1100-outline.md", "m" * 64))
+    db.conn.commit()
+    corpus = build_course_corpus(cfg, db, course["id"])
+    assert corpus["blocks"][0]["kind"] == "outline"
+    assert "Dec 15" in corpus["blocks"][0]["text"]
+    db.close()
