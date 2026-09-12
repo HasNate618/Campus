@@ -640,6 +640,95 @@ git add sync/sync.py tests/test_mine.py
 git commit -m "feat: visible extraction skips, atomic md writes"
 ```
 
+### Task 6: Near-duplicate gates (paraphrase dedupe)
+
+**Files:**
+
+- Modify: `sync/mine.py` (new `_fact_dupes`; facts-loop + events-loop gates)
+- Test: `tests/test_mine.py` (append)
+
+**Interfaces:**
+
+- Consumes: active `memory_facts` / `events` rows for the course; `_DATE_HINT_RE` (existing, month names + ISO dates).
+- Produces: `_fact_dupes(new_text: str, existing_text: str) -> bool`. Restores the plan's backfill-safe invariant (re-runs write nothing). No LLM, no embeddings, deterministic.
+
+**Rule:** tokenize `[a-z0-9]+` (casefolded). specifics = month-name tokens + number tokens on each side. If the shorter side's specifics ⊄ the longer side's specifics → NOT dupes (different dates/weights/counts always survive). Else dupes iff token containment of the shorter side ≥ 0.8. Event titles use the same predicate at threshold 0.6 (same calendar day + shared words = same deadline).
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+def test_fact_dupes_paraphrase_gate():
+    from sync.mine import _fact_dupes
+    assert _fact_dupes("Professor: Samarabandu, Email: jagath@uwo.ca, Office: TEB 351",
+                        "Instructor: Prof. Samarabandu, email: jagath@uwo.ca, office: TEB 351") is True
+    assert _fact_dupes("Midterm Oct 20 worth 25%", "Midterm Oct 21 worth 25%") is False
+    assert _fact_dupes("Final is worth 45%", "Midterm is worth 20%") is False
+    assert _fact_dupes("Labs need 5 commits", "Labs need 10 commits") is False
+    assert _fact_dupes("iClicker code: XWAH", "iClicker class code for SE 3316A: XWAH") is True
+
+
+def test_apply_skips_paraphrase_facts_and_retitled_events(db):
+    from sync.mine import apply_mining
+    course = db.get_course_by_code("CS 1100A")
+    db.conn.execute(
+        "INSERT INTO memory_facts (course_id, fact, category, confidence, source) VALUES (?,?,?,?,?)",
+        (course["id"], "Instructor: Prof. X, email: x@uwo.ca.", "prof-note", 0.9, "mine:old"))
+    db.conn.execute(
+        "INSERT INTO events (course_id, kind, title, starts_at, ics_uid) VALUES (?,?,?,?,?)",
+        (course["id"], "assignment", "Project Approval", "2026-09-25", "u" * 16))
+    db.conn.commit()
+    out = apply_mining(db, course["id"], {
+        "facts": [{"fact": "Professor X, Email: x@uwo.ca.", "category": "prof-note", "confidence": 0.9}],
+        "events": [{"title": "Project Approval from TA", "starts_at": "2026-09-25", "kind": "assignment"}],
+        "exams": [], "assignment_updates": []}, source="mine:test")
+    assert out == {"facts": 0, "events": 0, "exams": 0, "assignments": 0}
+    db.close()
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `.venv/bin/python -m pytest tests/test_mine.py::test_fact_dupes_paraphrase_gate tests/test_mine.py::test_apply_skips_paraphrase_facts_and_retitled_events -v`
+Expected: FAIL (`_fact_dupes` undefined; paraphrases insert today).
+
+- [ ] **Step 3: Write minimal implementation**
+
+```python
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+_MONTH_TOKS = {"jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "sept",
+                "oct", "nov", "dec", "january", "february", "march", "april",
+                "june", "july", "august", "september", "october", "november", "december"}
+
+
+def _fact_dupes(new_text: str, existing_text: str, threshold: float = 0.8) -> bool:
+    """True when new_text restates existing_text. Different specifics
+    (dates, weights, counts) always survive; pure rewordings don't."""
+    nt, et = set(_TOKEN_RE.findall((new_text or "").casefold())), \
+        set(_TOKEN_RE.findall((existing_text or "").casefold()))
+    if not nt or not et:
+        return False
+    short, long = (nt, et) if len(nt) <= len(et) else (et, nt)
+    spec = lambda toks: {t for t in toks if t in _MONTH_TOKS or t.isdigit()}
+    if not spec(short) <= spec(long):
+        return False
+    return len(short & long) / len(short) >= threshold
+```
+
+Facts loop: after the exact-dup check, add a near-dupe scan over active course facts (`SELECT fact FROM memory_facts WHERE course_id=? AND is_active=1` — fetch once before the loop): `if any(_fact_dupes(fact, er["fact"]) for er in existing): continue`. Events: extend `_insert_event` — after the exact-date-title dupe check, fetch same-day titles (`SELECT title FROM events WHERE course_id=? AND substr(starts_at,1,10)=substr(?,1,10)`) and return None if any satisfies `_fact_dupes(title, row_title, 0.6)`.
+
+(Performance: per-course fact/event counts are in the hundreds; quadratic token compares are milliseconds. Existing count-tests are unaffected — their fixtures are mutually distinct.)
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `.venv/bin/python -m pytest tests/test_mine.py -q`
+Expected: all PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add sync/mine.py tests/test_mine.py
+git commit -m "feat: paraphrase-aware dedupe for facts and events"
+```
+
 ---
 
 ## Verification (whole plan)
