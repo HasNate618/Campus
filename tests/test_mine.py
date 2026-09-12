@@ -520,3 +520,55 @@ def test_backfill_confirmed_date_ensures_event(db):
     out2 = apply_mining(db, course["id"], mined, source="mine:test")
     assert out2["events"] == 0  # dedupe holds on re-run
     db.close()
+
+
+def test_long_scan_skip_writes_stub(db, cfg, tmp_path, monkeypatch):
+    from unittest.mock import MagicMock
+    from sync.sync import SyncEngine
+    cfg.pdf_extractor_url = ""  # local-OCR-only path applies the skip
+    cfg.long_scan_skip_pages = 2
+    (tmp_path / "2026F" / "CS1100A").mkdir(parents=True)
+    pdf = tmp_path / "2026F" / "CS1100A" / "scan.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    course = db.get_course_by_code("CS 1100A")
+    db.conn.execute(
+        "INSERT INTO files (course_id, path, kind, source, size, sha256, processed)"
+        " VALUES (?,?,'slide','brightspace',10,?,0)",
+        (course["id"], "2026F/CS1100A/scan.pdf", "s" * 64))
+    db.conn.commit()
+    # hermetic: .venv pymupdf is broken (libstdc++), so fake a 5-page scan
+    monkeypatch.setattr(SyncEngine, "_scan_pages", lambda self, p: 5)
+    eng = SyncEngine(cfg, db, client=MagicMock())
+    eng.run_extraction_queue(course_id=course["id"])
+    stub = tmp_path / "2026F" / "CS1100A" / "scan.md"
+    assert stub.exists() and "SKIPPED" in stub.read_text() and "pages" in stub.read_text()
+    assert db.conn.execute(
+        "SELECT COUNT(*) FROM files WHERE path=?", ("2026F/CS1100A/scan.md",)).fetchone()[0] == 1
+    db.close()
+
+
+def test_extract_marks_pages_and_pins_encoding(db, cfg, tmp_path, monkeypatch):
+    from unittest.mock import MagicMock
+    import sync.sync as sync_mod
+    from sync.sync import SyncEngine
+    cfg.pdf_extractor_url = "http://parser:8000"
+    (tmp_path / "2026F" / "CS1100A").mkdir(parents=True)
+    pdf = tmp_path / "2026F" / "CS1100A" / "doc.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    course = db.get_course_by_code("CS 1100A")
+    db.conn.execute(
+        "INSERT INTO files (course_id, path, kind, source, size, sha256, processed)"
+        " VALUES (?,?,'slide','brightspace',10,?,0)",
+        (course["id"], "2026F/CS1100A/doc.pdf", "d" * 64))
+    db.conn.commit()
+    row = db.conn.execute("SELECT * FROM files WHERE path LIKE '%.pdf'").fetchone()
+    def fake_put(url, content=None, timeout=None):
+        fake = MagicMock()
+        fake.json.return_value = {"page_content": "# Doc\nHello."}
+        return fake
+    monkeypatch.setattr(sync_mod.httpx, "put", fake_put)
+    eng = SyncEngine(cfg, db, client=MagicMock())
+    assert eng.extract_pdf(row) is True
+    text = (tmp_path / "2026F" / "CS1100A" / "doc.md").read_text(encoding="utf-8")
+    assert "Hello" in text
+    db.close()

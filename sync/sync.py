@@ -833,6 +833,28 @@ class SyncEngine:
             src_row["content_node_id"] if "content_node_id" in src_row.keys() else None)
         self.db.mark_processed(fid)
 
+    def _write_md(self, md: Path, text: str) -> None:
+        """Atomic utf-8 `.md` write (tmp + fsync + replace): a crash mid-write
+        must never leave a short `.md` that looks complete."""
+        tmp = md.with_suffix(".md.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            try:
+                import os
+                os.fsync(f.fileno())
+            except OSError:
+                pass
+        tmp.replace(md)
+
+    def _write_stub(self, course_id: int, pdf_path: Path, reason: str, src_row) -> None:
+        """Leave a reason-stub `.md` for permanently-skipped files so the skip
+        is visible (and grep-able) instead of silent."""
+        md = pdf_path.with_suffix(".md")
+        self._write_md(md, f"# SKIPPED: {reason}\n\nSource: {pdf_path.name}\n")
+        self.register_extraction(course_id, md, src_row)
+        print(f"  skipped ({reason}): {src_row['path']}", flush=True)
+
     def extract_pdf(self, file_row) -> bool:
         """PUT raw PDF to pdf-extractor → write .md beside it → mark processed.
         Original PDF is always kept for viewing. (No engine param — the
@@ -861,11 +883,14 @@ class SyncEngine:
                 import pymupdf
                 doc = pymupdf.open(path)
                 parts: list[str] = []
+                page_no = 0
                 for page in doc:
+                    page_no += 1
                     text = page.get_text()
                     if not text.strip():
                         continue
-                    parts.append(text.rstrip())
+                    # marker format matches citations.PAGE_RE (plain N, no totals)
+                    parts.append(f"<!-- page {page_no} -->\n{text.rstrip()}")
                     try:
                         tables = [t for t in page.find_tables().tables
                                   if _looks_like_data_table(t)]
@@ -878,7 +903,7 @@ class SyncEngine:
                 text = "\n".join(parts)
                 if len(text.strip()) > 200:
                     md = path.with_suffix(".md")
-                    md.write_text(text, encoding="utf-8")
+                    self._write_md(md, text)
                     self.register_extraction(file_row["course_id"], md, file_row)
                     self.db.mark_processed(file_row["id"])
                     excerpt = text[: self.cfg.digest_pdf_excerpt_chars]
@@ -902,14 +927,15 @@ class SyncEngine:
                 # empty content = parser failed — do NOT mark processed so it's retried
                 return False
             md = path.with_suffix(".md")
-            md.write_text(content)
+            self._write_md(md, content)
             self.register_extraction(file_row["course_id"], md, file_row)
             self.db.mark_processed(file_row["id"])
             excerpt = content[: self.cfg.digest_pdf_excerpt_chars]
             self.deltas.append({"kind": "pdf_extracted", "path": str(md),
                                 "excerpt": excerpt})
             return True
-        except Exception:
+        except Exception as e:
+            print(f"  extract FAILED {file_row['path']}: {e!r}", flush=True)
             return False
 
     def _extract_doc(self, path: Path) -> bool:
@@ -929,9 +955,10 @@ class SyncEngine:
                     return False
                 text = out.stdout
             if text.strip():
-                md.write_text(text, encoding="utf-8")
+                self._write_md(md, text)
                 return True
-        except Exception:
+        except Exception as e:
+            print(f"  extract FAILED {path}: {e!r}", flush=True)
             pass
         return False
 
@@ -971,6 +998,8 @@ class SyncEngine:
             if not self.cfg.pdf_extractor_url and path.suffix.lower() == ".pdf":
                 pages = self._scan_pages(path)
                 if pages is not None and pages >= self.cfg.long_scan_skip_pages:
+                    self._write_stub(row["course_id"], path,
+                                     f"scanned PDF, {pages} pages (>{self.cfg.long_scan_skip_pages} page OCR limit)", row)
                     self.db.mark_processed(row["id"])
                     print(f"  skipped long scan ({pages}p): {row['path']}", flush=True)
                     continue
@@ -992,8 +1021,10 @@ class SyncEngine:
                         done += 1
                         print(f"  extracted (via pdf): {row['path']}", flush=True)
                     else:
+                        self._write_stub(row["course_id"], path, "office pdf extraction failed", row)
                         failed += 1
                 else:
+                    self._write_stub(row["course_id"], path, "office conversion failed", row)
                     failed += 1
                 self.db.mark_processed(row["id"])
                 continue
@@ -1004,12 +1035,17 @@ class SyncEngine:
                     md = path.with_suffix(".md")
                     if md.exists():
                         self.register_extraction(row["course_id"], md, row)
+                else:
+                    self._write_stub(row["course_id"], path, "doc extraction failed", row)
                 self.db.mark_processed(row["id"])  # one attempt; .md sibling persists
                 continue
             if path.suffix.lower() != ".pdf":
+                self._write_stub(row["course_id"], path, f"unsupported type {path.suffix}", row)
                 self.db.mark_processed(row["id"])  # not a PDF — nothing to extract
                 continue
             if path.stat().st_size > self.cfg.max_extract_size:
+                self._write_stub(row["course_id"], path,
+                                 f"{path.stat().st_size} bytes over {self.cfg.max_extract_size} limit", row)
                 self.db.mark_processed(row["id"])  # too big — skip permanently
                 continue
             if self.extract_pdf(row):
