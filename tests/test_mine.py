@@ -83,7 +83,7 @@ def test_apply_mining_dedupes_and_backfills(db):
                                {"title": "Quiz 9 (nonexistent)", "due_at": "2026-10-01", "weight": None}],
     }
     r1 = apply_mining(db, course["id"], mined, source="mine:test")
-    assert r1 == {"facts": 1, "events": 2, "exams": 1, "assignments": 1}
+    assert r1 == {"facts": 1, "events": 1, "exams": 1, "assignments": 1}  # backfill event dupes the miner event (same day, shared words)
     assert db.conn.execute(
         "SELECT COUNT(*) FROM assignments WHERE course_id=?",
         (course["id"],)).fetchone()[0] == 1  # non-matching update creates nothing
@@ -94,7 +94,7 @@ def test_apply_mining_dedupes_and_backfills(db):
         (course["id"],)).fetchone()[0] == "2026-09-14"
     assert db.conn.execute(
         "SELECT COUNT(*) FROM audit_log WHERE actor='sync'"
-        " AND action IN ('mine-insert','mine-backfill')").fetchone()[0] == 5
+        " AND action IN ('mine-insert','mine-backfill')").fetchone()[0] == 4
     db.close()
 
 
@@ -571,4 +571,32 @@ def test_extract_marks_pages_and_pins_encoding(db, cfg, tmp_path, monkeypatch):
     assert eng.extract_pdf(row) is True
     text = (tmp_path / "2026F" / "CS1100A" / "doc.md").read_text(encoding="utf-8")
     assert "Hello" in text
+    db.close()
+
+
+def test_fact_dupes_paraphrase_gate():
+    from sync.mine import _fact_dupes
+    assert _fact_dupes("Professor: Samarabandu, Email: jagath@uwo.ca, Office: TEB 351",
+                        "Instructor: Prof. Samarabandu, email: jagath@uwo.ca, office: TEB 351") is True
+    assert _fact_dupes("Midterm Oct 20 worth 25%", "Midterm Oct 21 worth 25%") is False
+    assert _fact_dupes("Final is worth 45%", "Midterm is worth 20%") is False
+    assert _fact_dupes("Labs need 5 commits", "Labs need 10 commits") is False
+    assert _fact_dupes("iClicker code: XWAH", "iClicker class code for SE 3316A: XWAH") is True
+
+
+def test_apply_skips_paraphrase_facts_and_retitled_events(db):
+    from sync.mine import apply_mining
+    course = db.get_course_by_code("CS 1100A")
+    db.conn.execute(
+        "INSERT INTO memory_facts (course_id, fact, category, confidence, source) VALUES (?,?,?,?,?)",
+        (course["id"], "Instructor: Prof. X, email: x@uwo.ca.", "prof-note", 0.9, "mine:old"))
+    db.conn.execute(
+        "INSERT INTO events (course_id, kind, title, starts_at, ics_uid) VALUES (?,?,?,?,?)",
+        (course["id"], "assignment", "Project Approval", "2026-09-25", "u" * 16))
+    db.conn.commit()
+    out = apply_mining(db, course["id"], {
+        "facts": [{"fact": "Professor X, Email: x@uwo.ca.", "category": "prof-note", "confidence": 0.9}],
+        "events": [{"title": "Project Approval from TA", "starts_at": "2026-09-25", "kind": "assignment"}],
+        "exams": [], "assignment_updates": []}, source="mine:test")
+    assert out == {"facts": 0, "events": 0, "exams": 0, "assignments": 0}
     db.close()

@@ -423,6 +423,26 @@ def retire_noise_facts(db, course_id: int | None = None) -> int:
     return n
 
 
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+_MONTH_TOKS = {"jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "sept",
+                "oct", "nov", "dec", "january", "february", "march", "april",
+                "june", "july", "august", "september", "october", "november", "december"}
+
+
+def _fact_dupes(new_text: str, existing_text: str, threshold: float = 0.8) -> bool:
+    """True when new_text restates existing_text. Different specifics
+    (dates, weights, counts) always survive; pure rewordings don't."""
+    nt = set(_TOKEN_RE.findall((new_text or "").casefold()))
+    et = set(_TOKEN_RE.findall((existing_text or "").casefold()))
+    if not nt or not et:
+        return False
+    short, long = (nt, et) if len(nt) <= len(et) else (et, nt)
+    spec = lambda toks: {t for t in toks if t in _MONTH_TOKS or t.isdigit()}
+    if not spec(short) <= spec(long):
+        return False
+    return len(short & long) / len(short) >= threshold
+
+
 def _insert_event(db, course_id: int, code: str, title: str, starts_at: str,
                   kind: str = "assignment", ends_at: str | None = None,
                   notes: str | None = None) -> int | None:
@@ -437,6 +457,12 @@ def _insert_event(db, course_id: int, code: str, title: str, starts_at: str,
         (course_id, title, starts)).fetchone()
     if dup:
         return None
+    for er in db.conn.execute(
+            "SELECT title FROM events WHERE course_id=?"
+            " AND substr(starts_at,1,10)=substr(?,1,10)",
+            (course_id, starts)).fetchall():
+        if _fact_dupes(title, er["title"], 0.6):
+            return None
     uid = stable_uid(code, title, _norm_dt(starts))
     cur = db.conn.execute(
         "INSERT OR IGNORE INTO events (course_id, kind, title, starts_at, ends_at, notes, ics_uid)"
@@ -458,6 +484,9 @@ def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int
     course = db.conn.execute(
         "SELECT code FROM courses WHERE id=?", (course_id,)).fetchone()
     code = course["code"] if course else str(course_id)
+    existing_facts = db.conn.execute(
+        "SELECT fact FROM memory_facts WHERE course_id=? AND is_active=1",
+        (course_id,)).fetchall()
 
     for f in mined.get("facts", []):
         fact = str(f.get("fact", "")).strip()
@@ -467,6 +496,8 @@ def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int
             "SELECT 1 FROM memory_facts WHERE course_id=? AND fact=? AND is_active=1",
             (course_id, fact)).fetchone()
         if dup:
+            continue
+        if any(_fact_dupes(fact, er["fact"]) for er in existing_facts):
             continue
         try:
             conf = min(1.0, max(0.0, float(f.get("confidence", 0.5))))
