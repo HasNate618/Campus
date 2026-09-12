@@ -595,6 +595,32 @@ def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int
                 target = a
                 break
         if not target:
+            # No Brightspace row (dropbox sync gap): create a miner-owned row
+            # so the date enters the schedule instead of evaporating. A later
+            # sync adopts it by title (upsert_assignment fallback).
+            title = str(u.get("title") or "").strip()
+            if not title:
+                continue
+            try:
+                uw = float(u["weight"]) if u.get("weight") is not None else None
+            except (TypeError, ValueError):
+                uw = None
+            if not u.get("due_at") and uw is None:
+                continue
+            cur = db.conn.execute(
+                "INSERT INTO assignments (course_id, title, due_at, weight, source)"
+                " VALUES (?,?,?,?, 'ai')",
+                (course_id, title, u.get("due_at"), uw))
+            res["assignments"] += 1
+            db.audit("sync", "assignments", cur.lastrowid, "mine-insert",
+                     {"title": title, "due_at": u.get("due_at"), "weight": uw})
+            if u.get("due_at"):
+                eid = _insert_event(db, course_id, code, title, u["due_at"],
+                                    kind="assignment", notes="Backfilled from course materials")
+                if eid:
+                    res["events"] += 1
+            assigns.append({"id": cur.lastrowid, "title": title,
+                            "due_at": u.get("due_at"), "weight": uw})
             continue
         sets: dict = {}
         if u.get("due_at") and not target["due_at"]:
