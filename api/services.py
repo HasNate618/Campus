@@ -148,7 +148,23 @@ def list_content_nodes(course_id: int) -> list[dict]:
 
 
 def list_files(course_id: int) -> list[dict]:
-    return _rows("SELECT * FROM files WHERE course_id=? ORDER BY id", (course_id,))
+    rows = _rows("SELECT * FROM files WHERE course_id=? ORDER BY id", (course_id,))
+    # Hide `.md` siblings from listings: the viewer loads them by path
+    # derivation (Extracted-text toggle), so a files row would only duplicate
+    # the entry. Orphan `.md`s (no same-stem brother row) stay visible.
+    from pathlib import PurePosixPath
+    have = set()
+    for r in rows:
+        p = PurePosixPath(r["path"] or "")
+        if p.suffix.lower() != ".md":
+            have.add((str(p.parent), p.stem))
+    out = []
+    for r in rows:
+        p = PurePosixPath(r["path"] or "")
+        if p.suffix.lower() == ".md" and (str(p.parent), p.stem) in have:
+            continue
+        out.append(r)
+    return out
 
 
 def list_file_topics(course_id: int) -> list[dict]:

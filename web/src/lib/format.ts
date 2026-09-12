@@ -1,6 +1,10 @@
 export function parseDate(s?: string | null): Date | null {
   if (!s) return null
-  const d = new Date(s.includes('T') ? s : s.replace(' ', 'T'))
+  // Date-only strings must parse as LOCAL time: new Date('2026-09-18')
+  // is UTC midnight, which renders as the previous day in UTC-4 (and
+  // misplaces calendar columns + isPast). Noon is DST-safe.
+  const t = s.includes('T') ? s.replace(' ', 'T') : `${s}T12:00`
+  const d = new Date(t)
   return Number.isNaN(d.getTime()) ? null : d
 }
 
