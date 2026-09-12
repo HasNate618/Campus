@@ -22,11 +22,11 @@ POLICY_LINE_RE = re.compile(
 
 
 def stable_uid(code: str, title: str, starts_at: str) -> str:
-    """16-hex-char dedupe key: sha1(code|title|starts_at).
+    """16-hex-char dedupe key: sha256(code|title|starts_at).
 
     Same input twice (re-sync) MUST yield the same key so INSERT OR IGNORE
     dedupes; different courses/titles/dates MUST differ."""
-    h = hashlib.sha1(f"{code}|{title}|{starts_at}".encode("utf-8")).hexdigest()
+    h = hashlib.sha256(f"{code}|{title}|{starts_at}".encode("utf-8")).hexdigest()
     return h[:16]
 
 
@@ -180,6 +180,11 @@ def build_course_corpus(cfg, db, course_id: int,
                 encoding="utf-8", errors="replace")
             if rel.endswith(".html"):
                 raw_text = _strip_html(raw_text)
+            else:
+                # Single-line HTML tables (external parser output) pack a whole
+                # table into one giant line; char-caps then keep the head and
+                # evict the date rows. Split rows first so each matches alone.
+                raw_text = re.sub(r"</tr\\s*>", "</tr>\n", raw_text, flags=re.I)
             lines = raw_text.splitlines()
         except OSError:
             continue
@@ -424,6 +429,14 @@ def retire_noise_facts(db, course_id: int | None = None) -> int:
 
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+
+def _stem(tok: str) -> str:
+    """Crude plural stem (topics->topic) so rewordings match. Alpha-only,
+    length-guarded: numbers, months and short words never change."""
+    if tok.isalpha() and len(tok) > 3 and tok.endswith("s") and not tok.endswith("ss"):
+        return tok[:-1]
+    return tok
 _MONTH_TOKS = {"jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "sept",
                 "oct", "nov", "dec", "january", "february", "march", "april",
                 "june", "july", "august", "september", "october", "november", "december"}
@@ -432,8 +445,8 @@ _MONTH_TOKS = {"jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "s
 def _fact_dupes(new_text: str, existing_text: str, threshold: float = 0.8) -> bool:
     """True when new_text restates existing_text. Different specifics
     (dates, weights, counts) always survive; pure rewordings don't."""
-    nt = set(_TOKEN_RE.findall((new_text or "").casefold()))
-    et = set(_TOKEN_RE.findall((existing_text or "").casefold()))
+    nt = set(_stem(t) for t in _TOKEN_RE.findall((new_text or "").casefold()))
+    et = set(_stem(t) for t in _TOKEN_RE.findall((existing_text or "").casefold()))
     if not nt or not et:
         return False
     short, long = (nt, et) if len(nt) <= len(et) else (et, nt)
