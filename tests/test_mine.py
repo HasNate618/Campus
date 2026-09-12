@@ -431,3 +431,45 @@ def test_syllabus_save_emits_mining_delta(db, cfg, tmp_path):
     assert any(d.get("kind") == "syllabus" and d.get("course_id") == course["id"]
                for d in eng.deltas)
     db.close()
+
+
+def test_corpus_prefers_body_html_and_strips_assignment_desc(db, cfg):
+    from sync.mine import build_course_corpus
+    course = db.get_course_by_code("CS 1100A")
+    db.conn.execute(
+        "INSERT INTO announcements (course_id, title, body, body_html, posted_at) VALUES (?,?,?,?,?)",
+        (course["id"], "Sched", "see table", "<table><tr><td>Quiz 1</td><td>Sep 18</td></tr></table>", "2026-09-10"))
+    db.conn.execute(
+        "INSERT INTO assignments (course_id, title, description, source) VALUES (?,?,?,?)",
+        (course["id"], "Lab 9 with a sufficiently long title here",
+         "<div><p>Due <b>Oct 30</b> via dropbox. Submit through the course dropbox folder before midnight.</p></div>", "brightspace"))
+    db.conn.commit()
+    corpus = build_course_corpus(cfg, db, course["id"])
+    ann = next(b for b in corpus["blocks"] if b["kind"] == "announcement")
+    assert "Sep 18" in ann["text"] and "<td>" not in ann["text"]
+    asg = next(b for b in corpus["blocks"] if b["kind"] == "assignment")
+    assert "Oct 30" in asg["text"] and "<div>" not in asg["text"]
+    db.close()
+
+
+def test_content_nodes_module_only_ordered(db, cfg):
+    from sync.mine import build_course_corpus
+    course = db.get_course_by_code("CS 1100A")
+    for i in range(7):
+        db.conn.execute(
+            "INSERT INTO content_nodes (course_id, brightspace_id, node_type, title, description)"
+            " VALUES (?,?,?,?,?)",
+            (course["id"], 900 + i, "topic", f"T{i}",
+             f"Topic number {i} with plenty of descriptive text to clear the length bar."))
+    db.conn.execute(
+        "INSERT INTO content_nodes (course_id, brightspace_id, node_type, title, description)"
+        " VALUES (?,?,?,?,?)",
+        (course["id"], 800, "module", "Schedule module",
+         "Module landing page with schedule table and tutorial links, long enough to qualify."))
+    db.conn.commit()
+    corpus = build_course_corpus(cfg, db, course["id"])
+    mods = [b for b in corpus["blocks"] if b["kind"] == "content"]
+    # content blocks carry the description (not the title): assert on its text
+    assert any("tutorial links" in b["text"] for b in mods)
+    assert not any(b["text"].startswith("Topic number") for b in mods)
+    db.close()

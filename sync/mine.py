@@ -130,10 +130,10 @@ def build_course_corpus(cfg, db, course_id: int,
     # 2. undigested announcements + recent ones
     ann_ids: list[int] = []
     for r in db.conn.execute(
-            """SELECT id, title, body, posted_at FROM announcements WHERE course_id=?
+            """SELECT id, title, body, body_html, posted_at FROM announcements WHERE course_id=?
                AND (digested_at IS NULL OR posted_at >= datetime('now','-30 days'))
                ORDER BY posted_at DESC LIMIT 10""", (course_id,)).fetchall():
-        body = _strip_html(r["body"])[:3000]
+        body = _strip_html(r["body_html"] or r["body"])[:3000]
         if body.strip():
             blocks.append({"kind": "announcement",
                            "path": f"announcement:{code}:{r['title']}",
@@ -143,9 +143,9 @@ def build_course_corpus(cfg, db, course_id: int,
     # 3. assignment descriptions with no due date yet
     for r in db.conn.execute(
             "SELECT title, description FROM assignments WHERE course_id=?"
-            " AND (due_at IS NULL OR weight IS NULL) LIMIT 10",
+            " AND (due_at IS NULL OR weight IS NULL) ORDER BY id LIMIT 10",
             (course_id,)).fetchall():
-        desc = (r["description"] or "")[:3000]
+        desc = _strip_html(r["description"] or "")[:3000]
         if len(desc.strip()) > 40:
             blocks.append({"kind": "assignment",
                            "path": f"assignment:{code}:{r['title']}", "text": desc})
@@ -153,7 +153,8 @@ def build_course_corpus(cfg, db, course_id: int,
     # 4. module HTML descriptions
     for r in db.conn.execute(
             """SELECT title, description FROM content_nodes WHERE course_id=?
-               AND description IS NOT NULL LIMIT 5""", (course_id,)).fetchall():
+               AND node_type='module' AND description IS NOT NULL ORDER BY id LIMIT 20""",
+            (course_id,)).fetchall():
         text = _strip_html(r["description"])[:2000]
         if len(text.strip()) > 80:
             blocks.append({"kind": "content", "path": f"module:{code}:{r['title']}",
