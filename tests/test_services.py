@@ -2,7 +2,12 @@
 from __future__ import annotations
 
 
-def test_list_files_hides_md_siblings(db):
+def test_list_files_hides_md_siblings(db, db_path, monkeypatch):
+    import api.db as api_db
+    from pathlib import Path
+    # services resolves its DB at import (api.db.DB_PATH frozen by whichever
+    # test imported it first) — repoint it at this test's fixture DB.
+    monkeypatch.setattr(api_db, "DB_PATH", Path(str(db_path)))
     from api.services import list_files
     course = db.execute(
         "SELECT id FROM courses WHERE code='CS 1100A'").fetchone()

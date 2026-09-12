@@ -80,13 +80,13 @@ def test_apply_mining_dedupes_and_backfills(db):
         "exams": [{"title": "Midterm", "starts_at": "2026-10-20", "weight": 25.0,
                      "notes": None}],
         "assignment_updates": [{"title": "Lab 1", "due_at": "2026-09-14", "weight": None},
-                               {"title": "Quiz 9 (nonexistent)", "due_at": "2026-10-01", "weight": None}],
+                               {"title": "Quiz 9 (new row)", "due_at": "2026-10-01", "weight": None}],
     }
     r1 = apply_mining(db, course["id"], mined, source="mine:test")
-    assert r1 == {"facts": 1, "events": 1, "exams": 1, "assignments": 1}  # backfill event dupes the miner event (same day, shared words)
+    assert r1 == {"facts": 1, "events": 2, "exams": 1, "assignments": 2}
     assert db.conn.execute(
         "SELECT COUNT(*) FROM assignments WHERE course_id=?",
-        (course["id"],)).fetchone()[0] == 1  # non-matching update creates nothing
+        (course["id"],)).fetchone()[0] == 2  # Lab 1 filled + Quiz 9 row created
     r2 = apply_mining(db, course["id"], mined, source="mine:test")
     assert r2 == {"facts": 0, "events": 0, "exams": 0, "assignments": 0}
     assert db.conn.execute(
@@ -94,7 +94,7 @@ def test_apply_mining_dedupes_and_backfills(db):
         (course["id"],)).fetchone()[0] == "2026-09-14"
     assert db.conn.execute(
         "SELECT COUNT(*) FROM audit_log WHERE actor='sync'"
-        " AND action IN ('mine-insert','mine-backfill')").fetchone()[0] == 4
+        " AND action IN ('mine-insert','mine-backfill')").fetchone()[0] == 6
     db.close()
 
 
@@ -664,4 +664,41 @@ def test_step5_splits_single_line_html_tables(db, cfg, tmp_path):
     text = next(b["text"] for b in corpus["blocks"] if b["kind"] == "other")
     for n in range(1, 7):
         assert f"October {n}" in text
+    db.close()
+
+
+def test_update_without_row_creates_assignment_and_event(db):
+    from sync.mine import apply_mining
+    course = db.get_course_by_code("CS 1100A")
+    mined = {"facts": [], "events": [], "exams": [],
+             "assignment_updates": [{"title": "Assignment 3: Creating DB System", "due_at": "2026-11-20"}]}
+    out = apply_mining(db, course["id"], mined, source="mine:test")
+    assert out["assignments"] == 1 and out["events"] == 1
+    row = db.conn.execute(
+        "SELECT title, due_at, source FROM assignments WHERE course_id=?",
+        (course["id"],)).fetchone()
+    assert (row["title"], row["due_at"], row["source"]) == (
+        "Assignment 3: Creating DB System", "2026-11-20", "ai")
+    out2 = apply_mining(db, course["id"], mined, source="mine:test")
+    assert out2 == {"facts": 0, "events": 0, "exams": 0, "assignments": 0}
+    db.close()
+
+
+def test_sync_upsert_adopts_miner_row(db):
+    from sync.db import DB  # noqa: F401 (documents owner module)
+    course = db.get_course_by_code("CS 1100A")
+    db.conn.execute(
+        "INSERT INTO assignments (course_id, title, due_at, source) VALUES (?,?,?,?)",
+        (course["id"], "Lab 1", "2026-09-25", "ai"))
+    db.conn.commit()
+    a = {"title": "Lab 1", "description": "d", "due_at": None, "weight": None,
+         "brightspace_folder_id": 999, "url": None, "rubrics_json": None,
+         "category": None, "group_category": None, "points": None,
+         "attachments_json": None, "availability_json": None}
+    db.upsert_assignment(course["id"], a)
+    rows = db.conn.execute(
+        "SELECT id, due_at, brightspace_folder_id FROM assignments WHERE course_id=?",
+        (course["id"],)).fetchall()
+    assert len(rows) == 1  # adopted, not duplicated
+    assert (rows[0]["due_at"], rows[0]["brightspace_folder_id"]) == ("2026-09-25", 999)
     db.close()

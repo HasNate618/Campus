@@ -199,6 +199,17 @@ class DB:
             "SELECT id FROM assignments WHERE course_id=? AND brightspace_folder_id=?",
             (course_id, a["brightspace_folder_id"]),
         ).fetchone()
+        if not existing and a.get("brightspace_folder_id") is not None:
+            # Adopt a miner-created row (NULL folder id) on whole-token title
+            # match, then stamp the folder id so later syncs match directly.
+            from sync.mine import _titles_match
+            for r in self.conn.execute(
+                    "SELECT id, title FROM assignments WHERE course_id=?"
+                    " AND brightspace_folder_id IS NULL",
+                    (course_id,)).fetchall():
+                if _titles_match(a.get("title") or "", r["title"]):
+                    existing = r
+                    break
         if existing:
             # COALESCE guards mined backfills: a Brightspace NULL must never
             # wipe a due_at/weight the miner filled in (registrar non-NULLs still win).
@@ -207,12 +218,14 @@ class DB:
                    due_at=COALESCE(?, due_at), weight=COALESCE(?, weight),
                    url=?, rubrics_json=?, category=?, group_category=?, points=?,
                    attachments_json=?, availability_json=?,
+                   brightspace_folder_id=COALESCE(?, brightspace_folder_id),
                    status=CASE WHEN status='extended' THEN 'extended' ELSE 'open' END,
                    updated_at=datetime('now') WHERE id=?""",
                 (a["title"], a.get("description"), a.get("due_at"), a.get("weight"),
                  a.get("url"), a.get("rubrics_json"), a.get("category"),
                  a.get("group_category"), a.get("points"), a.get("attachments_json"),
-                 a.get("availability_json"), existing["id"]),
+                 a.get("availability_json"), a.get("brightspace_folder_id"),
+                 existing["id"]),
             )
             self.conn.commit()
             return existing["id"], False
