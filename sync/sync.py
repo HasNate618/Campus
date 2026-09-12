@@ -787,8 +787,25 @@ class SyncEngine:
             for s in data["Sections"]:
                 parts.append(f"## {s.get('Title', '')}\n\n{s.get('Html', '')}")
         if parts:
-            (course_dir / "syllabus.html").write_text("\n\n".join(parts))
+            self._save_syllabus(course_id, course_dir, parts)
             self.db.audit("sync", "courses", course_id, "syllabus_saved")
+
+    def _save_syllabus(self, course_id: int, course_dir: Path, parts: list) -> None:
+        """Write syllabus.html + record a mining delta (dates may live only here).
+
+        Accepts finished part strings (normal path) or raw section dicts
+        (Title/Html) and builds the parts — one entry point for both."""
+        if parts and isinstance(parts[0], dict):
+            built = []
+            for s in parts:
+                html = s.get("Html") or s.get("Description") or ""
+                built.append(f"## {s.get('Title', '')}\n\n{html}")
+            parts = built
+        (course_dir / "syllabus.html").write_text("\n\n".join(parts), encoding="utf-8")
+        course = self.db.conn.execute(
+            "SELECT term, code FROM courses WHERE id=?", (course_id,)).fetchone()
+        rel = f"{course['term']}/{course['code'].replace(' ', '')}/syllabus.html"
+        self.deltas.append({"kind": "syllabus", "path": rel, "course_id": course_id})
 
     def _maybe_convert_office(self, dest: Path) -> None:
         """Best-effort .pptx/.docx → sibling .pdf. Never raises."""

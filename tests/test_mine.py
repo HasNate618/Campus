@@ -399,3 +399,35 @@ def test_registered_md_reaches_corpus_outlines(db, cfg, tmp_path):
     assert corpus["blocks"][0]["kind"] == "outline"
     assert "Dec 15" in corpus["blocks"][0]["text"]
     db.close()
+
+
+def test_syllabus_html_mined_as_outline_priority(db, cfg, tmp_path):
+    from sync.mine import build_course_corpus
+    course = db.get_course_by_code("CS 1100A")
+    root = tmp_path / "2026F" / "CS1100A"
+    root.mkdir(parents=True)
+    (root / "syllabus.html").write_text(
+        "<h1>Syllabus</h1><p>Important dates and grading policies for the term.</p>"
+        "<table><tr><td>Midterm</td><td>Oct 20</td></tr>"
+        "<tr><td>Final exam</td><td>Dec 15</td></tr></table>")
+    db.conn.commit()
+    corpus = build_course_corpus(cfg, db, course["id"])
+    syl = [b for b in corpus["blocks"] if b["kind"] == "syllabus"]
+    assert len(syl) == 1 and "Oct 20" in syl[0]["text"] and "<td>" not in syl[0]["text"]
+    assert corpus["blocks"][0]["kind"] in ("outline", "syllabus")
+    db.close()
+
+
+def test_syllabus_save_emits_mining_delta(db, cfg, tmp_path):
+    from unittest.mock import MagicMock
+    from sync.sync import SyncEngine
+    eng = SyncEngine(cfg, db, client=MagicMock())
+    course = db.get_course_by_code("CS 1100A")
+    course_dir = tmp_path / "2026F" / "CS1100A"
+    course_dir.mkdir(parents=True)
+    eng._save_syllabus(course["id"], course_dir,
+                       [{"Title": "S", "Html": "<p>Midterm Oct 20</p>"}])
+    assert (course_dir / "syllabus.html").exists()
+    assert any(d.get("kind") == "syllabus" and d.get("course_id") == course["id"]
+               for d in eng.deltas)
+    db.close()
