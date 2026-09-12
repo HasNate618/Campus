@@ -473,3 +473,50 @@ def test_content_nodes_module_only_ordered(db, cfg):
     assert any("tutorial links" in b["text"] for b in mods)
     assert not any(b["text"].startswith("Topic number") for b in mods)
     db.close()
+
+
+def test_step5_per_file_cap_and_date_rank(db, cfg, tmp_path):
+    from sync.mine import build_course_corpus
+    course = db.get_course_by_code("CS 1100A")
+    root = tmp_path / "2026F" / "CS1100A" / "content"
+    root.mkdir(parents=True)
+    (root / "a-slides.md").write_text(
+        ("Intro fluff line.\n" * 500) + "Midterm Oct 20 worth 25%.\n")
+    (root / "b-notes.md").write_text("Quiz Sep 18.\nFinal Dec 15.\nLab due Nov 1.\n")
+    for rel in ("2026F/CS1100A/content/a-slides.md", "2026F/CS1100A/content/b-notes.md"):
+        db.conn.execute(
+            "INSERT INTO files (course_id, path, kind, source, size, sha256, processed)"
+            " VALUES (?,?,'other','manual',10,?,1)",
+            (course["id"], rel, "q" + rel))
+    db.conn.commit()
+    corpus = build_course_corpus(cfg, db, course["id"])
+    others = [b for b in corpus["blocks"] if b["kind"] == "other"]
+    assert sum(len(b["text"]) for b in others) <= 20000
+    assert all(len(b["text"]) <= 1500 + 120 for b in others)  # per-file cap + context slop
+    assert others[0]["path"].endswith("b-notes.md")  # densest dates first
+    db.close()
+
+
+def test_truncate_blocks_skips_instead_of_breaking():
+    from sync.mine import _truncate_blocks
+    blocks = [{"kind": "other", "path": "big", "text": "x" * 100},
+              {"kind": "other", "path": "small", "text": "y" * 10}]
+    out = _truncate_blocks(blocks, 110)
+    assert [b["path"] for b in out] == ["big", "small"]
+
+
+def test_backfill_confirmed_date_ensures_event(db):
+    from sync.mine import apply_mining
+    course = db.get_course_by_code("CS 1100A")
+    db.conn.execute(
+        "INSERT INTO assignments (course_id, title, description, due_at, source) VALUES (?,?,?,?,?)",
+        (course["id"], "Lab 5 with a long enough title", "Build something substantial here.", "2026-11-01", "brightspace"))
+    db.conn.commit()
+    mined = {"facts": [], "events": [], "exams": [],
+             "assignment_updates": [{"title": "Lab 5", "due_at": "2026-11-01"}]}
+    out = apply_mining(db, course["id"], mined, source="mine:test")
+    assert out["assignments"] == 0  # already filled — nothing to backfill
+    assert out["events"] == 1  # miner-confirmed date reaches the calendar
+    out2 = apply_mining(db, course["id"], mined, source="mine:test")
+    assert out2["events"] == 0  # dedupe holds on re-run
+    db.close()

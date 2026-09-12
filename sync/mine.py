@@ -81,7 +81,10 @@ def _outline_year(rel: str) -> int:
 def build_course_corpus(cfg, db, course_id: int,
                         excerpt_chars: int = 12000,
                         other_chars: int = 4000) -> dict:
-    """Shrink one course to an LLM-sized corpus (outlines first)."""
+    """Shrink one course to an LLM-sized corpus (outlines first).
+
+    `other_chars` is deprecated (superseded by the step-5 20K shared budget +
+    1500 per-file cap); kept for signature compatibility."""
     course = db.conn.execute(
         "SELECT code, term FROM courses WHERE id=?", (course_id,)).fetchone()
     code, term = course["code"], course["term"]
@@ -160,11 +163,12 @@ def build_course_corpus(cfg, db, course_id: int,
             blocks.append({"kind": "content", "path": f"module:{code}:{r['title']}",
                            "text": text})
 
-    # 5. other files: date/policy lines only (md + on-disk html)
-    budget = other_chars
+    # 5. other files: date/policy lines only (md + on-disk html).
+    # Per-file cap 1500 (one giant deck can't eat the course), shared 20K.
+    budget = 20000
     for r in db.conn.execute(
             "SELECT path FROM files WHERE course_id=? "
-            "AND (path LIKE '%.md' OR path LIKE '%.html') ORDER BY id",
+            "AND (path LIKE '%.md' OR path LIKE '%.html') ORDER BY id DESC",
             (course_id,)).fetchall():
         rel = r["path"]
         if OUTLINE_NAME_RE.search(rel or ""):
@@ -180,15 +184,17 @@ def build_course_corpus(cfg, db, course_id: int,
         except OSError:
             continue
         keep: list[str] = []
+        hits = 0
         for i, ln in enumerate(lines):
             if DATE_LINE_RE.search(ln) or POLICY_LINE_RE.search(ln):
+                hits += 1
                 keep.append(lines[i - 1] if i > 0 else "")
                 keep.append(ln)
                 if i + 1 < len(lines):
                     keep.append(lines[i + 1])
-        chunk = "\n".join(keep)[:budget]
+        chunk = "\n".join(keep)[:1500]
         if len(chunk.strip()) > 40:
-            blocks.append({"kind": "other", "path": rel, "text": chunk})
+            blocks.append({"kind": "other", "path": rel, "text": chunk, "dates": hits})
             budget -= len(chunk)
 
     return {"course_id": course_id, "code": code, "term": term,
@@ -384,13 +390,13 @@ def _fact_mentions_date(fact: str, due_at: str) -> bool:
 
 
 def _truncate_blocks(blocks: list[dict], limit: int) -> list[dict]:
-    """Keep whole blocks within a char budget — never a mid-block cut that
-    breaks the miner JSON and voids the whole course (fail shut, loudly)."""
+    """Keep whole blocks within a char budget — oversized blocks are SKIPPED
+    (not break): one giant announcement must not void smaller dated blocks."""
     out, total = [], 0
     for b in blocks:
         n = len(b.get("text", ""))
         if total + n > limit:
-            break
+            continue
         out.append(b)
         total += n
     return out
@@ -553,6 +559,14 @@ def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int
                         print(f"  mining conflict: {target['title']} backfilled {sets['due_at']}"
                               f" vs fact: {fr['fact'][:120]}")
                         break
+        else:
+            confirmed = u.get("due_at")
+            if (confirmed and target["due_at"]
+                    and _norm_dt(confirmed)[:10] == _norm_dt(target["due_at"])[:10]):
+                eid = _insert_event(db, course_id, code, target["title"], target["due_at"],
+                                    kind="assignment", notes="Backfilled from course materials")
+                if eid:
+                    res["events"] += 1
     if ann_ids:
         db.conn.executemany(
             "UPDATE announcements SET digested_at=datetime('now') WHERE id=?",

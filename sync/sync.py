@@ -1068,6 +1068,7 @@ class SyncEngine:
         import json as _json
         from sync.mine import MINER_SYSTEM, _truncate_blocks, parse_miner_output
         ordered = sorted(corpus["blocks"], key=lambda b: 0 if b["kind"] == "outline" else 1)
+        ordered = sorted(ordered, key=lambda b: -b.get("dates", 0) if b["kind"] == "other" else 0)
         kept = _truncate_blocks(ordered[:30], 55000)
         if not kept:
             print(f"  mining skipped for {corpus['code']}: corpus empty after truncation")
