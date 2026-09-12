@@ -616,3 +616,18 @@ def test_exam_event_dupes_exams_row(db):
         "exams": [], "assignment_updates": []}, source="mine:test")
     assert out["events"] == 0  # exams-table row already covers this date+title
     db.close()
+
+
+def test_exam_dupes_exams_row(db):
+    from sync.mine import apply_mining
+    course = db.get_course_by_code("CS 1100A")
+    db.conn.execute(
+        "INSERT INTO exams (course_id, title, starts_at, weight, source) VALUES (?,?,?,?,?)",
+        (course["id"], "Midterm Test", "2026-10-27", 20.0, "manual"))
+    db.conn.commit()
+    out = apply_mining(db, course["id"], {
+        "facts": [], "events": [],
+        "exams": [{"title": "Midterm exam", "starts_at": "2026-10-27", "weight": 0.2}],
+        "assignment_updates": []}, source="mine:test")
+    assert out["exams"] == 0  # same-day retitled exam row already covers it
+    db.close()

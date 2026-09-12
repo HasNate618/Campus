@@ -537,6 +537,16 @@ def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int
             "SELECT 1 FROM exams WHERE course_id=? AND lower(title)=lower(?)"
             " AND substr(starts_at,1,10)=substr(?,1,10)",
             (course_id, xtitle, xstarts)).fetchone()
+        if not dup:
+            for xr in db.conn.execute(
+                    "SELECT title FROM exams WHERE course_id=?"
+                    " AND substr(starts_at,1,10)=substr(?,1,10)",
+                    (course_id, xstarts)).fetchall():
+                # 0.5 (not 0.6): same-day exams sharing a title word are one
+                # exam; numbers/months still veto via the specifics rule.
+                if _fact_dupes(xtitle, xr["title"], 0.5):
+                    dup = True
+                    break
         if dup:
             continue
         try:
