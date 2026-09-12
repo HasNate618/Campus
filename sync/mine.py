@@ -118,6 +118,15 @@ def build_course_corpus(cfg, db, course_id: int,
             blocks.append({"kind": "outline", "path": rel, "text": text})
             outline_budget -= len(text)
 
+    # 1b. syllabus.html by convention (dates may live ONLY here)
+    syl = Path(cfg.data_root) / term / code.replace(" ", "") / "syllabus.html"
+    try:
+        syl_text = _strip_html(syl.read_text(encoding="utf-8", errors="replace"))[:6000]
+    except OSError:
+        syl_text = ""
+    if len(syl_text.strip()) > 40:
+        blocks.append({"kind": "syllabus", "path": str(syl), "text": syl_text})
+
     # 2. undigested announcements + recent ones
     ann_ids: list[int] = []
     for r in db.conn.execute(
