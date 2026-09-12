@@ -463,6 +463,13 @@ def _insert_event(db, course_id: int, code: str, title: str, starts_at: str,
             (course_id, starts)).fetchall():
         if _fact_dupes(title, er["title"], 0.6):
             return None
+    if kind == "exam":
+        for xr in db.conn.execute(
+                "SELECT title FROM exams WHERE course_id=?"
+                " AND substr(starts_at,1,10)=substr(?,1,10)",
+                (course_id, starts)).fetchall():
+            if _fact_dupes(title, xr["title"], 0.6):
+                return None
     uid = stable_uid(code, title, _norm_dt(starts))
     cur = db.conn.execute(
         "INSERT OR IGNORE INTO events (course_id, kind, title, starts_at, ends_at, notes, ics_uid)"
