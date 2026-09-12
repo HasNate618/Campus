@@ -32,7 +32,15 @@
 - Task 5: page markers use plain `<!-- page N -->` — the `N/M` form breaks `citations.PAGE_RE` and would blind all future citation pages.
 - Task 6 follow-ups (live verification exposed): exam-kind events dedupe against the `exams` table; exams loop got the same near-dupe gate at threshold 0.5 (same-day exams sharing a title word are one exam; specifics rule still protects Quiz 1 vs Quiz 2). Two live dupes deleted audited (`Midterm Test (Tentative Date)` event, `Midterm exam` 0.2-weight exam).
 - Idempotency, proven live: re-runs now write 0 events/exams/assignments; residual new facts per run are novel slices (recall convergence), not paraphrases.
-- Residual (out of scope): SE3310A has zero assignment rows (dropbox sync gap — its A1-A5 dates live in a fact); reschedules without miner confirmation leave stale events (no sync-time ensure pass yet).
+- Residual (out of scope): SE3310A has zero assignment rows (dropbox sync gap — its A1–A5 dates live in a fact); reschedules without miner confirmation leave stale events (no sync-time ensure pass yet).
+
+## Follow-ups (live troubleshooting 2026-09-12, all committed)
+
+- **F1 miner creates missing assignment rows**: `assignment_updates` with no target row INSERT (`source='ai'`) + ensure event instead of evaporating. Closed the SE3309A A3/A4 + SE3310A A1–A5 gaps (11 rows created live, all dates match sources). `upsert_assignment` adopts miner rows by whole-token title on later syncs (stamps `brightspace_folder_id`).
+- **F2 exams-loop near-dupe gate** (threshold 0.5): same-day exams sharing a title word merge; specifics rule still protects Quiz 1 vs Quiz 2. Plus exam-kind events dedupe against the `exams` table.
+- **F3 step-5 hard-date-first assembly + `</tr>` splitting**: single-line HTML tables no longer evict date rows past the 1500 cap; `_stem` (plural strip, alpha len>3) in `_fact_dupes`; `stable_uid` sha1→sha256.
+- **F4 listing + calendar display**: `list_files` hides `.md` siblings with a same-stem brother row (viewer loads them by path derivation — duplication was listing-only); `parseDate` treats dateless dates as local noon (was UTC midnight → Sep 18 rendered Sep 17 in UTC-4, misplacing calendar columns + `isPast`).
+- Live dupe cleanups (all audited): events 10/11 (pre-stem title dupes), event 15 (ditto), `Midterm Test (Tentative Date)` event + `Midterm exam` 0.2 exam (exams-table dupes).
 
 ---
 
