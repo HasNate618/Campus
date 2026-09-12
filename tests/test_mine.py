@@ -647,10 +647,13 @@ def test_step5_splits_single_line_html_tables(db, cfg, tmp_path):
     root = tmp_path / "2026F" / "CS1100A" / "content"
     root.mkdir(parents=True)
     rows = "".join(
-        f"<tr><td>{n}</td><td>Work part {n}</td><td>10%</td><td>October {n}, 2026</td></tr>"
+        f"<tr><td>{n}</td><td>Work part {n} with enough padding text to make each table row long "
+        f"and even longer with extra filler words so the single line exceeds the cap</td>"
+        f"<td>10%</td><td>October {n}, 2026 plus trailing notes here and more trailing notes</td></tr>"
         for n in range(1, 7))
+    pad = "Intro fluff line with filler words to push the table past the per-file cap.\n" * 60
     (root / "proj.md").write_text(
-        "Intro fluff line.\n" * 60 +
+        pad +
         f"<table><thead><tr><td>N</td><td>D</td><td>W</td><td>Due</td></tr></thead><tbody>{rows}</tbody></table>\n")
     db.conn.execute(
         "INSERT INTO files (course_id, path, kind, source, size, sha256, processed)"

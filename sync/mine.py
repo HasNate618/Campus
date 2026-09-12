@@ -15,6 +15,10 @@ DATE_LINE_RE = re.compile(
     r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{1,2}\b|"
     r"\b(midterm|final|exam|quiz|lab|assignment|project|due|deadline|weight|worth|%)\b)",
     re.I)
+_HARD_DATE_RE = re.compile(
+    r"(\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}/\d{1,2}(/\d{2,4})?\b|"
+    r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{1,2}\b)",
+    re.I)
 POLICY_LINE_RE = re.compile(
     r"\b(grading|weight|worth|%|policy|policies|plagiarism|accommodat|late|penalty|"
     r"office hours|instructor|professor|ta\b|textbook|prerequisite|attendance)\b",
@@ -184,20 +188,24 @@ def build_course_corpus(cfg, db, course_id: int,
                 # Single-line HTML tables (external parser output) pack a whole
                 # table into one giant line; char-caps then keep the head and
                 # evict the date rows. Split rows first so each matches alone.
-                raw_text = re.sub(r"</tr\\s*>", "</tr>\n", raw_text, flags=re.I)
+                raw_text = re.sub(r"</tr\s*>", "</tr>\n", raw_text, flags=re.I)
             lines = raw_text.splitlines()
         except OSError:
             continue
         keep: list[str] = []
         hits = 0
+        idx: dict[int, None] = {}
         for i, ln in enumerate(lines):
             if DATE_LINE_RE.search(ln) or POLICY_LINE_RE.search(ln):
                 hits += 1
-                keep.append(lines[i - 1] if i > 0 else "")
-                keep.append(ln)
+                if i > 0:
+                    idx[i - 1] = None
+                idx[i] = None
                 if i + 1 < len(lines):
-                    keep.append(lines[i + 1])
-        chunk = "\n".join(keep)[:1500]
+                    idx[i + 1] = None
+        # Hard-date lines first: keyword fluff must never evict real dates.
+        order = sorted(idx, key=lambda i: (not _HARD_DATE_RE.search(lines[i]), i))
+        chunk = "\n".join(lines[i] for i in order)[:1500]
         if len(chunk.strip()) > 40:
             blocks.append({"kind": "other", "path": rel, "text": chunk, "dates": hits})
             budget -= len(chunk)
