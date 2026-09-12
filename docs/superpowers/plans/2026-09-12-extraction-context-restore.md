@@ -25,6 +25,15 @@
 - `sync/db.py` — unchanged (existing `upsert_file`, `mark_processed`, `audit` suffice).
 - `tests/test_mine.py` — append all new tests (reuses `cfg`, `db`, `MagicMock` patterns).
 
+## As-built deviations (folded during implementation)
+
+- Task 1: `files.source` CHECK allows only brightspace/recording/onedrive/manual — `.md` rows use `source='manual'`, not `'extract:md'`. Office branch covered via `extract_pdf`'s own register call (converted pdf lands at office basename). `_scan_pages` imports pymupdf itself, so the dead import was dropped.
+- Task 2: `_save_syllabus` accepts raw section dicts as well as strings (the plan's own test passes dicts); syllabus fixture lengthened (23 chars < 40 gate).
+- Task 5: page markers use plain `<!-- page N -->` — the `N/M` form breaks `citations.PAGE_RE` and would blind all future citation pages.
+- Task 6 follow-ups (live verification exposed): exam-kind events dedupe against the `exams` table; exams loop got the same near-dupe gate at threshold 0.5 (same-day exams sharing a title word are one exam; specifics rule still protects Quiz 1 vs Quiz 2). Two live dupes deleted audited (`Midterm Test (Tentative Date)` event, `Midterm exam` 0.2-weight exam).
+- Idempotency, proven live: re-runs now write 0 events/exams/assignments; residual new facts per run are novel slices (recall convergence), not paraphrases.
+- Residual (out of scope): SE3310A has zero assignment rows (dropbox sync gap — its A1-A5 dates live in a fact); reschedules without miner confirmation leave stale events (no sync-time ensure pass yet).
+
 ---
 
 ### Task 1: Register `.md` siblings so extraction reaches the corpus
