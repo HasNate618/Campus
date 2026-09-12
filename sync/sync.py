@@ -802,6 +802,20 @@ class SyncEngine:
             pass
 
     # ── pdf-extractor (cloud engine by default; serialized queue after sync)
+    def register_extraction(self, course_id: int, md: Path, src_row) -> None:
+        """Register an extracted `.md` sibling so corpus steps can find it.
+        Always marked processed — an `.md` is never extraction work.
+        source='manual': the CHECK constraint allows only
+        brightspace/recording/onedrive/manual; the row is system-registered."""
+        import hashlib
+        rel = str(md.relative_to(Path(self.cfg.data_root)))
+        data = md.read_bytes()
+        fid, _ = self.db.upsert_file(
+            course_id, rel, "other", "manual",
+            hashlib.sha256(data).hexdigest(), len(data),
+            src_row["content_node_id"] if "content_node_id" in src_row.keys() else None)
+        self.db.mark_processed(fid)
+
     def extract_pdf(self, file_row) -> bool:
         """PUT raw PDF to pdf-extractor → write .md beside it → mark processed.
         Original PDF is always kept for viewing. (No engine param — the
@@ -848,6 +862,7 @@ class SyncEngine:
                 if len(text.strip()) > 200:
                     md = path.with_suffix(".md")
                     md.write_text(text, encoding="utf-8")
+                    self.register_extraction(file_row["course_id"], md, file_row)
                     self.db.mark_processed(file_row["id"])
                     excerpt = text[: self.cfg.digest_pdf_excerpt_chars]
                     self.deltas.append({"kind": "pdf_extracted", "path": str(md),
@@ -857,7 +872,8 @@ class SyncEngine:
                 # nothing to do; file stays unprocessed for future retries
                 return False
             else:
-                import pymupdf  # keep import available for _scan_pages
+                pass  # external parser handles everything (incl. scans);
+                      # _scan_pages imports pymupdf itself when needed
             # external parser: send raw bytes, get markdown back
             timeout = 600 if size_mb > 2 else 300
             r = httpx.put(f"{self.cfg.pdf_extractor_url}/process",
@@ -870,6 +886,7 @@ class SyncEngine:
                 return False
             md = path.with_suffix(".md")
             md.write_text(content)
+            self.register_extraction(file_row["course_id"], md, file_row)
             self.db.mark_processed(file_row["id"])
             excerpt = content[: self.cfg.digest_pdf_excerpt_chars]
             self.deltas.append({"kind": "pdf_extracted", "path": str(md),
@@ -967,6 +984,9 @@ class SyncEngine:
                 if self._extract_doc(path):
                     done += 1
                     print(f"  extracted: {row['path']}", flush=True)
+                    md = path.with_suffix(".md")
+                    if md.exists():
+                        self.register_extraction(row["course_id"], md, row)
                 self.db.mark_processed(row["id"])  # one attempt; .md sibling persists
                 continue
             if path.suffix.lower() != ".pdf":

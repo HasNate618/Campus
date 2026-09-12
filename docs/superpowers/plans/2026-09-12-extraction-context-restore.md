@@ -16,7 +16,7 @@
 - One commit per task, only the files that task lists.
 - Backfill-safe: re-runs write nothing new (dedupe holds; watermark with `mine-run` audit, never `updated_at` — sync bumps it every run).
 - Live-data steps read-only first, then write; exact container commands per task.
-- `.md` sibling rows: `kind='other'`, `source='extract:md'`, always `mark_processed` after registering (they must never enter the extraction queue as work).
+- `.md` sibling rows: `kind='other'`, `source='manual'` (`files.source` CHECK allows only brightspace/recording/onedrive/manual), always `mark_processed` after registering (they must never enter the extraction queue as work).
 
 ## File Map
 
@@ -37,7 +37,7 @@
 **Interfaces:**
 
 - Consumes: `DB.upsert_file(course_id, path, kind, source, sha256, size, content_node_id)`, `DB.mark_processed` (both existing).
-- Produces: every written `.md` sibling has a `files` row (`kind='other'`, `source='extract:md'`, sha256+size of the `.md`, `content_node_id` passed through from the source row) + `processed=1`. Corpus steps 1 & 5 pick them up with zero further changes. Later tasks assume `.md` rows exist.
+- Produces: every written `.md` sibling has a `files` row (`kind='other'`, `source='manual'` (`files.source` CHECK allows only brightspace/recording/onedrive/manual), sha256+size of the `.md`, `content_node_id` passed through from the source row) + `processed=1`. Corpus steps 1 & 5 pick them up with zero further changes. Later tasks assume `.md` rows exist.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -65,7 +65,7 @@ def test_extract_pdf_registers_md_sibling(db, cfg, tmp_path, monkeypatch):
     mdrow = db.conn.execute(
         "SELECT kind, source, processed FROM files WHERE path=?",
         ("2026F/CS1100A/outline.md",)).fetchone()
-    assert mdrow is not None and (mdrow["kind"], mdrow["source"], mdrow["processed"]) == ("other", "extract:md", 1)
+    assert mdrow is not None and (mdrow["kind"], mdrow["source"], mdrow["processed"]) == ("other", "manual", 1)
     db.close()
 
 
@@ -77,7 +77,7 @@ def test_registered_md_reaches_corpus_outlines(db, cfg, tmp_path):
     (root / "cs1100-outline.md").write_text("# Outline\nFinal exam Dec 15 worth 45%.\n")
     db.conn.execute(
         "INSERT INTO files (course_id, path, kind, source, size, sha256, processed)"
-        " VALUES (?,?,'other','extract:md',10,?,1)",
+        " VALUES (?,?,'other','manual',10,?,1)",
         (course["id"], "2026F/CS1100A/cs1100-outline.md", "m" * 64))
     db.conn.commit()
     corpus = build_course_corpus(cfg, db, course["id"])
@@ -103,7 +103,7 @@ New helper in `sync/sync.py` (near `extract_pdf`):
         rel = str(md.relative_to(Path(self.cfg.data_root)))
         data = md.read_bytes()
         fid, _ = self.db.upsert_file(
-            course_id, rel, "other", "extract:md",
+            course_id, rel, "other", "manual",
             hashlib.sha256(data).hexdigest(), len(data),
             src_row["content_node_id"] if "content_node_id" in src_row.keys() else None)
         self.db.mark_processed(fid)
@@ -141,7 +141,7 @@ Then register (writes `files` rows only — no mining, no re-extraction):
 ssh home 'docker exec -e PYTHONPATH=/app campus python3 /tmp/register_mds.py'
 ```
 
-where `/tmp/register_mds.py` (copy via `docker cp` like before) loops the same set, calls `SyncEngine.register_extraction` via a `MagicMock`-client engine, prints per-file `registered <rel>`, and ends with `SELECT COUNT(*) FROM files WHERE source='extract:md'`. Verify count matches the read-only listing.
+where `/tmp/register_mds.py` (copy via `docker cp` like before) loops the same set, calls `SyncEngine.register_extraction` via a `MagicMock`-client engine, prints per-file `registered <rel>`, and ends with `SELECT COUNT(*) FROM files WHERE source='manual'`. Verify count matches the read-only listing.
 
 - [ ] **Step 6: Commit**
 
@@ -377,7 +377,7 @@ def test_step5_per_file_cap_and_date_rank(db, cfg, tmp_path):
     for rel in ("2026F/CS1100A/content/a-slides.md", "2026F/CS1100A/content/b-notes.md"):
         db.conn.execute(
             "INSERT INTO files (course_id, path, kind, source, size, sha256, processed)"
-            " VALUES (?,?,'other','extract:md',10,?,1)",
+            " VALUES (?,?,'other','manual',10,?,1)",
             (course["id"], rel, "q" + rel))
     db.conn.commit()
     corpus = build_course_corpus(cfg, db, course["id"])
@@ -646,7 +646,7 @@ git commit -m "feat: visible extraction skips, atomic md writes"
 
 1. `.venv/bin/python -m pytest tests/ -q` — full suite green.
 2. `ssh home 'docker exec campus python -m sync mine --backfill'` — outlines now head every corpus (watch for `mining truncated` logs on SE3316A only); re-run writes nothing (idempotency).
-3. Live: `SELECT COUNT(*) FROM files WHERE source='extract:md'` equals on-disk `.md` count (minus memory-cards/sync_logs); every course corpus contains an `outline` block (verify with the `build_course_corpus` kinds probe from the audit).
+3. Live: `SELECT COUNT(*) FROM files WHERE source='manual'` equals on-disk `.md` count (minus memory-cards/sync_logs); every course corpus contains an `outline` block (verify with the `build_course_corpus` kinds probe from the audit).
 4. SE3316A card re-check: lab dates present with correct values; no stale 2025 dates (Task 5 of the previous plan retired them — confirm they don't return now that both outlines feed the corpus).
 5. Calendar still shows the 4 lab events; no class/personal events created.
 
@@ -654,6 +654,6 @@ git commit -m "feat: visible extraction skips, atomic md writes"
 
 - Spec coverage: `.md` registration (T1) ✓ + live backfill ✓; syllabus block + delta (T2) ✓; HTML stripping + ordered caps (T3) ✓; step-5 budget/rank + confirm-events (T4) ✓; hardening (T5) ✓. Reviewer P2s adopted except: table-dedupe in PyMuPDF path (dead live — external parser), `_scan_pages` page-marker for empty pages (kept skip-empties; markers on surviving pages suffice), `skip_reason` column (stubs are the record — no migration per constraints).
 - Placeholder scan: every step has exact code/commands; `/tmp/*.py` runbook scripts are written inline at execution time (same pattern as the previous plan's applied runbooks).
-- Type consistency: `register_extraction(db-via-self, course_id, md, src_row)` signature reused at all 4 call sites; `kind='other'`/`source='extract:md'` literals constant; `_write_md` used by every `.md` write including stubs; `dates: int` only on `other` blocks, read via `.get("dates", 0)`; delta `{"kind": "syllabus", "path": rel, "course_id"}` matches the gate's prefix check.
+- Type consistency: `register_extraction(db-via-self, course_id, md, src_row)` signature reused at all call sites (both `extract_pdf` branches, office-via-pdf, doc); `kind='other'`/`source='manual'` literals constant (schema CHECK); `_write_md` used by every `.md` write including stubs; `dates: int` only on `other` blocks, read via `.get("dates", 0)`; delta `{"kind": "syllabus", "path": rel, "course_id"}` matches the gate's prefix check.
 - Test arithmetic: T1 second test needs no parser (pure corpus); T2 syllabus cap 6000 ≫ test body; T3 topic descriptions (7×~70 chars) would previously fill all 5 content slots — module assertion fails pre-fix ✓; T4 `a-slides.md` chunk: 500 fluff lines yield ~1 hit → `dates: 1` vs `b-notes.md` `dates: 3` → order asserts correctly; per-file cap check `1500 + 120` tolerates 3-line context slop (2 extra lines ≤ ~120 chars for these fixtures); skip-test `["big","small"]` exact; confirm-test title `"Lab 5 with a long enough title"` clears the 40-char... wait, the applier's `len(want) < 4` guard is on the UPDATE title `"Lab 5"` → want=`"lab 5"` (5 chars) ✓ matches `"lab 5 with a long enough title"` via whole tokens ✓.
 - T5 first test: CHECK `.venv` for pymupdf before running — monkeypatch `_scan_pages` if absent (noted in Step 4).
