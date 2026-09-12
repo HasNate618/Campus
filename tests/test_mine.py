@@ -631,3 +631,34 @@ def test_exam_dupes_exams_row(db):
         "assignment_updates": []}, source="mine:test")
     assert out["exams"] == 0  # same-day retitled exam row already covers it
     db.close()
+
+
+def test_fact_dupes_stems_plurals():
+    from sync.mine import _fact_dupes
+    assert _fact_dupes("Group members and project topics due",
+                       "Group and Topic Submission", 0.6) is True
+    assert _fact_dupes("Labs need 5 commits", "Labs need 10 commits") is False
+    assert _fact_dupes("Quiz 1 on Friday", "Quiz 2 on Friday") is False
+
+
+def test_step5_splits_single_line_html_tables(db, cfg, tmp_path):
+    from sync.mine import build_course_corpus
+    course = db.get_course_by_code("CS 1100A")
+    root = tmp_path / "2026F" / "CS1100A" / "content"
+    root.mkdir(parents=True)
+    rows = "".join(
+        f"<tr><td>{n}</td><td>Work part {n}</td><td>10%</td><td>October {n}, 2026</td></tr>"
+        for n in range(1, 7))
+    (root / "proj.md").write_text(
+        "Intro fluff line.\n" * 60 +
+        f"<table><thead><tr><td>N</td><td>D</td><td>W</td><td>Due</td></tr></thead><tbody>{rows}</tbody></table>\n")
+    db.conn.execute(
+        "INSERT INTO files (course_id, path, kind, source, size, sha256, processed)"
+        " VALUES (?,?,'other','manual',10,?,1)",
+        (course["id"], "2026F/CS1100A/content/proj.md", "t" + "x" * 63))
+    db.conn.commit()
+    corpus = build_course_corpus(cfg, db, course["id"])
+    text = next(b["text"] for b in corpus["blocks"] if b["kind"] == "other")
+    for n in range(1, 7):
+        assert f"October {n}" in text
+    db.close()
