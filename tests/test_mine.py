@@ -779,3 +779,10 @@ def test_turn_digest_skips_without_session(tmp_path):
     store_turn_digest(DB(), None, [{"tool": "course_map", "args": {}, "result": "x"}])
     assert conn.execute("SELECT COUNT(*) FROM chat_messages").fetchone()[0] == 0
     conn.close()
+
+
+def test_truncate_result_tiers():
+    from agent.chat import truncate_result
+    assert len(truncate_result("course_map", {"x": "z" * 20000})) == 12000
+    assert len(truncate_result("content_grep", {"x": "z" * 20000})) == 6000
+    assert truncate_result("anything", {"error": "boom"}) == {"error": "boom"}

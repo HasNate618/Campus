@@ -207,6 +207,17 @@ def load_turn_digest(db, session_id: int | None) -> str:
             + "\n".join(lines))[:_DIGEST_CHARS]
 
 
+_TOOL_RESULT_CAPS = {"course_map": 12000}
+
+
+def truncate_result(name: str, result: dict) -> str | dict:
+    """Per-tool history cap: course_map is the orienting call — cutting it
+    mid-row costs more calls later. Errors pass through untouched."""
+    if not isinstance(result, dict) or result.get("error"):
+        return result
+    return json.dumps(result, default=str)[:_TOOL_RESULT_CAPS.get(name, 6000)]
+
+
 def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = None,
              model: str | None = None, history: list[dict] | None = None,
              verbose: bool = True, emit=None, attachments: list[dict] | None = None,
@@ -337,7 +348,7 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
             messages.append({
                 "role": "tool",
                 "tool_call_id": tc["id"],
-                "content": json.dumps(result, default=str)[:6000],
+                "content": truncate_result(name, result),
             })
 
     answer = "(stopped: tool-call iteration limit reached)"
