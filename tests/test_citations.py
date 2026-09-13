@@ -62,6 +62,7 @@ def test_register_from_search_hit():
         conn = FakeConn()
 
     reg = CitationRegistry(FakeDb(), type("Cfg", (), {"data_root": "/tmp"})(), 3)
+    text = "<!-- page 4 -->\nmatched phrase here\n<!-- page 9 -->\ntail"
     cites = reg.register_from_tool(
         "search_corpus",
         {
@@ -69,12 +70,51 @@ def test_register_from_search_hit():
                 {
                     "ref": "Winter2026/CS101/content/syllabus.md",
                     "course_id": 3,
-                    "text": "<!-- page 4 -->\n48 hour email policy",
+                    "text": text,
+                    "match_at": text.index("matched phrase"),
                 }
             ]
         },
     )
     assert len(cites) == 1
     assert cites[0]["id"] == 1
-    assert cites[0]["page"] == 4
+    assert cites[0]["page"] == 4  # preceding marker, not the last one
     assert cites[0]["courseId"] == 3
+
+
+def test_page_before_offset_uses_preceding_marker():
+    from agent.citations import page_before_offset
+    text = "intro\n<!-- page 2 -->\nmatched phrase\n<!-- page 3 -->\nend"
+    at = text.index("matched phrase")
+    assert page_before_offset(text, at) == 2
+    assert page_before_offset(text, -1) == 2  # no offset: first marker
+    assert page_before_offset("no markers here", 5) is None
+
+
+def test_search_hit_carries_match_offset():
+    # search() itself needs embeddings — test at the unit level:
+    from sync.search import _snippet_ex
+    text = "x" * 500 + "needle phrase here" + "y" * 500
+    snip, at = _snippet_ex(text, "needle phrase")
+    assert "needle phrase" in snip and at >= 0 and snip[at:at + 13] == "needle phrase"
+
+
+def test_read_file_prefers_current_page():
+    from agent.citations import CitationRegistry
+
+    class FakeConn:
+        def execute(self, *a, **k):
+            return self
+
+        def fetchone(self):
+            return None
+
+    class FakeDb:
+        conn = FakeConn()
+
+    reg = CitationRegistry(FakeDb(), type("Cfg", (), {"data_root": "/tmp"})(), 3)
+    cites = reg.register_from_tool("content_read_file", {
+        "path": "2026F/CS1100A/content/a.md", "offset": 0,
+        "content": "a\n<!-- page 5 -->\nzzz\n<!-- page 9 -->\nend",
+        "currentPage": 5})
+    assert cites and cites[0]["page"] == 5
