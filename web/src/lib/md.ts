@@ -118,10 +118,17 @@ function chipTitle(c: CitationMeta): string {
   return c.page != null && c.page > 0 ? `${base} · p.${c.page}` : base
 }
 
+/** Chip shows the source, not a bare number: "se3316a-2025-00-intro-course p27". */
+function shortLabel(s: string, n = 28): string {
+  const t = (s || '').trim()
+  return t.length > n ? t.slice(0, n - 1) + '…' : t
+}
+
 /** Compact chip text — full source goes in title/tooltip to avoid repeating prose. */
 function chipLabel(c: CitationMeta, id: number): string {
-  if (c.page != null && c.page > 0) return `p.${c.page}`
-  return String(id)
+  const base = shortLabel(c.label || c.ref)
+  if (c.page != null && c.page > 0) return `${base} p.${c.page}`
+  return base || String(id)
 }
 
 /** Replace [cite:N] with inline chips — safe during streaming (no trailing defs). */
