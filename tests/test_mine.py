@@ -702,3 +702,10 @@ def test_sync_upsert_adopts_miner_row(db):
     assert len(rows) == 1  # adopted, not duplicated
     assert (rows[0]["due_at"], rows[0]["brightspace_folder_id"]) == ("2026-09-25", 999)
     db.close()
+
+
+def test_dropbox_submit_url():
+    from sync.sync import dropbox_submit_url
+    assert dropbox_submit_url("https://westernu.brightspace.com", 200077, 121880) == (
+        "https://westernu.brightspace.com/d2l/lms/dropbox/user/"
+        "folder_submit_files.d2l?db=121880&grpid=0&isprv=0&bp=0&ou=200077")
