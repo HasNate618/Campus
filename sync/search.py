@@ -322,17 +322,32 @@ def _lexical_hits(db, course_id: int | None, query: str, limit: int = 8
     return phrase_ids, term_ids
 
 
+def _snippet_ex(text: str, query: str, width: int = 240) -> tuple[str, int]:
+    """(snippet, match_at): match_at is the char offset of the query match
+    inside the snippet, or -1 when there is no verbatim match."""
+    q = (query or "").strip().lower()
+    i = text.lower().find(q) if q else -1
+    if i < 0:
+        return text[:400], -1
+    start = max(0, i - width // 2)
+    end = min(len(text), i + len(q) + width // 2)
+    snip = f"{'…' if start > 0 else ''}{text[start:end]}{'…' if end < len(text) else ''}"
+    return snip, (i - start + (1 if start > 0 else 0))
+
+
 def _snippet(text: str, query: str, width: int = 240) -> str:
     """Window the returned passage around the first query occurrence — the
     flat first-400-chars cut once truncated the matched phrase itself out of
     the snippet (the "Email Response Time" line sits at char 490 of its
     chunk, so the model saw the welcome text and NOT the answer)."""
-    i = text.lower().find(query.strip().lower())
-    if i < 0:
-        return text[:400]
-    start = max(0, i - width // 2)
-    end = min(len(text), i + len(query.strip()) + width // 2)
-    return f"{'…' if start > 0 else ''}{text[start:end]}{'…' if end < len(text) else ''}"
+    return _snippet_ex(text, query, width)[0]
+
+
+def _hit(r, query: str, score: float) -> dict:
+    """One search hit: snippet + its match offset (additive `match_at`)."""
+    snip, at = _snippet_ex(r["text"], query)
+    return {"ref": r["ref"], "course_id": r["course_id"],
+            "text": snip, "match_at": at, "score": score}
 
 
 def search(cfg, db, query: str, course_id: int | None = None,
@@ -422,8 +437,7 @@ def search(cfg, db, query: str, course_id: int | None = None,
             ranked = term_hits[:top_k] + ranked
             ranked = ranked[:top_k]
     return [
-        {"ref": r["ref"], "course_id": r["course_id"],
-         "text": _snippet(r["text"], query), "score": round(score, 4)}
+        _hit(r, query, round(score, 4))
         for score, r in ranked
     ]
 
@@ -438,8 +452,7 @@ def _lexical_rank(db, q, query: str, course_id: int | None, top_k: int) -> list[
     if phrase_ids:
         hits = [r for r in q if r["id"] in phrase_ids]
         return [
-            {"ref": r["ref"], "course_id": r["course_id"],
-             "text": _snippet(r["text"], query), "score": 1.0}
+            _hit(r, query, 1.0)
             for r in hits[:top_k]
         ]
     terms = [t for t in re.split(r"\s+", query) if len(t) >= 3][:6]
@@ -453,8 +466,7 @@ def _lexical_rank(db, q, query: str, course_id: int | None, top_k: int) -> list[
             ranked_terms.append((0.3 + 0.15 * c, r))
     ranked_terms.sort(key=lambda x: -x[0])
     return [
-        {"ref": r["ref"], "course_id": r["course_id"],
-         "text": _snippet(r["text"], query), "score": round(score, 4)}
+        _hit(r, query, round(score, 4))
         for score, r in ranked_terms[:top_k]
     ]
 

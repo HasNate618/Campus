@@ -109,6 +109,24 @@ def _pdf_file_id(db: DB, course_id: int | None, md_ref: str) -> int | None:
     return row["id"] if row else None
 
 
+def page_before_offset(text: str, at: int | None) -> int | None:
+    """Page governing char offset `at`: last `<!-- page N -->` strictly
+    before it. No markers → None (never fabricate). at<0/None → first
+    marker's page (mirrors build_page_index's pre-marker convention)."""
+    marks = [(m.start(), int(m.group(1))) for m in PAGE_RE.finditer(text or "")]
+    if not marks:
+        return None
+    if at is None or at < 0:
+        return marks[0][1]
+    page = 1
+    for pos, pg in marks:
+        if pos < at:
+            page = pg
+        else:
+            break
+    return page
+
+
 @dataclass
 class CitationRegistry:
     db: DB
@@ -180,6 +198,8 @@ class CitationRegistry:
             lines = full.read_text(encoding="utf-8", errors="replace").splitlines()
         except OSError:
             return None
+        if not any(PAGE_RE.search(ln) for ln in lines):
+            return None  # unmarked file: unattributable, not page 1
         idx = build_page_index(lines)
         return page_at_line(idx, line)
 
@@ -199,7 +219,7 @@ class CitationRegistry:
                     ref,
                     course_id=hit.get("course_id"),
                     excerpt=text,
-                    page=page_from_chunk_text(text),
+                    page=page_before_offset(text, hit.get("match_at", -1)),
                 )
                 if cite:
                     out.append(cite)
@@ -211,7 +231,9 @@ class CitationRegistry:
             offset = int(result.get("offset") or 0)
             content = result.get("content") or ""
             chunk_lines = content.splitlines()
-            page = self._page_for_path(ref, offset, content)
+            page = result.get("currentPage")
+            if page is None:
+                page = self._page_for_path(ref, offset, content)
             cite = self.register(
                 ref,
                 excerpt=content[:240],
