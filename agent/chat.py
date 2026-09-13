@@ -22,8 +22,8 @@ from .citations import CitationRegistry
 from .context import build_system_prompt
 from .tools import TOOL_SCHEMAS, execute_tool
 
-MAX_ITERATIONS = 24
-NUDGE_AT = 22  # after this many rounds, tell the model to stop calling tools
+MAX_ITERATIONS = 10
+NUDGE_AT = 6  # after this many rounds, tell the model to stop calling tools
 
 
 LLM_USER_AGENT = "Campus/0.1"
