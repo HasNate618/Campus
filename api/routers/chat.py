@@ -425,6 +425,11 @@ def _do_turn(req: ChatRequest, emit) -> None:
     try:
         history = _inject_reasoning(req.history, key)
         attachments = _load_attachments(db, cfg, req.attachments)
+        try:
+            from agent.chat import load_turn_digest
+            prior = load_turn_digest(db, req.session_id)
+        except Exception:
+            prior = ""
         # Stable per-conversation identity for upstream session affinity:
         # prefer the client's own id, else the server session, else run_turn
         # mints one fresh id for the turn (intra-turn stable only).
@@ -434,8 +439,34 @@ def _do_turn(req: ChatRequest, emit) -> None:
         answer, full_history = run_turn(cfg, db, req.message, course_id=req.course_id,
                                         model=req.model, history=history,
                                         verbose=False, emit=emit, attachments=attachments,
-                                        conversation_id=conversation_id)
+                                        conversation_id=conversation_id,
+                                        prior_context=prior)
         _store_reasoning(full_history, key)
+        if req.session_id:
+            try:
+                from agent.chat import store_turn_digest
+                items: list = []
+                for idx, m in enumerate(full_history):
+                    tcs = m.get("tool_calls") if isinstance(m, dict) else None
+                    if not tcs:
+                        continue
+                    res_content = ""
+                    nxt = full_history[idx + 1] if idx + 1 < len(full_history) else None
+                    if isinstance(nxt, dict) and nxt.get("role") == "tool":
+                        res_content = str(nxt.get("content") or "")
+                    for tc in tcs:
+                        fn = tc.get("function", {}) if isinstance(tc, dict) else {}
+                        if not isinstance(fn, dict):
+                            fn = {}
+                        items.append({"tool": fn.get("name", ""),
+                                      "args": fn.get("arguments", {}), "result": res_content})
+                        if len(items) >= 8:
+                            break
+                    if len(items) >= 8:
+                        break
+                store_turn_digest(db, req.session_id, items[:8])
+            except Exception as e:
+                print(f"  [chat] turn-digest store failed (turn continues): {e!r}", flush=True)
         if req.session_id:
             db.conn.execute(
                 "INSERT INTO chat_messages (session_id, role, content) VALUES (?,?,?)",

@@ -172,10 +172,46 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
     raise last_err or RuntimeError("all LLM endpoints failed")
 
 
+_DIGEST_CHARS = 2000
+_PER_TOOL_CHARS = 400
+
+
+def store_turn_digest(db, session_id: int | None, items: list[dict]) -> None:
+    """Persist compact per-tool digests (role='tool' rows) so the next turn
+    reuses findings instead of re-surveying. Skipped without session_id."""
+    if session_id is None:
+        return
+    for it in items or []:
+        res = str(it.get("result") or "")[:_PER_TOOL_CHARS]
+        db.conn.execute(
+            "INSERT INTO chat_messages (session_id, role, content, tool_name)"
+            " VALUES (?,?,?,?)",
+            (session_id, "tool", f"args={it.get('args', {})} result={res}",
+             it.get("tool", "")))
+    db.conn.commit()
+
+
+def load_turn_digest(db, session_id: int | None) -> str:
+    """Prior turns' tool findings, newest last, capped — for injection into
+    the next turn's context. '' when none."""
+    if session_id is None:
+        return ""
+    rows = db.conn.execute(
+        "SELECT tool_name, content FROM chat_messages WHERE session_id=? AND role='tool'"
+        " ORDER BY id DESC LIMIT 8", (session_id,)).fetchall()
+    if not rows:
+        return ""
+    lines = [f"- {r['tool_name']}: {(r['content'] or '')[:_PER_TOOL_CHARS]}"
+             for r in reversed(rows)]
+    return ("PREVIOUS TURN TOOL FINDINGS (already fetched — reuse, do not re-call):\n"
+            + "\n".join(lines))[:_DIGEST_CHARS]
+
+
 def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = None,
              model: str | None = None, history: list[dict] | None = None,
              verbose: bool = True, emit=None, attachments: list[dict] | None = None,
-             conversation_id: str | None = None) -> tuple[str, list[dict]]:
+             conversation_id: str | None = None,
+             prior_context: str = "") -> tuple[str, list[dict]]:
     """Run one user turn. Returns (final_answer, full_message_history).
 
     emit(event, data) is called for SSE streaming:
@@ -202,7 +238,10 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
         if emit:
             emit("done", {"answer": msg, "model": None, "usage": None})
         return msg, history or []
-    messages = [{"role": "system", "content": build_system_prompt(cfg, db, course_id)}]
+    system_text = build_system_prompt(cfg, db, course_id)
+    if prior_context:
+        system_text += "\n\n" + prior_context
+    messages = [{"role": "system", "content": system_text}]
     messages.extend(history or [])
     files = attachments or []
     extracted = [
