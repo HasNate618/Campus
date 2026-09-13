@@ -464,6 +464,33 @@ def _fact_dupes(new_text: str, existing_text: str, threshold: float = 0.8) -> bo
     return len(short & long) / len(short) >= threshold
 
 
+_ASSIGNED_SKIP_RE = re.compile(
+    r"\b(demo|demos|tutorial|lecture|review|session|quiz|exam|midterm|final)\b", re.I)
+
+
+def _annotate_assigned_date(db, course_id: int, title: str, starts_at: str,
+                            kind: str, rowid: int, assigns: list) -> None:
+    """Prefix notes with 'Assigned <date>; due <date>.' when an assignment-kind
+    event lands on a DIFFERENT date than its assignment's due date (released/
+    assigned-date events). Same-date due events pass through untouched. Demo,
+    tutorial and exam-titled events are never annotated (different occasion)."""
+    if kind != "assignment":
+        return
+    if _ASSIGNED_SKIP_RE.search(title or ""):
+        return
+    for a in assigns:
+        due = a["due_at"]
+        if not due or not _titles_match(title, a["title"]):
+            continue
+        if _norm_dt(starts_at or "")[:10] == _norm_dt(due)[:10]:
+            return
+        prefix = f"Assigned {_norm_dt(starts_at or '')[:10]}; due {_norm_dt(due)[:10]}. "
+        db.conn.execute(
+            "UPDATE events SET notes = ? || COALESCE(notes, '') WHERE id=?",
+            (prefix, rowid))
+        return
+
+
 def _insert_event(db, course_id: int, code: str, title: str, starts_at: str,
                   kind: str = "assignment", ends_at: str | None = None,
                   notes: str | None = None) -> int | None:
@@ -512,6 +539,9 @@ def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int
     course = db.conn.execute(
         "SELECT code FROM courses WHERE id=?", (course_id,)).fetchone()
     code = course["code"] if course else str(course_id)
+    assigns = db.conn.execute(
+        "SELECT id, title, due_at, weight FROM assignments WHERE course_id=?",
+        (course_id,)).fetchall()
     existing_facts = db.conn.execute(
         "SELECT fact FROM memory_facts WHERE course_id=? AND is_active=1",
         (course_id,)).fetchall()
@@ -548,6 +578,8 @@ def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int
                               kind=kind, ends_at=e.get("ends_at"), notes=e.get("notes"))
         if rowid:
             res["events"] += 1
+            _annotate_assigned_date(db, course_id, e.get("title"), e.get("starts_at"),
+                                    kind, rowid, assigns)
 
     for x in mined.get("exams", []):
         xtitle = str(x.get("title") or "").strip()

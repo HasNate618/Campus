@@ -709,3 +709,30 @@ def test_dropbox_submit_url():
     assert dropbox_submit_url("https://westernu.brightspace.com", 200077, 121880) == (
         "https://westernu.brightspace.com/d2l/lms/dropbox/user/"
         "folder_submit_files.d2l?db=121880&grpid=0&isprv=0&bp=0&ou=200077")
+
+
+def test_assigned_date_event_gets_context_notes(db):
+    from sync.mine import apply_mining
+    course = db.get_course_by_code("CS 1100A")
+    db.conn.execute(
+        "INSERT INTO assignments (course_id, title, description, due_at, source) VALUES (?,?,?,?,?)",
+        (course["id"], "Lab 1", "Build a page.", "2026-09-25", "brightspace"))
+    db.conn.commit()
+    out = apply_mining(db, course["id"], {
+        "facts": [], "exams": [], "assignment_updates": [],
+        "events": [{"title": "Lab 1: HTML & CSS", "starts_at": "2026-09-14",
+                    "kind": "assignment", "notes": "Weight: 15%. Due by 5pm."}]}, source="mine:test")
+    assert out["events"] == 1
+    notes = db.conn.execute(
+        "SELECT notes FROM events WHERE course_id=?", (course["id"],)).fetchone()[0]
+    assert notes.startswith("Assigned 2026-09-14; due 2026-09-25.")
+    # same-date due events are left alone
+    out2 = apply_mining(db, course["id"], {
+        "facts": [], "exams": [], "assignment_updates": [],
+        "events": [{"title": "Lab 1 due", "starts_at": "2026-09-25",
+                    "kind": "assignment", "notes": "Submit zip."}]}, source="mine:test")
+    assert out2["events"] == 1
+    notes2 = db.conn.execute(
+        "SELECT notes FROM events WHERE title='Lab 1 due'").fetchone()[0]
+    assert notes2 == "Submit zip."
+    db.close()
