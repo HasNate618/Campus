@@ -397,7 +397,13 @@ git commit -m "feat: truncation tiers, source-name citation chips"
 
 ---
 
-### Task 5: Deploy + live verification
+### Task 5: Deploy + live verification — DONE 2026-09-13
+
+- Pushed `6cf058a`, pulled on home, rebuilt web (new chip template `` `${n} p.${e.page}` `` verified in bundle), swapped dist (backup kept), restarted `campus`; live `MAX_ITERATIONS/NUDGE_AT` = `10 6`.
+- Plumbing: `match_at` on all hits ✓; preceding-page attribution returns 2 (not 3) ✓; unknown-session digest `''` ✓; `role='tool'` rows readable (0 — none written yet) ✓.
+- Live model turn (mimo-v2.5, SE3316A iClicker question): 1 tool call (`search_corpus`), correct answer, no prose `p.N`. Note: answer carried no `[cite:N]` chip at all — citation *use* is still model-discretionary; plumbing is ready when it cites.
+
+**Files:** None (ops + checks only — no code).
 
 **Files:** None (ops + checks only — no code).
 **Requires:** Tasks 1–4 pushed.
