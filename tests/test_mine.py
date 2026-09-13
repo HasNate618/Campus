@@ -743,3 +743,39 @@ def test_chat_loop_budget_is_enforceable():
     assert chat_mod.MAX_ITERATIONS == 10
     assert chat_mod.NUDGE_AT == 6
     assert chat_mod.NUDGE_AT < chat_mod.MAX_ITERATIONS - 2  # nudge leaves room to comply
+
+
+def test_turn_digest_roundtrip(tmp_path):
+    import sqlite3
+    from agent.chat import store_turn_digest, load_turn_digest
+    dbp = tmp_path / "t.db"
+    _conn = sqlite3.connect(dbp)
+    _conn.row_factory = sqlite3.Row
+    conn = _conn
+    conn.executescript(open("schema.sql").read())
+    conn.execute("INSERT INTO chat_sessions (id, title) VALUES (7, 't')")
+    class DB:
+        conn = _conn
+    store_turn_digest(DB(), 7, [
+        {"tool": "course_map", "args": {"course": "SE 3309A"}, "result": "x" * 800},
+        {"tool": "content_read_file", "args": {"path": "a.md"}, "result": "y" * 800}])
+    digest = load_turn_digest(DB(), 7)
+    assert "course_map" in digest and "content_read_file" in digest
+    assert len(digest) <= 2000
+    assert load_turn_digest(DB(), 999) == ""  # unknown session: nothing
+    conn.close()
+
+
+def test_turn_digest_skips_without_session(tmp_path):
+    import sqlite3
+    from agent.chat import store_turn_digest
+    dbp = tmp_path / "t2.db"
+    _conn = sqlite3.connect(dbp)
+    _conn.row_factory = sqlite3.Row
+    conn = _conn
+    conn.executescript(open("schema.sql").read())
+    class DB:
+        conn = _conn
+    store_turn_digest(DB(), None, [{"tool": "course_map", "args": {}, "result": "x"}])
+    assert conn.execute("SELECT COUNT(*) FROM chat_messages").fetchone()[0] == 0
+    conn.close()
