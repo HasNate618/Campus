@@ -157,6 +157,14 @@ def render_sync_log(date_str: str, stats: dict, per_course: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def dropbox_submit_url(base_url: str, org_unit: int, folder_id: int) -> str:
+    """Working submission-page URL for a dropbox folder. The folder-listing
+    URL (`.../folders/{id}/`) errors in Brightspace; the submit-files page
+    with db + ou does not."""
+    return (f"{base_url}/d2l/lms/dropbox/user/folder_submit_files.d2l"
+            f"?db={folder_id}&grpid=0&isprv=0&bp=0&ou={org_unit}")
+
+
 class SyncEngine:
     def __init__(self, cfg: Config, db: DB, client: D2LClient, model: str | None = None):
         self.cfg = cfg
@@ -723,7 +731,7 @@ class SyncEngine:
                 "due_at": f.get("DueDate"),
                 "weight": None,
                 "brightspace_folder_id": f.get("Id"),
-                "url": f"{self.cfg.base_url}/d2l/lms/dropbox/user/folders/{f.get('Id')}/",
+                "url": dropbox_submit_url(self.cfg.base_url, org_unit, f.get("Id")),
                 "rubrics_json": json.dumps(rubrics) if rubrics else None,
                 "category": categories.get(f.get("CategoryId")),
                 "group_category": group_cats.get(f.get("GroupTypeId")),
