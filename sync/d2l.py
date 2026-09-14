@@ -46,11 +46,14 @@ class TokenBucket:
 
 
 class D2LClient:
-    def __init__(self, base_url: str, token_provider, timeout: float = 30.0):
-        """token_provider: callable() -> TokenData | None (from TokenStore)."""
+    def __init__(self, base_url: str, token_provider, timeout: float = 30.0,
+                 on_auth_error=None):
+        """token_provider: callable() -> TokenData | None (from TokenStore).
+        on_auth_error: optional callable() to trigger reauth on 401."""
         self.base_url = base_url.rstrip("/")
         self.token_provider = token_provider
         self.timeout = timeout
+        self._on_auth_error = on_auth_error
         self._versions: dict | None = None
         self._bucket = TokenBucket()
         self._client = httpx.Client(
@@ -120,9 +123,20 @@ class D2LClient:
             fresh = self.token_provider()
             if fresh and fresh.access_token != token.access_token:
                 return self._request(method, path, fresh, raw=raw, is_retry=True)
+            # auto-reauth if callback available
+            if self._on_auth_error:
+                print(f"  [d2l] 401 on {path} — auto-reauthenticating...", flush=True)
+                self._on_auth_error()
+                fresh = self.token_provider()
+                if fresh and fresh.access_token != token.access_token:
+                    return self._request(method, path, fresh, raw=raw, is_retry=True)
             raise D2LAuthError(f"401 on {path} and no fresh token — re-auth")
         if r.status_code == 429:
-            retry_after = r.headers.get("retry-after", "?")
+            retry_after = float(r.headers.get("retry-after", "5"))
+            if not is_retry and retry_after < 30:
+                print(f"  [d2l] 429 on {path} — retrying in {retry_after}s...", flush=True)
+                time.sleep(retry_after)
+                return self._request(method, path, token, raw=raw, is_retry=True)
             raise D2LRateLimitError(f"Rate limited on {path} (retry-after: {retry_after})")
         if r.status_code == 403:
             raise D2LError(f"403 on {path} (past-semester course or no access)")

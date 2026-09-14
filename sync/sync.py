@@ -1372,10 +1372,20 @@ def main() -> int:
     cfg = Config.load()
     store = TokenStore(cfg.token_dir, ttl=cfg.token_ttl, refresh_buffer=cfg.refresh_buffer)
     if store.needs_refresh():
-        print("No valid token — run `python -m sync auth` first (Duo approval needed)")
-        return 1
+        print("Token expired — auto-reauthenticating (approve Duo push)...")
+        try:
+            from sync.auth import auth
+            auth(cfg)
+            store = TokenStore(cfg.token_dir, ttl=cfg.token_ttl, refresh_buffer=cfg.refresh_buffer)
+        except Exception as e:
+            print(f"Auto-reauth failed: {e}")
+            return 1
 
-    client = D2LClient(cfg.base_url, store.load)
+    def _do_auth():
+        from sync.auth import auth as _auth
+        _auth(cfg)
+
+    client = D2LClient(cfg.base_url, store.load, on_auth_error=_do_auth)
     client.initialize()
     db = DB(cfg.db_path)
     engine = SyncEngine(cfg, db, client, model=args.model)
