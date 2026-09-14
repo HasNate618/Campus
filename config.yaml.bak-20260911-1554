@@ -1,0 +1,29 @@
+base_url: https://westernu.brightspace.com
+username: nespejo@uwo.ca
+institution: Western University
+brightspace_hosts: ["westernu.brightspace.com", "s.brightspace.com"]
+brightspace_base_url: "https://westernu.brightspace.com"
+token_ttl: 3600
+web_password: nixosbtw67
+data_root: /srv/homelab/school
+db_path: data/harness.db
+token_dir: ~/.hippocampus
+llm_url: http://bifrost:8080/v1
+llm_model: opencode-go/deepseek-v4-flash
+embed_model: "cohere/embed-english-v3.0"
+rerank_model: "cohere/rerank-english-v3.0"
+# llm_api_key: ""   # set if the endpoint requires a Bearer key
+timezone: America/Toronto
+pdf_extractor_url: http://pdf-parse:8000
+ntfy_url: http://ntfy:80
+mcp_url: http://trawl:8000/mcp
+pilot_only: true
+auto_extract_pdfs: true
+digest_pdf_excerpt_chars: 2000
+term_dates:
+  2026F:
+    start: "2026-09-01"
+    end: "2026-12-31"
+  2027W:
+    start: "2027-01-01"
+    end: "2027-04-30"
