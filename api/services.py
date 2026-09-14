@@ -542,20 +542,35 @@ def get_digest() -> dict:
 def trigger_sync(course_id: int | None = None) -> dict:
     def _run() -> None:
         try:
-            from sync.d2l import D2LClient
+            from sync.d2l import D2LClient, D2LAuthError
             from sync.sync import SyncEngine
             from sync.token_store import TokenStore
             from sync.db import DB
+            from sync.config import Config as SyncCfg
+            cfg = SyncCfg.load()
             store = TokenStore(cfg.token_dir, ttl=cfg.token_ttl, refresh_buffer=cfg.refresh_buffer)
+
+            def _do_auth():
+                from sync.auth import auth as _auth
+                _auth(cfg)
+
             db = DB(cfg.db_path)
-            client = D2LClient(cfg.base_url, store.load)
+            client = D2LClient(cfg.base_url, store.load, on_auth_error=_do_auth)
             engine = SyncEngine(cfg, db, client)
             code = None
             if course_id:
                 row = db.conn.execute("SELECT code FROM courses WHERE id=?", (course_id,)).fetchone()
                 code = row["code"] if row else None
-            # engine.run() owns the sync_runs lifecycle and error recording
-            engine.run(code=code)
+            try:
+                engine.run(code=code)
+            except D2LAuthError:
+                print("[sync] token expired mid-sync — auto-reauthenticating...", flush=True)
+                from sync.auth import auth
+                auth(cfg)
+                store = TokenStore(cfg.token_dir, ttl=cfg.token_ttl, refresh_buffer=cfg.refresh_buffer)
+                client = D2LClient(cfg.base_url, store.load, on_auth_error=_do_auth)
+                engine = SyncEngine(cfg, db, client)
+                engine.run(code=code)
             client.close()
             db.close()
         except Exception:
