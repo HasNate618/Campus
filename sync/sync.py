@@ -419,16 +419,21 @@ class SyncEngine:
         try:
             r = httpx.get(url, headers=headers, follow_redirects=False, timeout=120)
             if r.status_code != 200 or not r.content:
+                print(f"  [module-media] fetch {r.status_code}: {url}")
                 return None
             if b"<!DOCTYPE" in r.content[:200]:
+                print(f"  [module-media] fetch returned HTML (auth redirect?): {url}")
                 return None
             if len(r.content) > self.cfg.max_file_size:
+                print(f"  [module-media] fetch too large ({len(r.content)} bytes): {url}")
                 return None
             ctype = (r.headers.get("content-type") or "").lower()
             if "html" in ctype:
+                print(f"  [module-media] fetch content-type={ctype}: {url}")
                 return None
             return r.content
-        except Exception:
+        except Exception as e:
+            print(f"  [module-media] fetch error: {url}: {e}")
             return None
 
     def sync_module_media(self, course_id: int, org_unit: int, course_dir: Path) -> None:
@@ -439,7 +444,8 @@ class SyncEngine:
         try:
             from tools.cache_images import _session_headers
             headers = _session_headers(self.cfg)
-        except Exception:
+        except Exception as e:
+            print(f"  [module-media] failed to get session headers: {e}")
             return
         code_dir = course["code"].replace(" ", "")
         enroll_suffix: str | None = None
@@ -466,7 +472,8 @@ class SyncEngine:
                                               timeout=30)
                 m = re.search(r"/content/enforced/(\d+-[A-Za-z0-9_]+)/", resp.geturl())
                 suffix = m.group(1) if m else None
-            except Exception:
+            except Exception as e:
+                print(f"  [module-media] quickLink resolve failed for {fid} (ou={org_unit}): {e}")
                 suffix = None
             self._cf_suffix_cache[org_unit] = suffix
             return suffix
