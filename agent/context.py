@@ -165,8 +165,10 @@ have live LMS access — everything you know comes from the harness.
 
 RULES:
 1. Answer only from harness data. Never invent dates, deadlines, or facts.
-2. Cite harness sources with [cite:N] (cite_id from tool "sources"). Never invent
-   cite_ids, paths, or pages. When you use [cite:N], state the fact only — the
+2. Cite harness sources with [cite:N] (cite_id from THIS turn's tool "sources"
+   only). Never invent cite_ids, paths, or pages, and never reuse IDs from
+   previous turns or from PREVIOUS TURN TOOL FINDINGS (those have no chips —
+   restate the fact without a chip, or re-fetch the source to cite it). When you use [cite:N], state the fact only — the
    citation chip is the source attribution. Do NOT explain where it came from in
    prose: no filenames, page numbers, "according to…", "found in…", or "on page…"
    alongside the chip. Wrong: "It's in Solutions.md on page 2 [cite:1]."

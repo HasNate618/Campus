@@ -378,6 +378,36 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 			(n) => n.parentId === assistantId && n.role === "tool",
 		) ?? [];
 
+	/** Session-wide citation pool, newest turn first: citation IDs restart at 1
+	 *  every turn, but the model reuses [cite:N] across turns (and cites digest
+	 *  findings that have no IDs at all). Per-node lookup merges own citations
+	 *  first so a turn's own id=1 always beats an older turn's id=1. */
+	const mergedCitesByNode = useMemo(() => {
+		const nodes = session?.nodes ?? [];
+		const pool: Citation[] = [];
+		const seen = new Set<number>();
+		for (let i = nodes.length - 1; i >= 0; i--) {
+			const n = nodes[i];
+			if (n.role !== "assistant" || !n.citations?.length) continue;
+			for (const c of n.citations)
+				if (!seen.has(c.id)) {
+					seen.add(c.id);
+					pool.push(c);
+				}
+		}
+		const byNode = new Map<string, Citation[]>();
+		for (const n of nodes) {
+			if (n.role !== "assistant") continue;
+			const ownIds = new Set((n.citations ?? []).map((c) => c.id));
+			const merged = [
+				...(n.citations ?? []),
+				...pool.filter((c) => !ownIds.has(c.id)),
+			];
+			if (merged.length) byNode.set(n.id, merged);
+		}
+		return byNode;
+	}, [session?.nodes]);
+
 	const openCitation = useCallback(
 		async (citeId: number, cites?: Citation[]) => {
 			const c = cites?.find((x) => x.id === citeId);
@@ -847,9 +877,14 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 						)}
 						<div
 							className={`msg-assistant${node.streaming ? " streaming" : ""}`}
-							onClick={(e) => onCitationClick(e, node.citations)}
+							onClick={(e) =>
+								onCitationClick(e, mergedCitesByNode.get(node.id) ?? node.citations)
+							}
 						>
-							<ChatMd content={node.content} citations={node.citations} />
+							<ChatMd
+								content={node.content}
+								citations={mergedCitesByNode.get(node.id) ?? node.citations}
+							/>
 							{node.streaming && <span className="stream-cursor" />}
 						</div>
 
