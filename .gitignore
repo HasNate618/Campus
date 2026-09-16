@@ -44,3 +44,6 @@ android/local.properties
 
 # isolated worktrees
 .worktrees/
+
+# never commit config backups
+config.yaml.bak*
