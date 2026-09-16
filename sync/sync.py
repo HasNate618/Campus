@@ -1243,6 +1243,19 @@ class SyncEngine:
                 self.sync_dropbox(course["id"], org_unit)
                 self.sync_news(course["id"], org_unit)
                 self.sync_syllabus(course["id"], org_unit, course_dir)
+                # if 0 new files so far, D2L API may not have indexed recent
+                # uploads yet — wait 30s and retry the download steps once
+                d_files = self.stats["files_new"]
+                if d_files == 0:
+                    print("    no new files yet — waiting 30s for D2L API to index...", flush=True)
+                    time.sleep(30)
+                    self.sync_content(course["id"], org_unit, course_dir)
+                    self.sync_embedded(course["id"], org_unit, course_dir)
+                    self.sync_module_media(course["id"], org_unit, course_dir)
+                    if self.stats["files_new"] > d_files:
+                        print(f"    retry found {self.stats['files_new'] - d_files} new file(s)")
+                    else:
+                        print("    still no new files after retry")
                 # foreground extraction + mining, per course (full context same run;
                 # idle courses skip both via the mining gate)
                 try:
