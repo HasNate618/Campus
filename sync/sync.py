@@ -1209,7 +1209,7 @@ class SyncEngine:
         run_id = self.db.start_sync()
         try:
             enrollments = self.fetch_enrollments()
-            courses = [self.db.get_course_by_code(code)] if code else self.db.get_pilot_courses()
+            courses = [self.db.get_course_by_code(code)] if code else self.db.get_active_courses()
             if not courses:
                 print("No course matched. Pass --code CS 1100A or mark a course is_pilot=1")
                 return 2

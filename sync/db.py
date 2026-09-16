@@ -75,6 +75,11 @@ class DB:
             "SELECT * FROM courses WHERE is_pilot = 1 AND is_active = 1"
         ).fetchall()
 
+    def get_active_courses(self) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            "SELECT * FROM courses WHERE is_active = 1 ORDER BY code"
+        ).fetchall()
+
     def link_org_unit(self, course_id: int, org_unit_id: int) -> None:
         self.conn.execute(
             "UPDATE courses SET brightspace_org_unit_id = ?, updated_at = datetime('now') WHERE id = ?",
