@@ -207,6 +207,54 @@ def load_turn_digest(db, session_id: int | None) -> str:
             + "\n".join(lines))[:_DIGEST_CHARS]
 
 
+_TITLE_PROMPT = (
+    "Summarize this course question as a 2-6 word chat title. "
+    "Plain text only — no quotes, no markdown, max 60 characters.\n"
+    "Question: {q}\nAnswer: {a}"
+)
+
+
+def clean_title(text: str) -> str:
+    """Plain-text chat title: strip quotes/markdown, collapse whitespace."""
+    t = re.sub(r"[*_`#>\\\"]", "", text or "").strip()
+    t = re.sub(r"\s+", " ", t).strip().strip("'\"")
+    return t[:60].strip()
+
+
+def generate_session_title(db, cfg, session_id: int | None, model: str | None,
+                           question: str, answer: str) -> str | None:
+    """LLM title for first-exchange sessions, persisted to chat_sessions.
+
+    Runs only when this turn completed the session's FIRST exchange (exactly
+    one assistant row) — later turns and regenerations keep their title, so
+    at most one extra model call per session. Uses the turn's own model (the
+    first message's model), never a hardcoded one. Returns the title, or
+    None when skipped/failed — the caller keeps the placeholder and the turn
+    is unaffected. Never raises."""
+    if session_id is None:
+        return None
+    try:
+        n = db.conn.execute(
+            "SELECT COUNT(*) n FROM chat_messages WHERE session_id=? AND role='assistant'",
+            (session_id,)).fetchone()["n"]
+        if n != 1:
+            return None
+        msg, _ = _model_call(
+            cfg,
+            [{"role": "user", "content": _TITLE_PROMPT.format(
+                q=(question or "")[:500], a=(answer or "")[:500])}],
+            model=model or cfg.llm_model)
+        title = clean_title(msg.get("content", ""))
+        if not title:
+            return None
+        db.conn.execute("UPDATE chat_sessions SET title=? WHERE id=?",
+                        (title, session_id))
+        db.conn.commit()
+        return title
+    except Exception:
+        return None
+
+
 _TOOL_RESULT_CAPS = {"course_map": 12000}
 
 

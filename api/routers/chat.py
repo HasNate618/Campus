@@ -478,6 +478,17 @@ def _do_turn(req: ChatRequest, emit) -> None:
                 "UPDATE chat_sessions SET updated_at=datetime('now') WHERE id=?",
                 (req.session_id,))
             db.conn.commit()
+            # First-exchange title from the turn's own model (the first
+            # message's model) — never fails the turn, never overwrites a
+            # later rename (generation runs once, on the first exchange).
+            try:
+                from agent.chat import generate_session_title
+                title = generate_session_title(db, cfg, req.session_id, req.model,
+                                               req.message, answer)
+                if title:
+                    emit("title", {"title": title})
+            except Exception as e:
+                print(f"  [chat] title generation failed (turn continues): {e!r}", flush=True)
     finally:
         db.close()
 
