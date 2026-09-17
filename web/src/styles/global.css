@@ -2182,6 +2182,27 @@
     word-break: break-all;
   }
 
+  /* compact viewer header: back link, title+path, and controls share one
+     row instead of three stacked rows (saves ~50px of vertical chrome) */
+  .viewer-head-compact {
+    margin-bottom: 10px;
+  }
+
+  .viewer-head-compact .viewer-title {
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .viewer-head-compact .viewer-path {
+    font-size: 11px;
+    margin-top: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   /* per-format file viewers */
   .code-view {
     font-family: var(--font-mono);
@@ -3252,7 +3273,8 @@
       display: none;
     }
 
-    .view-toggle {
+    .view-toggle,
+    .pdf-download {
       display: none;
     }
 
