@@ -322,17 +322,18 @@ def _lexical_hits(db, course_id: int | None, query: str, limit: int = 8
     return phrase_ids, term_ids
 
 
-def _snippet_ex(text: str, query: str, width: int = 240) -> tuple[str, int]:
-    """(snippet, match_at): match_at is the char offset of the query match
-    inside the snippet, or -1 when there is no verbatim match."""
+def _snippet_ex(text: str, query: str, width: int = 240) -> tuple[str, int, int]:
+    """(snippet, match_at, match_abs): match_at is the char offset of the
+    query match inside the snippet, match_abs the offset in the full chunk
+    text (-1 each when there is no verbatim match)."""
     q = (query or "").strip().lower()
     i = text.lower().find(q) if q else -1
     if i < 0:
-        return text[:400], -1
+        return text[:400], -1, -1
     start = max(0, i - width // 2)
     end = min(len(text), i + len(q) + width // 2)
     snip = f"{'…' if start > 0 else ''}{text[start:end]}{'…' if end < len(text) else ''}"
-    return snip, (i - start + (1 if start > 0 else 0))
+    return snip, (i - start + (1 if start > 0 else 0)), i
 
 
 def _snippet(text: str, query: str, width: int = 240) -> str:
@@ -344,10 +345,14 @@ def _snippet(text: str, query: str, width: int = 240) -> str:
 
 
 def _hit(r, query: str, score: float) -> dict:
-    """One search hit: snippet + its match offset (additive `match_at`)."""
-    snip, at = _snippet_ex(r["text"], query)
+    """One search hit: snippet + match offsets + chunk-resolved page (the
+    page is resolved against the FULL chunk text — snippet windows cut page
+    markers, which once mislabeled mid-document matches as page 1)."""
+    from agent.citations import chunk_page
+    snip, at, ab = _snippet_ex(r["text"], query)
     return {"ref": r["ref"], "course_id": r["course_id"],
-            "text": snip, "match_at": at, "score": score}
+            "text": snip, "match_at": at, "score": score,
+            "page": chunk_page(r["text"], ab)}
 
 
 def search(cfg, db, query: str, course_id: int | None = None,

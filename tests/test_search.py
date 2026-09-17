@@ -117,3 +117,14 @@ def test_strip_html():
     from sync.search import _strip_html
     assert _strip_html("<p>Hello <b>world</b></p>") == "Hello world"
     assert _strip_html("plain text") == "plain text"
+
+
+def test_hit_page_resolves_before_window():
+    from sync.search import _hit
+    # live IDN case, minimized: the page-11 marker sits before the snippet
+    # window, so snippet-only attribution would default to page 1.
+    chunk = ("intro stuff\n<!-- page 11 -->\n" + "filler " * 60
+             + "IDN homograph attacks target\n<!-- page 12 -->\nnext")
+    hit = _hit({"ref": "f.md", "course_id": 1, "text": chunk}, "homograph", 1.0)
+    assert hit["text"].startswith("…")  # window cut the marker
+    assert hit["page"] == 11
