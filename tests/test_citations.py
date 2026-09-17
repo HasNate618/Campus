@@ -95,7 +95,7 @@ def test_search_hit_carries_match_offset():
     # search() itself needs embeddings — test at the unit level:
     from sync.search import _snippet_ex
     text = "x" * 500 + "needle phrase here" + "y" * 500
-    snip, at = _snippet_ex(text, "needle phrase")
+    snip, at, _ = _snippet_ex(text, "needle phrase")
     assert "needle phrase" in snip and at >= 0 and snip[at:at + 13] == "needle phrase"
 
 
@@ -118,3 +118,36 @@ def test_read_file_prefers_current_page():
         "content": "a\n<!-- page 5 -->\nzzz\n<!-- page 9 -->\nend",
         "currentPage": 5})
     assert cites and cites[0]["page"] == 5
+
+
+def test_chunk_page_mid_chunk_falls_back_to_first_marker():
+    from agent.citations import chunk_page
+    # windowed chunk starting mid-page: first visible marker is nearest
+    # knowable page — never the page-1 default.
+    text = "mid-page content match here\n<!-- page 12 -->\nend"
+    assert chunk_page(text, text.index("match")) == 12
+    assert chunk_page("no markers here", 5) is None
+    assert chunk_page("<!-- page 4 -->\nmatch here", -1) == 4
+
+
+def test_register_from_search_prefers_hit_page():
+    from agent.citations import CitationRegistry
+
+    class FakeConn:
+        def execute(self, *a, **k):
+            return self
+
+        def fetchone(self):
+            return None
+
+    class FakeDb:
+        conn = FakeConn()
+
+    reg = CitationRegistry(FakeDb(), type("Cfg", (), {"data_root": "/tmp"})(), 3)
+    # snippet markers alone would resolve to 12; the search-time
+    # full-chunk resolution says 11 — the hit page must win.
+    cites = reg.register_from_tool("search_corpus", {"hits": [{
+        "ref": "2026F/SE3316A/content/f.md", "course_id": 3,
+        "text": "…match here\n<!-- page 12 -->\nend",
+        "match_at": 8, "page": 11}]})
+    assert cites and cites[0]["page"] == 11

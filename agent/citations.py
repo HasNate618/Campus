@@ -127,6 +127,24 @@ def page_before_offset(text: str, at: int | None) -> int | None:
     return page
 
 
+def chunk_page(text: str, at: int | None) -> int | None:
+    """Page governing char offset `at` inside a windowed chunk: last
+    `<!-- page N -->` strictly before it. Unlike page_before_offset, a chunk
+    may start mid-page, so content preceding all visible markers resolves to
+    the first marker (nearest knowable page) — never page 1, which is what
+    mislabeled mid-document matches as the first page. No markers → None
+    (never fabricate). at<0/None → first marker's page."""
+    marks = [(m.start(), int(m.group(1))) for m in PAGE_RE.finditer(text or "")]
+    if not marks:
+        return None
+    if at is None or at < 0:
+        return marks[0][1]
+    for pos, pg in reversed(marks):
+        if pos < at:
+            return pg
+    return marks[0][1]
+
+
 @dataclass
 class CitationRegistry:
     db: DB
@@ -215,11 +233,14 @@ class CitationRegistry:
                 if not ref:
                     continue
                 text = hit.get("text") or ""
+                page = hit.get("page")
+                if page is None:
+                    page = page_before_offset(text, hit.get("match_at", -1))
                 cite = self.register(
                     ref,
                     course_id=hit.get("course_id"),
                     excerpt=text,
-                    page=page_before_offset(text, hit.get("match_at", -1)),
+                    page=page,
                 )
                 if cite:
                     out.append(cite)
