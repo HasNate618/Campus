@@ -3,6 +3,7 @@ import { api } from "@/api/client";
 import { useSWR } from "@/lib/useSWR";
 import { listKeys, useListCursor, useZoneKeys } from "@/lib/keynav";
 import { courseColor } from "@/lib/courses";
+import { entryRoute } from "@/lib/courseTabs";
 import { fmtRelative } from "@/lib/format";
 import type { Course } from "@/types";
 
@@ -19,7 +20,7 @@ export function CoursesPage() {
 	useZoneKeys("course", (key) =>
 		listKeys(key, cursor, () => {
 			const c = courses[cursor.cursor];
-			if (c) navigate(`/courses/${c.id}`);
+			if (c) navigate(entryRoute(c.id));
 		}),
 	);
 
@@ -45,6 +46,10 @@ export function CoursesPage() {
 					<Link
 						key={c.id}
 						to={`/courses/${c.id}`}
+						onClick={(e) => {
+							e.preventDefault();
+							navigate(entryRoute(c.id));
+						}}
 						ref={cursor.setRef(i)}
 						className={`card course-card${cursor.cursor === i ? " kbd-cursor" : ""}`}
 						style={{

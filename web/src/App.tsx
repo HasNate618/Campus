@@ -10,11 +10,8 @@ import { SchedulePage } from './pages/SchedulePage'
 import { SyncPage } from './pages/SyncPage'
 import { MorePage } from './pages/MorePage'
 import { CoursesPage } from './pages/CoursesPage'
-import { CourseHubPage, CourseLayout } from './pages/CourseHubPage'
-import { ContentPage } from './pages/ContentPage'
-import { AssignmentsPage } from '@/pages/AssignmentsPage'
-import { AssignmentDetailPage } from '@/pages/AssignmentDetailPage'
-import { WorkspacePage } from '@/pages/WorkspacePage'
+import { CourseHubPage } from './pages/CourseHubPage'
+import { CourseKeeper, CourseNestedRoutes } from './pages/CourseKeeper'
 
 export default function App() {
   // Boot-time auth check: /api/auth/me reports authenticated=True in open
@@ -53,13 +50,9 @@ export default function App() {
           <Route path="more" element={<MorePage />} />
           <Route path="digest" element={<Navigate to="/today" replace />} />
           <Route path="courses" element={<CoursesPage />} />
-          <Route path="courses/:courseId" element={<CourseLayout />}>
+          <Route path="courses/:courseId" element={<CourseKeeper />}>
             <Route index element={<CourseHubPage />} />
-            <Route path="content" element={<ContentPage />} />
-            <Route path="content/:nodeId" element={<ContentPage />} />
-            <Route path="assignments" element={<AssignmentsPage />} />
-            <Route path="assignments/:assignmentId" element={<AssignmentDetailPage />} />
-            <Route path="workspace" element={<WorkspacePage />} />
+            {CourseNestedRoutes}
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
