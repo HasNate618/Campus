@@ -543,7 +543,23 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 					updatedAt: s.updatedAt,
 				};
 				if (s.serverId != null) {
-					await api.chatSessionSave(s.serverId, payload);
+					try {
+						await api.chatSessionSave(s.serverId, payload);
+					} catch (e) {
+						if (e instanceof Error && e.message.startsWith("404")) {
+							// server forgot this session (DB reset, deleted
+							// elsewhere, stale cache) — drop the dead id so the
+							// next tick re-creates it, and keep saving the rest
+							// of the batch instead of 404-spamming every tick.
+							setSessions((ss) =>
+								ss.map((x) =>
+									x.id === s.id ? { ...x, serverId: undefined } : x,
+								),
+							);
+							continue;
+						}
+						throw e;
+					}
 				} else {
 					const created = await api.chatSessionCreate(s.courseId, s.title);
 					// only set serverId — the client id stays put so in-flight streams
@@ -901,6 +917,21 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 								if (prev.some((c) => c.id === cite.id)) return n;
 								return { ...n, citations: [...prev, cite] };
 							});
+						}
+					} else if (event === "title") {
+						// backend-generated first-exchange title (same model as the
+						// turn) — replaces the naive first-42-chars placeholder.
+						// The debounced save persists it; later renames and turns
+						// never trigger a new one server-side.
+						const t = String((d as Record<string, unknown>).title ?? "")
+							.trim()
+							.slice(0, 60);
+						if (t) {
+							setSessions((ss) =>
+								ss.map((x) =>
+									x.id === sid ? { ...x, title: t, updatedAt: Date.now() } : x,
+								),
+							);
 						}
 					} else if (event === "done") {
 						receivedDone = true;
