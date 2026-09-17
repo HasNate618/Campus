@@ -481,6 +481,15 @@ export function ContentPage() {
   const modules = nodes.filter((n) => n.parent_id === null)
   const children = (parentId: number) => nodes.filter((n) => n.parent_id === parentId)
   const fileName = (f: FileRecord) => f.path.split('/').pop() ?? f.path
+  // Download filename for the open PDF: basename (or node title), sanitized,
+  // always .pdf. Computed but only rendered when a PDF with a raw URL is open.
+  const pdfDownloadName = useMemo(() => {
+    const base =
+      (selectedFile ? fileName(selectedFile) : selectedNode?.title) ??
+      'document'
+    const clean = base.replace(/[\\/:*?"<>|]+/g, '-').trim() || 'document'
+    return clean.toLowerCase().endsWith('.pdf') ? clean : `${clean}.pdf`
+  }, [selectedFile, selectedNode?.title])
   // View mode (toggled from the viewer header): 'fullWidth' (default) = one
   // panel at a time; 'sideBySide' = tree beside the viewer.
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
@@ -741,15 +750,26 @@ export function ContentPage() {
           <div className="empty">Select a topic from the tree.</div>
         ) : (
           <>
-            <div className="viewer-head">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%' }}>
+            <div className="viewer-head viewer-head-compact">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
                 <Link
                   to={`/courses/${cid}/content`}
-                  style={{ color: 'var(--violet)', fontSize: 13, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4, width: 'fit-content' }}
+                  title="All topics"
+                  style={{ color: 'var(--violet)', fontSize: 13, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}
                 >
                   <ArrowLeft size={13} /> All topics
                 </Link>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="viewer-title" title={selectedNode.title}>
+                    {selectedNode.title}
+                  </div>
+                  {selectedFile && (
+                    <div className="viewer-path" title={selectedFile.path}>
+                      {selectedFile.path}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                   {contentInfo?.format === 'pdf' && selectedFile && (
                     <button
                       className="btn btn-outline btn-sm"
@@ -758,6 +778,16 @@ export function ContentPage() {
                     >
                       {showMd ? 'Original PDF' : 'Extracted text'}
                     </button>
+                  )}
+                  {contentInfo?.format === 'pdf' && selectedFile && contentInfo.rawUrl && (
+                    <a
+                      className="icon-btn pdf-download"
+                      href={contentInfo.rawUrl}
+                      download={pdfDownloadName}
+                      title={`Download ${pdfDownloadName}`}
+                    >
+                      <Download size={14} />
+                    </a>
                   )}
                   <button
                     onClick={() => setViewMode((m) => (m === 'fullWidth' ? 'sideBySide' : 'fullWidth'))}
@@ -768,8 +798,6 @@ export function ContentPage() {
                   </button>
                 </div>
               </div>
-              <div className="viewer-title">{selectedNode.title}</div>
-              {selectedFile && <div className="viewer-path">{selectedFile.path}</div>}
             </div>
             <motion.div
               key={nid ?? 'none'}
