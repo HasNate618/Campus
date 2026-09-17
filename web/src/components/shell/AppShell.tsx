@@ -14,10 +14,14 @@ const MOBILE_TABS = [
 
 function ShellInner({ onLogout }: { onLogout: () => void }) {
 	const location = useLocation();
-	// Animate TOP-LEVEL navigation only: slice(0,3) keeps '/courses/:id'
-	// stable across course-tab switches — CourseHubPage animates just its
-	// content pane for those, so the header/tabs never replay.
-	const transitionKey = location.pathname.split("/").slice(0, 3).join("/");
+	// Animate TOP-LEVEL navigation only: slice(0,2) keeps '/courses' stable
+	// across course switches — REQUIRED for keep-alive tabs (CourseKeeper):
+	// remounting this wrapper would unmount every live tab (iframes/PDFs
+	// reloaded, defeating instant return). Course switches are now an
+	// instant visibility toggle by design; entering/leaving the courses
+	// area still animates. (CourseHubPage animates its own content pane
+	// for in-course section switches, so header/tabs never replay.)
+	const transitionKey = location.pathname.split("/").slice(0, 2).join("/");
 
 	return (
 		<ChatProvider>

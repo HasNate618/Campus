@@ -14,6 +14,7 @@ import { api } from "@/api/client";
 import { useChat } from "@/chat/ChatContext";
 import { listKeys, useListCursor, useZoneKeys } from "@/lib/keynav";
 import { courseColor } from "@/lib/courses";
+import { entryRoute } from "@/lib/courseTabs";
 import { fmtRelative } from "@/lib/format";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import type { Course } from "@/types";
@@ -34,6 +35,10 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 	const { sessions, activeFor, openSession, renameSession, deleteSession } =
 		useChat();
 	const navigate = useNavigate();
+	// Course activation for keep-alive tabs: enter via the remembered deep
+	// route (instant when the tab is live) instead of the bare hub. Falls
+	// back to the hub when nothing is remembered.
+	const activateCourse = (cid: number) => navigate(entryRoute(cid));
 	const [renamingId, setRenamingId] = useState<string | null>(null);
 	const [renameText, setRenameText] = useState("");
 	// Instant label tooltip for the collapsed sidebar (replaces the slow
@@ -153,7 +158,7 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 				openSession(row.courseId, row.sessionId);
 				navigate(`/courses/${row.courseId}`);
 			} else if (row.kind === "course" && row.courseId != null) {
-				navigate(`/courses/${row.courseId}`);
+				activateCourse(row.courseId);
 			}
 		});
 	});
@@ -242,7 +247,7 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 											onMouseLeave={hideTip}
 											onClick={() => {
 												openSession(s.courseId, s.id);
-												navigate(`/courses/${s.courseId}`);
+												activateCourse(s.courseId);
 											}}
 										>
 											<span
@@ -318,6 +323,10 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 						<NavLink
 							key={c.id}
 							to={`/courses/${c.id}`}
+							onClick={(e) => {
+								e.preventDefault();
+								activateCourse(c.id);
+							}}
 							ref={cursor.setRef(i + NAV.length + recentChats.length)}
 							onMouseEnter={(e) => showTip(e, `${c.code} — ${c.name}`)}
 							onMouseLeave={hideTip}

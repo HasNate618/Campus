@@ -33,6 +33,16 @@ interface KeyNavValue {
 
 const KeyNavContext = createContext<KeyNavValue | null>(null)
 
+/**
+ * Escape hatch for keep-alive tabs (CourseKeeper): hidden course subtrees
+ * stay mounted but must not hold active-zone key registrations — dispatch
+ * runs every registered handler for the active zone in mount order, so a
+ * hidden tab would swallow keys meant for the visible one. Wrap hidden
+ * trees in <KeyNavContext.Provider value={neutered}> with register
+ * replaced by a no-op (zone/setZone stay live).
+ */
+export { KeyNavContext }
+
 /** Pane roots add `kbd-active` when their zone is the active one. */
 export function useKeyNav(): KeyNavValue {
   const v = useContext(KeyNavContext)
