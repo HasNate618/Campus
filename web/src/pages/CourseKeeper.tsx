@@ -1,11 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-	MemoryRouter,
-	Route,
-	Routes,
-	useLocation,
-	useParams,
-} from "react-router-dom";
+import { Route, Routes, useLocation, useParams } from "react-router-dom";
 import { CourseLayout, CourseHubPage } from "./CourseHubPage";
 import { ContentPage } from "./ContentPage";
 import { AssignmentsPage } from "@/pages/AssignmentsPage";
@@ -17,7 +11,7 @@ import { touchTab, writeLastRoute, TAB_CAP } from "@/lib/courseTabs";
 
 /**
  * Nested course routes, shared by the browser tree (App.tsx) and the
- * per-tab MemoryRouter trees below. Single definition — add sections here.
+ * per-tab frozen-location trees below. Single definition — add sections here.
  */
 export const CourseNestedRoutes = (
 	<>
@@ -56,8 +50,10 @@ export function CourseKeeper() {
 	const [tabs, setTabs] = useState<number[]>(() =>
 		Number.isFinite(activeCid) ? [activeCid] : [],
 	);
-	// Frozen entry locations for hidden tabs (set at deactivation; the
-	// hidden MemoryRouter trees never receive updates after that).
+	// Frozen entry locations for hidden tabs (set at deactivation; hidden
+	// trees match this snapshot via the Routes `location` prop — no nested
+	// Router (React Router forbids <Router> inside <Router>: blank screen).
+	// The single top-level BrowserRouter stays the only Router provider.
 	const snaps = useRef<Record<number, string>>({});
 	const wrapRefs = useRef<Record<number, HTMLDivElement | null>>({});
 	const prevCid = useRef(activeCid);
@@ -91,45 +87,45 @@ export function CourseKeeper() {
 	);
 
 	if (!Number.isFinite(activeCid)) return null;
+	// One stable tree shape for live AND hidden tabs (same component types
+	// in the same positions): toggling visibility never remounts, so the
+	// PDF iframe survives course switches with zero reload. The only
+	// differences are props — div className/aria-hidden, keynav value, and
+	// the Routes `location` override (live URL vs frozen snapshot).
+	// Hooks inside hidden tabs resolve correctly because matching still
+	// runs through real <Route> elements: useParams comes from the matched
+	// /courses/:courseId branch (the snapshot's course), while useNavigate
+	// intentionally stays the outer BrowserRouter's (hidden trees can't be
+	// interacted with — pointer-events:none, aria-hidden, blurred focus,
+	// neutered keys — so they never navigate). useLocation in a hidden
+	// tree reads the LIVE url (outer context); course components key on
+	// params, so this is inert in practice — noted, not solved.
 	return (
 		<div className="keeper">
-			{tabs.map((id) =>
-				id === activeCid ? (
+			{tabs.map((id) => {
+				const live = id === activeCid;
+				return (
 					<div
 						key={id}
-						className="keeper-tab"
+						className={live ? "keeper-tab" : "keeper-tab keeper-tab-hidden"}
+						aria-hidden={live ? undefined : "true"}
 						data-tab={id}
 						ref={(el) => {
 							wrapRefs.current[id] = el;
 						}}
 					>
-						<CourseLayout key={id} />
-					</div>
-				) : (
-					<div
-						key={id}
-						className="keeper-tab keeper-tab-hidden"
-						aria-hidden="true"
-						data-tab={id}
-						ref={(el) => {
-							wrapRefs.current[id] = el;
-						}}
-					>
-						<KeyNavContext.Provider value={neutered}>
-							<MemoryRouter
-								key={snaps.current[id] ?? `/courses/${id}`}
-								initialEntries={[snaps.current[id] ?? `/courses/${id}`]}
+						<KeyNavContext.Provider value={live ? realNav : neutered}>
+							<Routes
+								location={live ? location : (snaps.current[id] ?? `/courses/${id}`)}
 							>
-								<Routes>
-									<Route path="/courses/:courseId" element={<CourseLayout />}>
-										{CourseNestedRoutes}
-									</Route>
-								</Routes>
-							</MemoryRouter>
+								<Route path="/courses/:courseId" element={<CourseLayout />}>
+									{CourseNestedRoutes}
+								</Route>
+							</Routes>
 						</KeyNavContext.Provider>
 					</div>
-				),
-			)}
+				);
+			})}
 		</div>
 	);
 }
