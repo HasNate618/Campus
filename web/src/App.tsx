@@ -10,8 +10,8 @@ import { SchedulePage } from './pages/SchedulePage'
 import { SyncPage } from './pages/SyncPage'
 import { MorePage } from './pages/MorePage'
 import { CoursesPage } from './pages/CoursesPage'
-import { CourseHubPage } from './pages/CourseHubPage'
-import { CourseKeeper, CourseNestedRoutes } from './pages/CourseKeeper'
+import { CourseHubPage, CourseLayout } from './pages/CourseHubPage'
+import { CourseNestedRoutes } from './pages/CourseKeeper'
 
 export default function App() {
   // Boot-time auth check: /api/auth/me reports authenticated=True in open
@@ -50,7 +50,7 @@ export default function App() {
           <Route path="more" element={<MorePage />} />
           <Route path="digest" element={<Navigate to="/today" replace />} />
           <Route path="courses" element={<CoursesPage />} />
-          <Route path="courses/:courseId" element={<CourseKeeper />}>
+          <Route path="courses/:courseId" element={<CourseLayout />}>
             <Route index element={<CourseHubPage />} />
             {CourseNestedRoutes}
           </Route>
