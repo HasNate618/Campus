@@ -4,6 +4,7 @@ import { BookOpen, CalendarDays, Home, MessageSquare } from "lucide-react";
 import { ChatProvider } from "@/chat/ChatContext";
 import { KeyNavProvider } from "@/lib/keynav";
 import { Sidebar } from "./Sidebar";
+import { CourseKeeper } from "@/pages/CourseKeeper";
 
 const MOBILE_TABS = [
 	{ to: "/", label: "Home", icon: Home, end: true },
@@ -47,6 +48,13 @@ function ShellInner({ onLogout }: { onLogout: () => void }) {
 						<Outlet />
 					</motion.div>
 				</main>
+
+				{/* Keep-alive course tabs: hidden replicas of inactive visited
+					courses. MUST sit outside the keyed motion.div above — that
+					wrapper remounts on top-level navigation, which would unmount
+					every live tab (iframes/PDFs reloaded, defeating instant return).
+					See CourseKeeper for the placement invariant. */}
+				<CourseKeeper />
 
 				<nav className="tabbar">
 					{MOBILE_TABS.map(({ to, label, icon: Icon, end }) => (

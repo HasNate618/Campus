@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Route, Routes, useLocation, useParams } from "react-router-dom";
+import { Route, Routes, useLocation } from "react-router-dom";
 import { CourseLayout, CourseHubPage } from "./CourseHubPage";
 import { ContentPage } from "./ContentPage";
 import { AssignmentsPage } from "@/pages/AssignmentsPage";
@@ -11,7 +11,7 @@ import { touchTab, writeLastRoute, TAB_CAP } from "@/lib/courseTabs";
 
 /**
  * Nested course routes, shared by the browser tree (App.tsx) and the
- * per-tab frozen-location trees below. Single definition — add sections here.
+ * hidden-tab frozen-location trees below. Single definition — add sections here.
  */
 export const CourseNestedRoutes = (
 	<>
@@ -24,29 +24,48 @@ export const CourseNestedRoutes = (
 	</>
 );
 
+/** Course id from a pathname (`/courses/6/content…` → 6, NaN elsewhere). */
+function courseIdFromPath(pathname: string): number {
+	const m = /^\/courses\/(\d+)/.exec(pathname);
+	return m ? Number(m[1]) : NaN;
+}
+
 /**
- * Keep-alive course tabs (element of `courses/:courseId`).
+ * Root-level keep-alive widget (rendered inside AppShell, under path `/`).
  *
- * Leaving a course for another course used to unmount its subtree —
- * iframe/PDF, scroll and selection all discarded. The keeper instead keeps
- * the last TAB_CAP visited courses mounted, showing only the active one:
- * switching back is a visibility toggle with zero reload. Beyond the cap
- * the least-recently-used course unmounts; its last deep route persists in
- * localStorage (lib/courseTabs) so re-entry restores it (with reload).
+ * The ACTIVE course renders exactly as before via the normal Outlet under
+ * `courses/:courseId` — this component renders ONLY hidden replicas, one
+ * per inactive visited course, so switching back is a visibility toggle
+ * with zero reload (iframe/PDF, scroll and selection all survive).
+ *
+ * Placement is load-bearing. The previous design sat at `courses/:courseId`
+ * and gave hidden tabs `<Routes location={snapshot}>`, which crashes by
+ * React Router invariant whenever the snapshot leaves the parent match:
+ * parent base is the LIVE course (`/courses/5`) while a hidden snapshot is
+ * another course (`/courses/6/content`) — "pathname must begin with the
+ * portion matched by all parent routes". Here the parent chain is
+ * BrowserRouter → Routes → Route `/` → AppShell → keeper, so the parent
+ * base is `/`, which prefixes EVERY snapshot. That is what makes the
+ * override legal.
+ *
+ * Hooks inside hidden replicas resolve from the snapshot: useParams comes
+ * from the matched `courses/:courseId` branch (the snapshot's course),
+ * while useNavigate stays the outer BrowserRouter's (hidden trees can't be
+ * interacted with — visibility-hidden, pointer-events:none, aria-hidden,
+ * blurred focus, neutered keys — so they never navigate). useLocation in a
+ * hidden tree reads the LIVE url (outer context); course components key on
+ * params, so this is inert in practice — noted, not solved.
  *
  * Hiding MUST be visibility-preserving (see .keeper-tab-hidden): the PDF
  * lives in an iframe whose browsing context browsers may unload under
- * display:none — visibility:hidden keeps it alive. Hidden trees also get a
- * neutered keynav context (their handlers would otherwise swallow keys
- * meant for the visible tab — dispatch runs every registration in order)
- * and are aria-hidden with focus blurred out on deactivation.
+ * display:none — visibility:hidden keeps it alive.
  */
 export function CourseKeeper() {
-	const { courseId } = useParams();
-	const activeCid = Number(courseId);
 	const location = useLocation();
 	const { setLastCourse } = useChat();
 	const realNav = useKeyNav();
+	const activeCid = courseIdFromPath(location.pathname);
+	const locKey = location.pathname + location.search;
 	const [tabs, setTabs] = useState<number[]>(() =>
 		Number.isFinite(activeCid) ? [activeCid] : [],
 	);
@@ -57,10 +76,10 @@ export function CourseKeeper() {
 	const snaps = useRef<Record<number, string>>({});
 	const wrapRefs = useRef<Record<number, HTMLDivElement | null>>({});
 	const prevCid = useRef(activeCid);
-	const locKey = location.pathname + location.search;
 
 	// Track the active tab: touch LRU, snapshot its live location (state +
-	// route memory), stamp the chat's last-course.
+	// route memory), stamp the chat's last-course. Skipped off-course so
+	// visiting Home never evicts or overwrites a tab's snapshot.
 	useEffect(() => {
 		if (!Number.isFinite(activeCid)) return;
 		snaps.current[activeCid] = locKey;
@@ -86,46 +105,31 @@ export function CourseKeeper() {
 		[realNav],
 	);
 
-	if (!Number.isFinite(activeCid)) return null;
-	// One stable tree shape for live AND hidden tabs (same component types
-	// in the same positions): toggling visibility never remounts, so the
-	// PDF iframe survives course switches with zero reload. The only
-	// differences are props — div className/aria-hidden, keynav value, and
-	// the Routes `location` override (live URL vs frozen snapshot).
-	// Hooks inside hidden tabs resolve correctly because matching still
-	// runs through real <Route> elements: useParams comes from the matched
-	// /courses/:courseId branch (the snapshot's course), while useNavigate
-	// intentionally stays the outer BrowserRouter's (hidden trees can't be
-	// interacted with — pointer-events:none, aria-hidden, blurred focus,
-	// neutered keys — so they never navigate). useLocation in a hidden
-	// tree reads the LIVE url (outer context); course components key on
-	// params, so this is inert in practice — noted, not solved.
+	if (tabs.length === 0) return null;
 	return (
-		<div className="keeper">
-			{tabs.map((id) => {
-				const live = id === activeCid;
-				return (
+		<div className="keeper" aria-hidden="true">
+			{tabs
+				.filter((id) => id !== activeCid)
+				.map((id) => (
 					<div
 						key={id}
-						className={live ? "keeper-tab" : "keeper-tab keeper-tab-hidden"}
-						aria-hidden={live ? undefined : "true"}
+						className="keeper-tab keeper-tab-hidden"
 						data-tab={id}
 						ref={(el) => {
 							wrapRefs.current[id] = el;
 						}}
 					>
-						<KeyNavContext.Provider value={live ? realNav : neutered}>
+						<KeyNavContext.Provider value={neutered}>
 							<Routes
-								location={live ? location : (snaps.current[id] ?? `/courses/${id}`)}
+								location={snaps.current[id] ?? `/courses/${id}`}
 							>
-								<Route path="/courses/:courseId" element={<CourseLayout />}>
+								<Route path="courses/:courseId" element={<CourseLayout />}>
 									{CourseNestedRoutes}
 								</Route>
 							</Routes>
 						</KeyNavContext.Provider>
 					</div>
-				);
-			})}
+				))}
 		</div>
 	);
 }
