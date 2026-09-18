@@ -484,6 +484,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			// node still flagged streaming after the turn flag drops.)
 			if (local.nodes.some((n) => n.streaming)) return local;
 			const refreshed = toLocalSession(srv);
+			// Newer-wins: a device whose saves failed (stale bundle, offline
+			// gap, killed app) holds a NEWER local tree than the server. The
+			// mount load and focus-refetch would otherwise adopt the older
+			// server tree, destroying local progress in-memory — and the next
+			// debounced save would then persist the destruction. Adopt the
+			// server tree only when it is strictly longer; otherwise keep
+			// local and let the next save push it up. Equal lengths keep
+			// local (same-exchange regeneration intent; the cross-device-
+			// regen race, where the other device's regen is dropped, is
+			// accepted and noted).
+			if (refreshed.nodes.length <= local.nodes.length) return local;
 			// Keep a real client uuid stable (activeMap + in-flight streams
 			// target it); reconcile numeric-id leftovers from the old
 			// uuid→server-id promotion to a fresh uuid + serverId.
