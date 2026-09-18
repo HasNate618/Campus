@@ -555,6 +555,34 @@
     padding: 20px 20px 40px;
   }
 
+  /* keep-alive course tabs: the keeper + live tab MUST be bounded flex
+     columns, or every flex:1/min-height:0 height contract below (motion
+     wrapper > .keeper > .keeper-tab > .page.course-page > .course-scroll)
+     goes inert and the page spills past the viewport. Hidden tabs are
+     absolute/invisible so only the live tab sizes the keeper. */
+  .keeper {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .keeper-tab {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .keeper-tab-hidden {
+    position: absolute;
+    inset: 0;
+    visibility: hidden;
+    pointer-events: none;
+    overflow: hidden;
+  }
+
   /* the split-right page rules above give .page a padding the pinned layout
      must override (specificity: .split-right .page.course-page wins) */
   .split-right .page.course-page {
@@ -2254,8 +2282,28 @@
   }
 
   .split-viewer.pdf-mode .viewer-head {
-    padding: 0 18px 16px;
+    padding: 0 18px 8px;
     margin-bottom: 0;
+  }
+
+  /* compact titles share ONE row (title + path side by side, both
+     ellipsis) so the header block totals ~36px instead of ~50px */
+  .viewer-head-compact .viewer-titles {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .viewer-head-compact .viewer-titles .viewer-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 13px;
+  }
+
+  .viewer-head-compact .viewer-titles .viewer-path {
+    flex: 0 1 auto;
+    min-width: 0;
   }
 
   .pdf-zen {
@@ -2263,6 +2311,10 @@
     background: transparent;
     border: none;
     padding: 18px 16px 16px;
+  }
+
+  .split-viewer.pdf-mode .pdf-zen {
+    padding-top: 10px;
   }
 
   /* controls on the dark frame: keep btn-outline shape, github-dark chrome */
@@ -2332,6 +2384,7 @@
 
   .course-scroll:has(.split-viewer.pdf-mode) {
     overflow: hidden;
+    padding: 0;
   }
 
   .course-scroll:has(.split-viewer.pdf-mode) > .page-col {
@@ -3076,6 +3129,9 @@
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      /* re-affirm mobile padding: the desktop pdf-mode rule zeroes it;
+         equal specificity + later position keeps the 96px tabbar room */
+      padding: 12px 12px 96px;
     }
     .course-scroll:has(.split-viewer.pdf-mode) > .page-col {
       flex: 1;
@@ -3086,6 +3142,11 @@
     .course-scroll:has(.split-viewer.pdf-mode) .split {
       flex: 1;
       min-height: 0;
+      /* base .split is grid + align-items:start: without stretch + a
+         1fr row the viewer never fills and the iframe slivers */
+      align-items: stretch;
+      grid-template-rows: minmax(0, 1fr);
+      height: 100%;
     }
     .split-viewer.pdf-mode {
       flex: 1;

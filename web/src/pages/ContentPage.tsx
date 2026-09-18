@@ -759,7 +759,7 @@ export function ContentPage() {
                 >
                   <ArrowLeft size={13} /> All topics
                 </Link>
-                <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ flex: 1, minWidth: 0 }} className="viewer-titles">
                   <div className="viewer-title" title={selectedNode.title}>
                     {selectedNode.title}
                   </div>
