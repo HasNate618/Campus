@@ -459,6 +459,47 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 		});
 	}
 
+	// Merge server sessions into local state. Server nodes win on match;
+	// unknown server sessions are adopted; client uuids stay stable; the
+	// client's own updatedAt is preferred (server time is only a fallback
+	// for sessions this device has never seen).
+	// Keyed by SERVER id. The old code matched `byId.get(local.id)`
+	// against these keys — local.id is a client uuid, never equal to a
+	// numeric server id — so NO local session ever matched, and every
+	// server session got appended as a fresh duplicate on EVERY reload.
+	function mergeServerSessions(
+		prev: ChatSession[],
+		list: ChatServerSession[],
+	): ChatSession[] {
+		const byId = new Map(list.map((s) => [String(s.id), s]));
+		const merged = prev.map((local) => {
+			const key = local.serverId != null ? String(local.serverId) : local.id;
+			const srv = byId.get(key);
+			if (!srv) return local;
+			byId.delete(key);
+			// Never replace a session with a live stream in flight — its
+			// streaming tree is newer than anything the server has.
+			// (Belt-and-braces alongside the busyRef skip in the refetch
+			// trigger: busyRef covers whole-turn streaming; this covers a
+			// node still flagged streaming after the turn flag drops.)
+			if (local.nodes.some((n) => n.streaming)) return local;
+			const refreshed = toLocalSession(srv);
+			// Keep a real client uuid stable (activeMap + in-flight streams
+			// target it); reconcile numeric-id leftovers from the old
+			// uuid→server-id promotion to a fresh uuid + serverId.
+			const id = /^[0-9]+$/.test(local.id) ? makeUuid() : local.id;
+			return {
+				...refreshed,
+				id,
+				// Keeping the local time is what keeps per-session times
+				// individual in the sidebar.
+				updatedAt: local.updatedAt ?? refreshed.updatedAt,
+			};
+		});
+		for (const srv of byId.values()) merged.push(toLocalSession(srv));
+		return merged;
+	}
+
 	// Load server-side sessions once on mount (source of truth; localStorage is
 	// only an offline cache now).
 	useEffect(() => {
@@ -468,36 +509,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			.chatSessions()
 			.then((list) => {
 				if (cancelled) return;
-				setSessions((prev) => {
-					// Keyed by SERVER id. The old code matched `byId.get(local.id)`
-					// against these keys — local.id is a client uuid, never equal to a
-					// numeric server id — so NO local session ever matched, and every
-					// server session got appended as a fresh duplicate on EVERY reload.
-					const byId = new Map(list.map((s) => [String(s.id), s]));
-					const merged = prev.map((local) => {
-						const key = local.serverId != null ? String(local.serverId) : local.id;
-						const srv = byId.get(key);
-						if (!srv) return local;
-						byId.delete(key);
-						const refreshed = toLocalSession(srv);
-						// Keep a real client uuid stable (activeMap + in-flight streams
-						// target it); reconcile numeric-id leftovers from the old
-						// uuid→server-id promotion to a fresh uuid + serverId.
-						const id = /^[0-9]+$/.test(local.id) ? makeUuid() : local.id;
-						return {
-							...refreshed,
-							id,
-							// The client's own record of when it last touched the session
-							// is the truth — the server bulk-stamped updated_at on every
-							// re-save, so its time is only a fallback for sessions this
-							// device has never seen. Keeping the local time is what keeps
-							// per-session times individual in the sidebar.
-							updatedAt: local.updatedAt ?? refreshed.updatedAt,
-						};
-					});
-					for (const srv of byId.values()) merged.push(toLocalSession(srv));
-					return merged;
-				});
+				setSessions((prev) => mergeServerSessions(prev, list));
 				setStreamStatus({ phase: "idle" });
 			})
 			.catch((e) => {
@@ -513,6 +525,46 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			});
 		return () => {
 			cancelled = true;
+		};
+	}, []);
+
+	const refetchInFlight = useRef(false);
+	const lastRefetchRef = useRef(0);
+
+	// Cross-device refetch: server sessions otherwise load once on mount, so
+	// progress made on another device is invisible until full page reload
+	// (and the local debounced save can PUT a stale tree over newer server
+	// work). Re-merge on return to the tab, throttled and never mid-stream.
+	// Background refresh: failures log only, never a user-facing banner.
+	useEffect(() => {
+		const maybeRefetch = () => {
+			if (document.hidden) return;
+			if (!serverReadyRef.current) return;
+			if (busyRef.current) return;
+			if (refetchInFlight.current) return;
+			if (Date.now() - lastRefetchRef.current < 30_000) return;
+			lastRefetchRef.current = Date.now();
+			refetchInFlight.current = true;
+			api
+				.chatSessions()
+				.then((list) => {
+					setSessions((prev) => mergeServerSessions(prev, list));
+				})
+				.catch((e) => {
+					console.error("[chat-sync] refetch failed:", e);
+				})
+				.finally(() => {
+					refetchInFlight.current = false;
+				});
+		};
+		const onVis = () => {
+			if (!document.hidden) maybeRefetch();
+		};
+		document.addEventListener("visibilitychange", onVis);
+		window.addEventListener("focus", maybeRefetch);
+		return () => {
+			document.removeEventListener("visibilitychange", onVis);
+			window.removeEventListener("focus", maybeRefetch);
 		};
 	}, []);
 
