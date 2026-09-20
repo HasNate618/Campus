@@ -124,8 +124,22 @@ def proxy(url: str):
             try:
                 data = json.loads(cookie_file.read_text())
                 host = u.hostname or ""
+
+                def _domains_match(domain: str) -> bool:
+                    """Domain-boundary match.
+
+                    The old `host.endswith(domain)` was wrong twice: it is
+                    True for an *empty* domain, so every cookie in the file was
+                    forwarded to whatever host was requested, and a bare
+                    endswith matches "notubc.ca" against "ubc.ca" with no dot
+                    boundary.
+                    """
+                    d = (domain or "").lstrip(".").lower()
+                    h = host.lower()
+                    return bool(d) and (h == d or h.endswith("." + d))
+
                 parts = [f"{c['name']}={c['value']}" for c in data.get("cookies", [])
-                         if host.endswith(c.get("domain", "").lstrip("."))]
+                         if _domains_match(c.get("domain", ""))]
                 if parts:
                     headers["Cookie"] = "; ".join(parts)
             except Exception:

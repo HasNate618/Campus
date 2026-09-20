@@ -107,7 +107,10 @@ async def upload_attachment(file: UploadFile = File(...)):
                     raise HTTPException(413, "File exceeds the 20 MB limit")
                 digest.update(chunk)
                 out.write(chunk)
-        extracted = _extract_upload(path, mime)
+        # PyMuPDF parses every page of a 20 MB PDF, which is seconds of CPU.
+        # Doing that inline in an async def blocks the event loop, stalling
+        # every concurrent SSE stream and request for the whole parse.
+        extracted = await asyncio.to_thread(_extract_upload, path, mime)
         db = DB(cfg.db_path)
         try:
             db.conn.execute(

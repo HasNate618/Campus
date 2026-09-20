@@ -49,5 +49,8 @@ COPY --from=web-build /app/web/dist ./web/dist
 ENV CAMPUS_DB=/app/data/harness.db
 EXPOSE 8000
 # seed only when the DB is missing (prod data comes from sync, not seeds);
-# pilot_data.py is a dev-only mock, never run here
-CMD ["sh", "-c", "test -f $CAMPUS_DB || python seed/seed.py 2>/dev/null || true; uvicorn api.main:app --host 0.0.0.0 --port 8000"]
+# pilot_data.py is a dev-only mock, never run here.
+# The seed failure used to be hidden by `2>/dev/null || true`, so a broken
+# seed started uvicorn against an empty DB with no indication why. `exec`
+# also makes uvicorn PID 1 so it receives SIGTERM from docker stop.
+CMD ["sh", "-c", "if [ ! -f \"$CAMPUS_DB\" ]; then python seed/seed.py || echo 'WARNING: seed failed (see above) - starting with an empty DB'; fi; exec uvicorn api.main:app --host 0.0.0.0 --port 8000"]

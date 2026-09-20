@@ -8,6 +8,7 @@ from __future__ import annotations
 import datetime
 import hashlib
 import json
+import logging
 import sqlite3
 import threading
 from pathlib import Path
@@ -539,8 +540,26 @@ def get_digest() -> dict:
 
 
 # ── sync trigger (background) ───────────────────────────────────────────
+# Guarded because each call spawns a daemon thread: without this, N clicks (or
+# a scripted loop) start N SyncEngines against the same SQLite file, racing on
+# a 5s busy timeout and duplicating API/LLM work. The lock makes check-and-set
+# atomic, which the bare flag was not (these run in FastAPI's threadpool).
+_sync_lock = threading.Lock()
+_sync_in_progress = False
+
+
 def trigger_sync(course_id: int | None = None) -> dict:
+    global _sync_in_progress
+    with _sync_lock:
+        if _sync_in_progress:
+            return {"run_id": 0, "status": "in_progress",
+                    "message": "Sync already running"}
+        _sync_in_progress = True
+
     def _run() -> None:
+        global _sync_in_progress
+        db = None
+        client = None
         try:
             from sync.d2l import D2LClient, D2LAuthError
             from sync.sync import SyncEngine
@@ -566,29 +585,46 @@ def trigger_sync(course_id: int | None = None) -> dict:
             except D2LAuthError:
                 print("[sync] token expired mid-sync — auto-reauthenticating...", flush=True)
                 from sync.auth import auth
-                auth(cfg)
+                auth(cfg, store)
+                # the retry builds a fresh client — close the old pool first or
+                # its connections leak
+                client.close()
                 store = TokenStore(cfg.token_dir, ttl=cfg.token_ttl, refresh_buffer=cfg.refresh_buffer)
                 client = D2LClient(cfg.base_url, store.load, on_auth_error=_do_auth)
                 engine = SyncEngine(cfg, db, client)
                 engine.run(code=code)
-            client.close()
-            db.close()
         except Exception:
-            pass
+            # This used to be a bare `pass` while the route still answered
+            # {"status": "started"}, so the UI showed a sync that had already
+            # died. Log it; the sync_runs row carries the failure detail.
+            logging.exception("[sync] background sync failed")
+        finally:
+            # Release the httpx pool and the SQLite connection on every path.
+            # The old code skipped both whenever engine.run() raised anything
+            # other than D2LAuthError.
+            if client is not None:
+                client.close()
+            if db is not None:
+                db.close()
+            _sync_in_progress = False
 
     threading.Thread(target=_run, daemon=True).start()
     return {"run_id": 0, "status": "started", "message": "sync running in background"}
 
 
 # ── auth ────────────────────────────────────────────────────────────────────
+_auth_lock = threading.Lock()
 _auth_in_progress = False
 
 
 def trigger_auth() -> dict:
     global _auth_in_progress
-    if _auth_in_progress:
-        return {"status": "in_progress", "message": "Auth already running — approve Duo push"}
-    _auth_in_progress = True
+    # Atomic check-and-set: the bare flag raced in the threadpool, so two
+    # concurrent POSTs could both start a login (two Duo pushes).
+    with _auth_lock:
+        if _auth_in_progress:
+            return {"status": "in_progress", "message": "Auth already running — approve Duo push"}
+        _auth_in_progress = True
 
     def _run() -> None:
         global _auth_in_progress

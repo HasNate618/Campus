@@ -20,6 +20,7 @@ import time
 from pathlib import Path
 
 from sync.config import Config
+from sync.token_store import write_secret
 
 
 def _log(msg: str) -> None:
@@ -169,6 +170,19 @@ def _extract_cookie_token(context, base_url: str) -> str | None:
     return "cookie:" + "; ".join(f"{c['name']}={c['value']}" for c in relevant)
 
 
+def _save_storage_state(context, path: Path) -> None:
+    """Persist the browser storage state with 0600.
+
+    This file holds cookies *and* localStorage, which is where the Bearer
+    token (D2L.Fetch.Tokens) is kept — so it is as sensitive as token.json.
+    Playwright's storage_state(path=...) writes it with the process umask
+    (0644 by default), which left an MFA-satisfying session world-readable on
+    any multi-user host. Requesting the state as a dict and writing it
+    ourselves keeps it consistent with the other secret files.
+    """
+    write_secret(path, json.dumps(context.storage_state()))
+
+
 def _save_session_cookies(context, cfg: Config) -> None:
     """Persist the browser session cookies (d2lSessionVal etc.) to a sidecar
     so the /api/proxy can fetch Brightspace-hosted images — enforced-content
@@ -183,8 +197,8 @@ def _save_session_cookies(context, cfg: Config) -> None:
         if not keep:
             return
         path = cfg.token_dir / "cookies.json"
-        path.write_text(json.dumps({"captured_at": int(time.time()),
-                                    "cookies": keep}))
+        write_secret(path, json.dumps({"captured_at": int(time.time()),
+                                       "cookies": keep}))
         _log(f"Saved {len(keep)} session cookies for content proxy")
     except Exception as e:
         _log(f"Cookie capture failed: {e}")
@@ -215,7 +229,7 @@ def auth(cfg: Config, store) -> bool:
     cfg.browser_profile_dir.mkdir(parents=True, exist_ok=True)
     storage_path = cfg.browser_profile_dir / "storage-state.json"
     if not storage_path.exists():
-        storage_path.write_text("{}")  # fresh profile
+        write_secret(storage_path, "{}")  # fresh profile (0600)
 
     # versions for validation
     from sync.d2l import D2LClient
@@ -249,7 +263,7 @@ def auth(cfg: Config, store) -> bool:
                 _log("Extracted valid Bearer token from localStorage")
                 store.save(store.build(token, source="browser"))
                 _save_session_cookies(context, cfg)
-                context.storage_state(path=str(storage_path))
+                _save_storage_state(context, storage_path)
                 return True
 
             # nudge: hit API endpoint, re-check localStorage
@@ -261,7 +275,7 @@ def auth(cfg: Config, store) -> bool:
                     _log("Extracted valid Bearer token after API nudge")
                     store.save(store.build(token, source="browser"))
                     _save_session_cookies(context, cfg)
-                    context.storage_state(path=str(storage_path))
+                    _save_storage_state(context, storage_path)
                     return True
             except Exception:
                 pass
