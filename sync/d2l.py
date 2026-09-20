@@ -132,7 +132,12 @@ class D2LClient:
                     return self._request(method, path, fresh, raw=raw, is_retry=True)
             raise D2LAuthError(f"401 on {path} and no fresh token — re-auth")
         if r.status_code == 429:
-            retry_after = float(r.headers.get("retry-after", "5"))
+            # Retry-After may be an HTTP-date (RFC-permitted, emitted by some
+            # CDNs) rather than a delta-seconds value.
+            try:
+                retry_after = float(r.headers.get("retry-after", "5"))
+            except ValueError:
+                retry_after = 5.0
             if not is_retry and retry_after < 30:
                 print(f"  [d2l] 429 on {path} — retrying in {retry_after}s...", flush=True)
                 time.sleep(retry_after)
@@ -146,6 +151,20 @@ class D2LClient:
             print(f"  [d2l] {r.status_code} {method} {path}", flush=True)
         r.raise_for_status()
         if raw:
+            # An expired session redirects the download to the login page,
+            # which answers HTTP 200 with an HTML body — and callers write
+            # `resp.content` straight to disk, so the login page was saved as
+            # the course's .pdf/.pptx (silent corruption, no error anywhere).
+            #
+            # Redirects stay enabled on purpose: D2L legitimately redirects
+            # file downloads to a CDN. Detect the login landing instead — the
+            # same heuristic the /api/proxy route uses. Only file-download
+            # endpoints call get_raw, and their paths carry no user text, so
+            # this cannot reject a legitimate download.
+            if "login" in str(r.url).lower():
+                raise D2LAuthError(
+                    f"Download of {path} landed on a login page — session "
+                    f"expired; re-run `python -m sync.auth`")
             return r
         return r.json()
 
