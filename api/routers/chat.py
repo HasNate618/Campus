@@ -285,36 +285,30 @@ def put_session(sid: int, body: SessionUpdate):
         row = db.conn.execute("SELECT id FROM chat_sessions WHERE id=?", (sid,)).fetchone()
         if not row:
             raise HTTPException(404, "session not found")
-        new_tree = json.dumps({"nodes": body.nodes or [], "activeNodeId": body.activeNodeId},
-                              default=str)
+        # One static statement — no SQL is built from strings. The CASE flags
+        # carry the "was this field present?" decision that model_fields_set
+        # makes, so an omitted field leaves its column untouched while an
+        # explicitly-sent null still clears `model` (COALESCE alone could not
+        # distinguish the two).
+        write_nodes = "nodes" in body.model_fields_set and body.nodes is not None
+        write_model = "model" in body.model_fields_set
         ts = body.updatedAt / 1000 if body.updatedAt else None
-        # model: explicit null must clear (inherit), omitted keeps old —
-        # distinguish via model_fields_set (COALESCE would prevent clearing).
-        model_in = "model" in body.model_fields_set
-        if ts is not None:
-            if model_in:
-                db.conn.execute(
-                    "UPDATE chat_sessions SET title=COALESCE(?, title), nodes_json=?, "
-                    "model=?, "
-                    "updated_at=datetime(?, 'unixepoch') WHERE id=?",
-                    (body.title, new_tree, body.model, ts, sid))
-            else:
-                db.conn.execute(
-                    "UPDATE chat_sessions SET title=COALESCE(?, title), nodes_json=?, "
-                    "updated_at=datetime(?, 'unixepoch') WHERE id=?",
-                    (body.title, new_tree, ts, sid))
-        else:
-            if model_in:
-                db.conn.execute(
-                    "UPDATE chat_sessions SET title=COALESCE(?, title), nodes_json=?, "
-                    "model=?, "
-                    "updated_at=datetime('now') WHERE id=?",
-                    (body.title, new_tree, body.model, sid))
-            else:
-                db.conn.execute(
-                    "UPDATE chat_sessions SET title=COALESCE(?, title), nodes_json=?, "
-                    "updated_at=datetime('now') WHERE id=?",
-                    (body.title, new_tree, sid))
+        db.conn.execute(
+            "UPDATE chat_sessions SET "
+            "  title = COALESCE(?, title), "
+            "  nodes_json = CASE WHEN ? THEN ? ELSE nodes_json END, "
+            "  model = CASE WHEN ? THEN ? ELSE model END, "
+            "  updated_at = CASE WHEN ? THEN datetime(?, 'unixepoch') ELSE datetime('now') END "
+            "WHERE id=?",
+            (body.title,
+             int(write_nodes),
+             json.dumps({"nodes": body.nodes, "activeNodeId": body.activeNodeId},
+                        default=str) if write_nodes else None,
+             int(write_model),
+             body.model,
+             int(ts is not None),
+             ts,
+             sid))
         db.conn.commit()
         return {"ok": True, "id": sid}
     finally:
