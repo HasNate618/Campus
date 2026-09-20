@@ -17,7 +17,12 @@ let mermaidPromise: Promise<typeof import('mermaid').default> | null = null
 function loadMermaid() {
   if (!mermaidPromise) {
     mermaidPromise = import('mermaid').then((m) => {
-      m.default.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' })
+      // 'strict' is required: with 'loose' a diagram's `click` directive can
+      // emit a live javascript: href into the anchor (verified against a
+      // rendered diagram). Labelled nodes still render — the only losses are
+      // click interactivity and inline HTML formatting inside labels
+      // (a <br/> shows literally).
+      m.default.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' })
       return m.default
     })
   }

@@ -1,4 +1,5 @@
 import { marked, type Tokens } from 'marked'
+import DOMPurify from 'dompurify'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 
@@ -156,7 +157,32 @@ function balanceFences(md: string): string {
   return md
 }
 
+/**
+ * Sanitizer config for rendered markdown.
+ *
+ * marked passes raw HTML through verbatim, and markdown rendered here can
+ * originate from model output, synced Brightspace files, announcements or the
+ * workspace — all attacker-influenceable. Without this pass an
+ * `<img src=x onerror=...>` in any of those runs in the app origin, where it
+ * can reach the session cookie and every API route.
+ *
+ * ADD_TAGS/ADD_ATTR keep our own generated markup: renderCitations() emits
+ * <button data-cite-id>, and DOMPurify drops all data-* once
+ * ALLOW_DATA_ATTR is off. KaTeX's inline styles, MathML, footnote anchors
+ * (id/href) and highlight.js classes survive the defaults — verified against
+ * real KaTeX/marked output.
+ */
+const SANITIZE_CONFIG = {
+  ADD_TAGS: ['button'],
+  ADD_ATTR: ['data-cite-id'],
+  ALLOW_DATA_ATTR: false,
+  // No markdown construct needs form controls, and a model-authored <form> is
+  // a credential-phishing surface rather than content.
+  FORBID_TAGS: ['form', 'input', 'select', 'textarea', 'option'],
+}
+
 export function parseMarkdown(content: string, citations?: Record<number, CitationMeta>): string {
   const body = renderCitations(content ?? '', citations)
-  return (marked.parse(balanceFences(renderFootnotes(body))) as string) || ''
+  const html = (marked.parse(balanceFences(renderFootnotes(body))) as string) || ''
+  return DOMPurify.sanitize(html, SANITIZE_CONFIG)
 }

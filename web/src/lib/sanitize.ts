@@ -24,7 +24,11 @@ const ALLOWED_ATTRS = new Set([
 function safeUrl(value: string): string | null {
   const v = value.trim()
   if (!v) return null
-  if (v.startsWith('#') || v.startsWith('/')) return v
+  if (v.startsWith('#')) return v
+  // A single leading "/" is a same-origin path, but "//host" is a
+  // protocol-relative URL that navigates off-origin, and browsers normalise a
+  // leading "/\" the same way. Neither may be classified as internal.
+  if (v.startsWith('/') && !v.startsWith('//') && !v.startsWith('/\\')) return v
   try {
     const u = new URL(v)
     if (u.protocol === 'http:' || u.protocol === 'https:' || u.protocol === 'mailto:') return v
