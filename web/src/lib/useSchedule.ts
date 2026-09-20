@@ -17,6 +17,13 @@ function fetchSchedule(): Promise<ScheduleCourse[]> {
 			.then((data) => {
 				lastSchedule = data;
 				return data;
+			})
+			.catch((err) => {
+				// Never cache the rejection: a single failed request would
+				// otherwise stick for the whole session, leaving the page on
+				// "Couldn't load your schedule" with no way to retry.
+				schedulePromise = null;
+				throw err;
 			});
 	}
 	return schedulePromise;

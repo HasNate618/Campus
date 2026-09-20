@@ -938,11 +938,20 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 	}, [historyOpen, pickerOpen, modelOpen]);
 
 	// Workspace "Ask AI" button → prefilled prompt lands here and sends
+	// `send` is rebuilt whenever `sessions` changes, so this listener must not
+	// close over it directly: with deps [courseId] it held a snapshot from
+	// whenever the course last changed, so history silently omitted recent
+	// turns — or started a new chat when the snapshot had no session yet.
+	const sendRef = useRef(send);
+	useEffect(() => {
+		sendRef.current = send;
+	});
+
 	useEffect(() => {
 		const h = (e: Event) => {
 			const detail = (e as CustomEvent).detail as { text?: string } | undefined;
 			const text = detail?.text;
-			if (text && send(courseId, text)) {
+			if (text && sendRef.current(courseId, text)) {
 				setInput("");
 				resetInputHeight();
 			}

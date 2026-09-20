@@ -1062,9 +1062,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 								steps,
 							}));
 						} else {
-							const id = makeUuid();
+							// Record the id: without this, .finally() below still sees
+							// assistantId === null and appends a SECOND error node under
+							// the same parent, so one failed turn rendered as two ⚠
+							// bubbles with bogus v1/v2 branch chips.
+							assistantId = makeUuid();
 							appendNode(sid, {
-								id,
+								id: assistantId,
 								parentId: userNodeId,
 								children: [],
 								role: "assistant",
@@ -1074,7 +1078,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 								steps,
 								createdAt: Date.now(),
 							});
-							setActiveNode(sid, id);
+							setActiveNode(sid, assistantId);
 						}
 					}
 				},
@@ -1116,9 +1120,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 							steps,
 						}));
 					} else {
-						const eid = makeUuid();
+						// see the stream-error branch above: recording the id prevents
+						// .finally() from appending a duplicate error node
+						assistantId = makeUuid();
 						appendNode(sid, {
-							id: eid,
+							id: assistantId,
 							parentId: userNodeId,
 							children: [],
 							role: "assistant",
@@ -1128,7 +1134,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 							steps,
 							createdAt: Date.now(),
 						});
-						setActiveNode(sid, eid);
+						setActiveNode(sid, assistantId);
 					}
 				})
 				.finally(() => {
@@ -1280,10 +1286,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			const parentId = target.parentId;
 			const userNode = session.nodes.find((n) => n.id === parentId);
 			if (!userNode) return;
-			const history = pathFor(session)
+			// History is everything BEFORE the user message being re-sent. The
+			// previous version filtered only parentId out of the full active path,
+			// so the answer being regenerated — and every turn after it — was still
+			// sent to the model. That biased the new answer toward the old one,
+			// inflated tokens, and leaked other branches' context.
+			const path = pathFor(session);
+			const cutAt = path.findIndex((n) => n.id === parentId);
+			const history = (cutAt >= 0 ? path.slice(0, cutAt) : path)
 				.filter(
 					(n) =>
-						n.id !== parentId &&
 						n.role !== "tool" &&
 						!(n.role === "assistant" && n.intermediate),
 				)
