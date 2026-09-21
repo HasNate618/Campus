@@ -262,8 +262,10 @@ def parse_pages(spec: object) -> tuple[int, int]:
     m = _PAGES_SPEC_RE.match(str(spec if spec is not None else ""))
     if not m:
         raise ValueError("pages must be 'N' or 'N-M' (e.g. '57' or '57-60')")
-    start = int(m.group(1))
-    end = int(m.group(2)) if m.group(2) else start
+    # _coerce_int does the conversion inside its own try: this function's
+    # contract is that it raises ValueError and nothing else.
+    start = _coerce_int(m.group(1), -1)
+    end = _coerce_int(m.group(2), start)
     if start < 1:
         raise ValueError("page numbers start at 1")
     if end < start:
@@ -429,6 +431,34 @@ def content_read_file(db: DB, cfg: Config, args: dict) -> dict:
     return result
 
 
+def _scan_without_rg(search_dir: Path, query: str) -> list[str]:
+    """Filesystem fallback for when ripgrep is not installed (the container
+    ships `rg`; a bare dev box may not).
+
+    Kept out of content_grep's except block so the handler stays a handler —
+    the filename filter is logic, not error handling. Unreadable files are
+    skipped rather than aborting the whole search: one permission error used
+    to escape content_grep entirely, because read_text sat bare inside the
+    fallback with nothing guarding it.
+    """
+    needle = query.lower()
+    out: list[str] = []
+    try:
+        candidates = sorted(search_dir.rglob("*"))
+    except OSError:
+        return out
+    for p in candidates:
+        if p.suffix.lower() not in (".md", ".txt"):
+            continue
+        try:
+            text = p.read_text(errors="ignore")
+        except OSError:
+            continue
+        if needle in text.lower():
+            out.append(f"{p}: (matched)")
+    return out
+
+
 def content_grep(db: DB, cfg: Config, args: dict) -> dict:
     """Case-insensitive regex grep over DOWNLOADED FILES on disk (content/,
     Assignments/, notes/) AND module descriptions (content_nodes.description,
@@ -453,10 +483,7 @@ def content_grep(db: DB, cfg: Config, args: dict) -> dict:
         )
         lines = out.stdout.splitlines()[:40]
     except FileNotFoundError:
-        lines = []
-        for p in sorted(search_dir.rglob("*")):
-            if p.suffix.lower() in (".md", ".txt") and query.lower() in p.read_text(errors="ignore").lower():
-                lines.append(f"{p}: (matched)")
+        lines = _scan_without_rg(search_dir, query)
     matches = []
     # cache page indices per file to avoid re-reading
     _page_cache: dict[str, list] = {}
@@ -472,7 +499,11 @@ def content_grep(db: DB, cfg: Config, args: dict) -> dict:
             if len(parts) == 2 and parts[0].strip().isdigit():
                 line_no = int(parts[0].strip())
                 content_part = parts[1]
-            match = {"path": rel, "snippet": content_part.strip()[:200]}
+            # Heterogeneous payload: path/snippet are str, page is an int page
+            # number. A bare `dict` says so and matches this file's style
+            # (`params: list`) — inferring dict[str, str] here is what made the
+            # integer page assignment a type error.
+            match: dict = {"path": rel, "snippet": content_part.strip()[:200]}
             # add page number if we have a line number and the file has page markers
             if line_no is not None and rel.endswith(".md"):
                 try:
@@ -525,8 +556,11 @@ def mutate_update_assignment(db: DB, cfg: Config, args: dict) -> dict:
     if not args.get("id"):
         return {"error": "id is required — get it from harness_list_assignments (titles are not unique)"}
     course_id = _require_course(db, args.get("course"))
+    aid = _coerce_int(args.get("id"), -1)
+    if aid < 0:
+        return {"error": "id must be a number — get it from harness_list_assignments"}
     q = "SELECT * FROM assignments WHERE id=?"
-    params: list = [int(args["id"])]
+    params: list = [aid]
     if course_id:
         q += " AND course_id=?"; params.append(course_id)
     row = db.conn.execute(q + " LIMIT 1", params).fetchone()
@@ -554,11 +588,15 @@ def mutate_add_fact(db: DB, cfg: Config, args: dict) -> dict:
     if category not in allowed:
         category = "general"
     import datetime
+    try:
+        confidence = float(args.get("confidence", 0.7))
+    except (TypeError, ValueError):
+        confidence = 0.7          # model sent junk; keep the documented default
     cur = db.conn.execute(
         """INSERT INTO memory_facts (course_id, fact, category, confidence, source)
            VALUES (?,?,?,?,?)""",
         (course_id, args.get("fact", ""), category,
-         float(args.get("confidence", 0.7)), f"chat:{datetime.date.today().isoformat()}"),
+         confidence, f"chat:{datetime.date.today().isoformat()}"),
     )
     db.audit("ai", "memory_facts", cur.lastrowid, "create", {"fact": args.get("fact"), "category": category})
     db.conn.commit()
@@ -697,7 +735,10 @@ def quiz_grade(db: DB, cfg: Config, args: dict) -> dict:
         "UPDATE quiz_attempts SET user_answer=?, grade=?, feedback=?, graded_at=datetime('now') "
         "WHERE id=?",
         (answer, grade, feedback, row["id"]))
-    remaining = json.loads(row["selection_json"] or "[]")
+    try:
+        remaining = json.loads(row["selection_json"] or "[]")
+    except (TypeError, ValueError):
+        remaining = []            # a corrupt blob must not crash grading
     if not remaining:
         graded = db.conn.execute(
             "SELECT grade FROM quiz_attempts WHERE quiz_id=?", (row["quiz_id"],)).fetchall()
@@ -850,7 +891,8 @@ def terminal_run(db: DB, cfg: Config, args: dict) -> dict:
     if not wd.exists():
         return {"error": f"workdir does not exist: {workdir}"}
 
-    timeout = min(int(args.get("timeout_s", TERMINAL_DEFAULT_TIMEOUT)), TERMINAL_MAX_TIMEOUT)
+    timeout = min(_coerce_int(args.get("timeout_s"), TERMINAL_DEFAULT_TIMEOUT),
+                   TERMINAL_MAX_TIMEOUT)
     try:
         p = _sp.run(cmd, shell=True, cwd=wd, capture_output=True, text=True, timeout=timeout)
         out = (p.stdout or "") + (("\n[stderr]\n" + p.stderr) if p.stderr else "")
