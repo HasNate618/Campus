@@ -92,6 +92,7 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
         raise RuntimeError("no LLM endpoint configured")
     headers = {**llm_headers(cfg), **llm_session_headers(session_id)}
     last_err: Exception | None = None
+    _normalize_messages(messages)
     for url in endpoints:
         try:
             with httpx.stream(
@@ -295,12 +296,38 @@ def generate_session_title(db, cfg, session_id: int | None, model: str | None,
 _TOOL_RESULT_CAPS = {"course_map": 12000}
 
 
-def truncate_result(name: str, result: dict) -> str | dict:
+def truncate_result(name: str, result) -> str:
     """Per-tool history cap: course_map is the orienting call — cutting it
-    mid-row costs more calls later. Errors pass through untouched."""
-    if not isinstance(result, dict) or result.get("error"):
+    mid-row costs more calls later. Errors are never truncated, but the return
+    is ALWAYS a string: a `tool` message whose content is a dict is rejected by
+    the gateway with a local 400 ("Invalid request payload") before any
+    upstream call, which kills the entire turn.
+    """
+    if isinstance(result, str):
         return result
+    if not isinstance(result, dict):
+        return json.dumps(result, default=str)
+    if result.get("error"):
+        return json.dumps(result, default=str)  # full error text, still a string
     return json.dumps(result, default=str)[:_TOOL_RESULT_CAPS.get(name, 6000)]
+
+
+def _normalize_messages(messages: list[dict]) -> list[dict]:
+    """Last line of defence before a request goes out.
+
+    A message `content` must be a string or a list of typed parts. Dicts and
+    other scalars are silently accepted by our own code but rejected by the
+    gateway's envelope validation with a body-less 400, so coerce here rather
+    than lose a turn. History from the browser is untrusted too.
+    """
+    for m in messages:
+        if not isinstance(m, dict):
+            continue
+        c = m.get("content")
+        if c is None or isinstance(c, (str, list)):
+            continue
+        m["content"] = json.dumps(c, default=str)
+    return messages
 
 
 def _sanitize_history(history: list[dict]) -> list[dict]:
@@ -451,10 +478,13 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
             result = citations.annotate_result(name, result, new_cites)
             if emit:
                 emit("tool_end", {"tool": name, "result": result})
+            content = truncate_result(name, result)
+            if not isinstance(content, str):  # belt and braces
+                content = json.dumps(content, default=str)
             messages.append({
                 "role": "tool",
                 "tool_call_id": tc["id"],
-                "content": truncate_result(name, result),
+                "content": content,
             })
 
     answer = "(stopped: tool-call iteration limit reached)"
