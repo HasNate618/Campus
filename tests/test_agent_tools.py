@@ -223,3 +223,84 @@ def test_garbage_offset_and_limit_fall_back_instead_of_raising(
                           {"path": rel, "offset": "abc", "limit": []})
     assert "error" not in r and r["offset"] == 0
     assert len(r["content"].splitlines()) <= 200   # limit fell back to 200
+
+
+# ---------------------------------------------------------------------------
+# Path-miss recovery (plan 2026-09-21, Task 5).
+#
+# `files` is empty after the conftest seed (seed.seed inserts no file rows), so
+# these can assert exact lists instead of membership. Verified against the live
+# corpus too: files.path is data_root-relative (the schema's "relative to course
+# dir" comment is stale), and the basename from session 107's real miss matches
+# 2 rows — Notes-2025/ sorts first, Units/ is the known duplicate copy.
+#
+# The plan's single combined test is split here: basename match and the
+# space-stripped fallback are two different code paths and two behaviors.
+# ---------------------------------------------------------------------------
+
+
+def _seed_file(db, path: str) -> None:
+    db.conn.execute(
+        "INSERT INTO files (path, kind, source) VALUES (?, 'slide', 'manual')",
+        (path,))
+    db.conn.commit()
+
+
+def test_suggest_paths_matches_the_real_hallucinated_path(page_db):
+    """Session 107's exact miss: wrong course-code spelling AND wrong directory,
+    while the real file's basename matched exactly."""
+    from pathlib import Path as P
+    from agent.tools import _suggest_paths
+
+    rel = "2026F/SE3316A/content/Notes-2025/webtech-2025-01-intro-html.md"
+    _seed_file(page_db, rel)
+    got = _suggest_paths(page_db,
+                         P("2026F/SE 3316A/content/Slides/"
+                           "webtech-2025-01-intro-html.md"))
+    assert got == [rel]
+
+
+def test_suggest_paths_falls_back_to_space_stripped_path(page_db):
+    from pathlib import Path as P
+    from agent.tools import _suggest_paths
+
+    rel = "2026F/SE3316A/content/Week 1 outline.md"
+    _seed_file(page_db, rel)
+    # basename differs entirely (spaces dropped) — only the space-stripped full
+    # path can recover this one
+    got = _suggest_paths(page_db, P("2026F/SE3316A/content/Week1outline.md"))
+    assert got == [rel]
+
+
+def test_suggest_paths_never_raises_when_the_table_is_gone(page_db):
+    """A suggestion failure must not mask the miss it was meant to explain."""
+    from pathlib import Path as P
+    from agent.tools import _suggest_paths
+
+    page_db.conn.execute("DROP TABLE files")
+    page_db.conn.commit()
+    assert _suggest_paths(page_db, P("2026F/SE3316A/content/deck.md")) == []
+
+
+def test_missing_file_read_suggests_a_real_path(tmp_path, page_cfg, page_db):
+    from agent.tools import content_read_file
+
+    _, rel = _deck(tmp_path)
+    _seed_file(page_db, rel)
+    r = content_read_file(page_db, page_cfg,
+                          {"path": "2026F/SE3316A/content/nope/deck.md"})
+    assert "error" in r and r.get("did_you_mean") == [rel]
+    assert r.get("note") == "use one of did_you_mean verbatim"
+    # no bogus citation is registered for a failed read (CitationRegistry
+    # skips any result carrying `error`)
+    assert "pageStart" not in r
+
+
+def test_missing_file_without_candidates_returns_a_plain_error(
+        tmp_path, page_cfg, page_db):
+    from agent.tools import content_read_file
+
+    _, _rel = _deck(tmp_path)
+    r = content_read_file(page_db, page_cfg,
+                          {"path": "2026F/SE3316A/content/nothing-here.md"})
+    assert "error" in r and "did_you_mean" not in r

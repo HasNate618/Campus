@@ -273,6 +273,36 @@ def parse_pages(spec: object) -> tuple[int, int]:
     return start, end
 
 
+def _suggest_paths(db: DB, requested: Path, limit: int = 3) -> list[str]:
+    """Near-miss paths for a failed read, so the model can recover in one step
+    instead of guessing again.
+
+    Basename first: session 107 spent two of its six rounds on
+    `2026F/SE 3316A/content/Slides/...` — wrong course-code spelling AND wrong
+    directory — while the real file's basename matched exactly. Then the whole
+    path with spaces stripped, because the corpus stores course codes without
+    them ('SE3316A', not 'SE 3316A').
+
+    Never raises: a suggestion failure must not mask the miss it was meant to
+    explain, so any error degrades to "no suggestions" rather than a second
+    exception stacked on top of the original one.
+    """
+    try:
+        base = requested.name
+        if base:
+            rows = db.conn.execute(
+                "SELECT path FROM files WHERE path LIKE ? ORDER BY path LIMIT ?",
+                (f"%/{base}", limit)).fetchall()
+            if rows:
+                return [r["path"] for r in rows]
+        rows = db.conn.execute(
+            "SELECT path FROM files WHERE replace(path,' ','') = ? LIMIT ?",
+            (str(requested).replace(" ", ""), limit)).fetchall()
+        return [r["path"] for r in rows]
+    except Exception:
+        return []
+
+
 def content_read_file(db: DB, cfg: Config, args: dict) -> dict:
     path = Path(args.get("path", ""))
     root = Path(cfg.data_root).resolve()
@@ -313,7 +343,12 @@ def content_read_file(db: DB, cfg: Config, args: dict) -> dict:
             full = sibling
             path = sibling.relative_to(root)
         elif not full.exists():
-            return {"error": f"file missing: {path}"}
+            err: dict = {"error": f"file missing: {path}"}
+            suggestions = _suggest_paths(db, path)
+            if suggestions:
+                err["did_you_mean"] = suggestions
+                err["note"] = "use one of did_you_mean verbatim"
+            return err
     if args.get("pages") is not None:
         from agent.citations import (
             bound_pages, lines_for_pages, page_at_line, pages_in_file, read_window)
