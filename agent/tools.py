@@ -11,6 +11,7 @@ Families per DESIGN.md:
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import re
 import subprocess
@@ -23,6 +24,12 @@ from sync.config import Config
 from sync.db import DB
 
 MAX_READ_BYTES = 200_000
+# Byte budget for one page-addressed read. Sized so a targeted page range is
+# always a single call, and so the largest document in the corpus (82 KB, ECE4436
+# Chapter 01) is fetchable in three calls — measured: pages 1-29, then 30-57,
+# then 58-73. rule 8's "ONE large call" promise holds for a page range, not for
+# a whole book.
+PAGE_READ_BUDGET = 32_000
 
 
 def _norm(code: str) -> str:
@@ -227,6 +234,43 @@ def content_list_files(db: DB, cfg: Config, args: dict) -> dict:
     return {"files": _rows_as_dicts(rows)}
 
 
+def _coerce_int(value: object, default: int) -> int:
+    """int() over model-supplied arguments, without ever raising out of a read.
+
+    Global Constraint: agent paths return {"error": ...}, they don't throw.
+    `"offset": null` and `"offset": "abc"` both reach here from the model, and
+    raw int() on either escaped as a failed tool call (findings.harness.md M8).
+    Nothing given (None) or not a recognised scalar keeps the default.
+    """
+    if isinstance(value, int):        # covers bool: True -> 1, False -> 0
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:           # model sent "abc"
+            return default
+    return default                    # None and every junk type
+
+
+_PAGES_SPEC_RE = re.compile(r"^\s*(\d+)\s*(?:-\s*(\d+))?\s*$")
+
+
+def parse_pages(spec: object) -> tuple[int, int]:
+    """'57' or '57-60' -> (57, 60). Raises ValueError with a message the model
+    can act on. Discrete sets ('57-59,62') are not supported by design: the
+    caller makes a second call instead."""
+    m = _PAGES_SPEC_RE.match(str(spec if spec is not None else ""))
+    if not m:
+        raise ValueError("pages must be 'N' or 'N-M' (e.g. '57' or '57-60')")
+    start = int(m.group(1))
+    end = int(m.group(2)) if m.group(2) else start
+    if start < 1:
+        raise ValueError("page numbers start at 1")
+    if end < start:
+        raise ValueError(f"page range {start}-{end} is inverted")
+    return start, end
+
+
 def content_read_file(db: DB, cfg: Config, args: dict) -> dict:
     path = Path(args.get("path", ""))
     root = Path(cfg.data_root).resolve()
@@ -235,7 +279,10 @@ def content_read_file(db: DB, cfg: Config, args: dict) -> dict:
     # on disk. Resolve them here so the model can read the full page after
     # a search hit ("I can't open overview/1892" was the original dead end).
     if str(path).startswith("overview/"):
-        nid = int(str(path).split("/")[1])
+        parts = str(path).split("/")
+        nid = _coerce_int(parts[1], -1) if len(parts) > 1 else -1
+        if nid < 0:
+            return {"error": f"bad overview ref: {path}"}
         row = db.conn.execute(
             "SELECT course_id, title, description FROM content_nodes WHERE id=?",
             (nid,)).fetchone()
@@ -247,8 +294,8 @@ def content_read_file(db: DB, cfg: Config, args: dict) -> dict:
         text = f"# {row['title']}\n\n{desc}"
         lines = text.splitlines()
         total = len(lines)
-        offset = max(int(args.get("offset", 0)), 0)
-        limit = min(int(args.get("limit", 200)), 1000)
+        offset = max(_coerce_int(args.get("offset"), 0), 0)
+        limit = min(_coerce_int(args.get("limit"), 200), 1000)
         chunk = "\n".join(lines[offset:offset + limit])
         note = (f"lines {offset}-{min(offset + limit, total)} of {total} "
                 f"(module description, HTML-stripped); use offset/limit to page")
@@ -265,27 +312,120 @@ def content_read_file(db: DB, cfg: Config, args: dict) -> dict:
             path = sibling.relative_to(root)
         elif not full.exists():
             return {"error": f"file missing: {path}"}
-    text = full.read_bytes()[:MAX_READ_BYTES].decode("utf-8", errors="replace")
-    lines = text.splitlines()
-    total = len(lines)
-    offset = max(int(args.get("offset", 0)), 0)
-    limit = min(int(args.get("limit", 200)), 1000)
-    chunk = "\n".join(lines[offset:offset + limit])
-    # extract page number from <!-- page N --> markers
+    if args.get("pages") is not None:
+        from agent.citations import (
+            bound_pages, lines_for_pages, page_at_line, pages_in_file, read_window)
+        try:
+            start, end = parse_pages(args.get("pages"))
+        except ValueError as e:
+            return {"error": str(e)}
+        # Pass 1: index the whole file (limit=0 keeps the window empty while
+        # read_window still counts every line and collects every marker).
+        try:
+            with open(full, "r", encoding="utf-8", errors="replace") as fh:
+                _, total, page_idx = read_window(fh, 0, 0)
+        except OSError:
+            return {"error": f"file missing: {path}"}
+        available = pages_in_file(page_idx)
+        if available is None:
+            return {"error": ("this file has no page markers, so pages= is "
+                              "unavailable; use offset/limit instead"),
+                    "pagesInFile": None}
+        if start > available:
+            return {"error": (f"page {start} does not exist — this file has "
+                              f"{available} pages"),
+                    "pagesInFile": available}
+        # Clamp an over-wide range BEFORE resolving it. Without this, "70-99" on
+        # a 74-page deck resolves to EOF, delivers pages 70-74, and then claims
+        # "budget reached — continue with 75-99": a lie that sends the model
+        # after pages that do not exist.
+        end = min(end, available)
+        span = lines_for_pages(page_idx, start, end, total)
+        if span is None:
+            return {"error": f"page {start} is not present in this file",
+                    "pagesInFile": available}
+        first, last = span
+        # Pass 2: fetch only the requested span.
+        try:
+            with open(full, "r", encoding="utf-8", errors="replace") as fh:
+                window, _, _ = read_window(fh, first, last - first)
+        except OSError:
+            return {"error": f"file missing: {path}"}
+        kept, _ = bound_pages(window, PAGE_READ_BUDGET)
+        # `complete` is the honest signal for "did we drop part of the span": it
+        # catches a page-boundary cut AND a first page that is itself larger than
+        # the budget (which page-count arithmetic cannot see).
+        complete = len(kept) == len(window)
+        # Last delivered page comes from the index, not from block arithmetic —
+        # block counts only equal page numbers when numbering is contiguous.
+        delivered = (page_at_line(page_idx, first + len(kept) - 1)
+                     if kept else start)
+        note = (f"pages {start}-{delivered} of {available} "
+                f"(lines {first}-{first + len(kept)})")
+        if not complete:
+            note += (f"; byte budget reached — continue with "
+                     f"pages: \"{delivered + 1}-{end}\"")
+            if delivered == start:
+                note += ("; this page alone exceeds the byte budget — use "
+                         "offset/limit to page within it")
+        else:
+            note += f"; requested {start}-{end}"
+        # Page fields lead the dict: the cross-turn digest stores a PREFIX of the
+        # serialized result, so anything after `content` never reaches the next
+        # turn. currentPage mirrors the offset path and stops a range read from
+        # being cited as its LAST page.
+        return {"path": str(path), "pageStart": start, "pageEnd": delivered,
+                "pagesInFile": available, "currentPage": start,
+                "offset": first, "total_lines": total,
+                "truncated": not complete, "note": note,
+                "content": "\n".join(kept)}
+    # Explicit null is not the same as absent, and model-supplied junk is neither:
+    # `args.get("offset", 0)` returns None for `"offset": null`, and int("abc")
+    # raises — both escaped as failed tool calls (findings.harness.md M8). Coerce
+    # instead of parsing.
+    offset = max(_coerce_int(args.get("offset"), 0), 0)
+    limit = min(_coerce_int(args.get("limit"), 200), 1000)
+    # One streaming pass over the file. Slicing the first MAX_READ_BYTES and
+    # splitting that made total_lines describe only the part that had been
+    # read, so a large transcript looked like it ended at ~line 4000 and the
+    # model could never page past it. Streaming keeps memory flat while
+    # counting every line and collecting page markers for the whole file.
+    page_idx: list[tuple[int, int]] = [(0, 1)]
+    # Imported OUTSIDE the try: an import bound only inside it leaves every name
+    # possibly-unbound for the `pages_in_file(page_idx)` call below the except.
+    from agent.citations import page_at_line, pages_in_file, read_window
+    try:
+        with open(full, "r", encoding="utf-8", errors="replace") as fh:
+            window, total, page_idx = read_window(fh, offset, limit)
+        current_page = page_at_line(page_idx, offset)
+    except Exception:
+        # Existing body, unchanged — a read must never fail because citation
+        # bookkeeping did.
+        text = full.read_bytes()[:MAX_READ_BYTES].decode("utf-8", errors="replace")
+        all_lines = text.splitlines()
+        total = len(all_lines)
+        window = all_lines[offset:offset + limit]
+        current_page = None
+    chunk = "\n".join(window)
+    truncated = len(chunk) > MAX_READ_BYTES
+    if truncated:
+        # windowing bounds the line count, not the bytes — one enormous line
+        # can still blow past the read budget
+        chunk = chunk[:MAX_READ_BYTES]
+    available = pages_in_file(page_idx)
     result = {"path": str(path), "content": chunk,
               "offset": offset, "total_lines": total}
-    try:
-        from agent.citations import build_page_index, page_at_line
-        page_idx = build_page_index(lines)
-        if page_idx:
-            result["currentPage"] = page_at_line(page_idx, offset)
-    except Exception:
-        pass
+    if available:
+        result["pagesInFile"] = available
+    if current_page:
+        result["currentPage"] = current_page
+    if truncated:
+        result["truncated"] = True
     if offset >= total:
         result["note"] = f"offset {offset} is past the end — the file has {total} lines; read from offset 0"
     else:
-        end = min(offset + len(lines[offset:offset + limit]), total)
-        result["note"] = f"lines {offset}-{end} of {total}; use offset/limit to page further"
+        result["note"] = (f"lines {offset}-{offset + len(window)} of {total}; "
+                          f"use offset/limit to page further")
     return result
 
 
@@ -835,10 +975,11 @@ TOOLS = {
     ),
     "content_read_file": _tool(
         "content_read_file",
-        "Read a text/markdown file from the synced corpus. Path is relative to data_root (e.g. '2026F/CS1100A/content/Course Overview/CS1100 2026 outline.md'). Use offset/limit to page through long files (default 200 lines, max 1000). Binary files (.pdf/.doc attachments) auto-fall-back to their extracted .md sibling when one exists; raw binaries return bytes (not useful). Extraction status: processed=1 means extraction was attempted, not that text exists — for a .pdf, prefer the .md sibling or course_map's extracted flag.",
+        "Read a text/markdown file from the synced corpus. Path is relative to data_root (e.g. '2026F/CS1100A/content/Course Overview/CS1100 2026 outline.md'). For lecture decks and PDF-derived files, address content by PAGE: pass pages=\"57\" or pages=\"57-60\". The result reports pagesInFile, pageStart/pageEnd, and — when the byte budget cuts a range — a note naming the exact pages to continue with. Use offset/limit (default 200 lines, max 1000) for files with no pages (no pagesInFile in the result). pages wins if both are given. Binary files (.pdf/.doc attachments) auto-fall-back to their extracted .md sibling when one exists; raw binaries return bytes (not useful). Extraction status: processed=1 means extraction was attempted, not that text exists — for a .pdf, prefer the .md sibling or course_map's extracted flag.",
         content_read_file,
         required=["path"],
         path={"type": "string"},
+        pages={"type": "string", "description": "page or range, e.g. '57' or '57-60'"},
         offset={"type": "integer", "description": "line offset"},
         limit={"type": "integer", "description": "max lines to return"},
     ),
