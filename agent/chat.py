@@ -158,6 +158,7 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
                      "function": {"name": e["name"], "arguments": e["arguments"]}}
                     for e in tool_calls.values()]
             return msg, usage
+        # pi-lens-ignore: no-boolean-in-except
         except (httpx.TransportError, httpx.TimeoutException, httpx.HTTPStatusError) as e:
             # Surface the upstream error body — a 400 often explains the cause
             # (malformed tool schema, unsupported field, …) and is invisible
