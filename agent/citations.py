@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -28,6 +29,30 @@ def page_at_line(index: list[tuple[int, int]], line: int) -> int:
             break
         page = pg
     return page
+
+
+def read_window(
+    lines: Iterable[str], offset: int, limit: int,
+) -> tuple[list[str], int, list[tuple[int, int]]]:
+    """Read lines[offset:offset+limit] from an iterator in a single pass.
+
+    Returns (window, total_lines, page_index). Callers can bound their memory
+    while still counting every line and collecting the page markers for the
+    whole file — slicing the text instead made total_lines describe only the
+    part that had been read, so a large file appeared to end early.
+    """
+    page_index: list[tuple[int, int]] = [(0, 1)]
+    window: list[str] = []
+    total = 0
+    for i, raw in enumerate(lines):
+        total = i + 1
+        line = raw.rstrip("\r\n")
+        m = PAGE_RE.search(line)
+        if m:
+            page_index.append((i, int(m.group(1))))
+        if offset <= i < offset + limit:
+            window.append(line)
+    return window, total, page_index
 
 
 def page_from_chunk_text(text: str) -> int | None:
