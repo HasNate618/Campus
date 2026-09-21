@@ -293,15 +293,38 @@ def generate_session_title(db, cfg, session_id: int | None, model: str | None,
         return None
 
 
-_TOOL_RESULT_CAPS = {"course_map": 12000}
+# content_read_file bounds itself on page boundaries (PAGE_READ_BUDGET in
+# agent/tools.py) and reports exactly which pages it delivered, so this cap only
+# needs headroom above that budget — it must never be the thing that cuts a read
+# mid-page. Everything else keeps the 6000 default.
+_TOOL_RESULT_CAPS = {"course_map": 12000, "content_read_file": 36000}
+
+# Fields that must survive truncation: `sources` carries the cite_ids the
+# system prompt requires the model to cite with. A plain slice of the
+# serialized JSON silently dropped it, because annotate_result appends it
+# last — so large results arrived both invalid and uncitable.
+_NEVER_TRUNCATE = ("sources", "error", "truncated", "note")
 
 
 def truncate_result(name: str, result) -> str:
-    """Per-tool history cap: course_map is the orienting call — cutting it
-    mid-row costs more calls later. Errors are never truncated, but the return
-    is ALWAYS a string: a `tool` message whose content is a dict is rejected by
-    the gateway with a local 400 ("Invalid request payload") before any
-    upstream call, which kills the entire turn.
+    """Bound a tool result for message history; ALWAYS returns a string.
+
+    A `tool` message whose content is a dict is rejected by the gateway with a
+    local 400 ("Invalid request payload") before any upstream call, which kills
+    the entire turn — so the error path returns full error text, still as a
+    string, and errors are never truncated.
+
+    The size bound shrinks the largest unprotected string FIELD instead of
+    slicing the serialized JSON: a plain slice produced invalid JSON and cut
+    `sources` off the end, leaving large results both unparseable and
+    uncitable.
+
+    For content_read_file the primary bounding lives in the TOOL: it delivers
+    whole pages up to PAGE_READ_BUDGET (32000 chars) and attaches a note naming
+    exactly which pages remain. That cap's 36000 entry exists so this function
+    has headroom over it and stays a BACKSTOP — if it ever fell to or below
+    PAGE_READ_BUDGET it would re-slice a page-bounded read mid-page and
+    silently return the model to the "I only got to page 54" failure.
     """
     if isinstance(result, str):
         return result
@@ -309,7 +332,34 @@ def truncate_result(name: str, result) -> str:
         return json.dumps(result, default=str)
     if result.get("error"):
         return json.dumps(result, default=str)  # full error text, still a string
-    return json.dumps(result, default=str)[:_TOOL_RESULT_CAPS.get(name, 6000)]
+
+    cap = _TOOL_RESULT_CAPS.get(name, 6000)
+    out = dict(result)
+    for _ in range(8):  # bounded: every pass strictly shrinks one field
+        text = json.dumps(out, default=str)
+        if len(text) <= cap:
+            return text
+        key = max(
+            (k for k, v in out.items() if isinstance(v, str) and k not in _NEVER_TRUNCATE),
+            key=lambda k: len(out[k]),
+            default=None,
+        )
+        if key is None:
+            break
+        # leave room for the marker plus the surrounding JSON
+        keep = len(out[key]) - (len(text) - cap) - 120
+        if keep >= len(out[key]):
+            break
+        omitted = len(out[key]) - max(keep, 0)
+        out[key] = out[key][:max(keep, 0)] + f"\n…[truncated, {omitted} chars omitted]"
+        out["truncated"] = True
+
+    # Last resort (many oversized fields): keep only what the model must have,
+    # and never drop the cite_ids.
+    minimal = {k: v for k, v in out.items() if k in _NEVER_TRUNCATE}
+    minimal.setdefault("truncated", True)
+    minimal["note"] = "result too large for history — bulk payload omitted"
+    return json.dumps(minimal, default=str)[:cap]
 
 
 def _normalize_messages(messages: list[dict]) -> list[dict]:

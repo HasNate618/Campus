@@ -845,3 +845,27 @@ def test_prompt_teaches_page_addressing(cfg, db):
     assert 'pages="' in prompt, "prompt must tell the model the pages= parameter exists"
     assert "pagesInFile" in prompt, "prompt must reference the discovery field"
     assert "up to 1000 lines" in prompt, "offset/limit guidance must stay truthful"
+
+
+def test_content_read_file_result_cap_exceeds_the_page_budget():
+    """Plan 2026-09-21 Task 4 — makes rule 8's promise true.
+
+    content_read_file now bounds itself on page boundaries (PAGE_READ_BUDGET in
+    agent/tools.py). If the history cap sat BELOW that budget it would re-cut a
+    page-bounded read mid-page and the whole feature would regress to the
+    page-54 failure this plan exists to fix.
+    """
+    from agent.chat import _TOOL_RESULT_CAPS, truncate_result
+    from agent.tools import PAGE_READ_BUDGET
+
+    cap = _TOOL_RESULT_CAPS["content_read_file"]
+    assert cap > PAGE_READ_BUDGET, "cap must not re-cut a page-bounded read"
+    # a maximal page-bounded read survives serialization intact
+    body = "x" * PAGE_READ_BUDGET
+    out = truncate_result("content_read_file",
+                          {"path": "a.md", "content": body,
+                           "note": "pages 1-74"})
+    assert body in out and "[truncated" not in out
+    # the codebase-wide default is unchanged for every other tool
+    assert _TOOL_RESULT_CAPS.get("course_map") == 12000
+    assert "content_grep" not in _TOOL_RESULT_CAPS
