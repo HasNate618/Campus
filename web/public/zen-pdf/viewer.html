@@ -271,9 +271,11 @@ input[type="range"] { accent-color: #4ade7f; }
     maxCachePages: 24,
     largeDocPages: 300,
     largeDocMaxDpr: 1.75,
-    smallDocThreshold: 150,
+    smallDocThreshold: 30,
+    placeholderPrefetchSpan: 40,
     maxRenderedPages: 50,
-    renderConcurrency: 3,
+    coreSpan: 2,
+    idleTaskTimeout: 1000,
   };
 
   const layout = {
@@ -348,6 +350,11 @@ input[type="range"] { accent-color: #4ade7f; }
   state.bookmarks = new Map();
   state.pagelessRasterZenDoc = false;
   state.svgImageZenCache = new Map();
+  state.renderInFlight = false;
+  state.renderPassId = 0;
+  state.activeRenderCenter = null;
+  state.pageSizesGeneration = 0;
+  state.layoutGeneration = 0;
 
   function clamp(v, min, max) {
     return Math.min(max, Math.max(min, v));
@@ -896,13 +903,20 @@ input[type="range"] { accent-color: #4ade7f; }
     const grid = document.getElementById('keybindsText');
     if (!grid || grid.dataset.compact === '1') return;
 
-    function keysToHtml(keyStr) {
-      return keyStr.split(/,\s+/).map(k => `<kbd class="keycap">${k.trim()}</kbd>`).join('');
-    }
-
-    // Apply keycap rendering to all .keybind-key divs already in the DOM
+    // Build the keycaps as real nodes instead of interpolating a string back
+    // into innerHTML: the labels are ours, but there is no reason to reparse
+    // markup for content we control.
     grid.querySelectorAll('.keybind-key').forEach(el => {
-      el.innerHTML = keysToHtml(el.textContent.trim());
+      const labels = el.textContent.trim().split(/,\s+/);
+      const frag = document.createDocumentFragment();
+      for (const label of labels) {
+        const kbd = document.createElement('kbd');
+        kbd.className = 'keycap';
+        kbd.textContent = label.trim();
+        frag.appendChild(kbd);
+      }
+      el.textContent = '';
+      el.appendChild(frag);
     });
     grid.dataset.compact = '1';
   }
@@ -1202,21 +1216,57 @@ input[type="range"] { accent-color: #4ade7f; }
     }
   }
 
+  // SVG conversion, font inlining and text-layer DOM work are all main-thread
+  // JS, so parallel workers cannot add throughput — they only delay the page
+  // the reader is actually looking at. Keep one render in flight and hand
+  // control back to the browser between pages instead.
   function getEffectiveRenderConcurrency() {
-    const cores = navigator.hardwareConcurrency || 4;
-    if (state.largeDoc) return 1;
-    if (cores <= 2) return 1;
-    if (cores <= 4) return 2;
-    return perf.renderConcurrency;
+    return 1;
   }
 
-  async function renderPagesWithPool(pageNumbers, token, onRendered, { forceRerender = false } = {}) {
+  function yieldToBrowser() {
+    return new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  // Fringe work waits for a quiet main thread. Without requestIdleCallback the
+  // browser still gets a turn via a plain yield, so the loop stays cooperative.
+  function waitForIdle(timeoutMs) {
+    return new Promise((resolve) => {
+      if (typeof requestIdleCallback === "function") {
+        requestIdleCallback(() => resolve(), { timeout: timeoutMs });
+        return;
+      }
+      setTimeout(resolve, 0);
+    });
+  }
+
+  let decorationChain = Promise.resolve();
+
+  // Text/annotation layers build one DOM node per text chunk, so they run one at
+  // a time after the page has already painted. A shell replaced while it sat in
+  // the queue has been superseded and is skipped rather than decorated.
+  function queueDecoration(shell, decorate) {
+    decorationChain = decorationChain.then(async () => {
+      if (!shell.isConnected) return;
+      await yieldToBrowser();
+      if (!shell.isConnected) return;
+      try {
+        await decorate();
+      } catch (err) {
+        console.error("Page text/annotation decoration failed.", err);
+      }
+    });
+  }
+
+  async function renderPagesWithPool(pageNumbers, token, onRendered, { forceRerender = false, idleBetween = false } = {}) {
     const concurrency = Math.min(getEffectiveRenderConcurrency(), pageNumbers.length);
     if (concurrency === 0) return;
+    const layoutGeneration = state.layoutGeneration;
     let nextIndex = 0;
 
     async function worker() {
       while (true) {
+        // A moved center stops this pass from starting more pages...
         if (token !== state.renderToken) return;
         const idx = nextIndex++;
         if (idx >= pageNumbers.length) return;
@@ -1225,13 +1275,35 @@ input[type="range"] { accent-color: #4ade7f; }
           touchRenderedPageMru(pageNo);
           continue;
         }
-        const pageNode = await renderPage(pageNo);
-        if (token !== state.renderToken) return;
-        await onRendered(pageNo, pageNode);
+        const result = await renderPage(pageNo);
+        // ...but a page that already finished is still valid when only the
+        // center moved. Only a scale/rotation/mode change invalidates it.
+        if (layoutGeneration !== state.layoutGeneration) return;
+        await onRendered(pageNo, result.shell);
+        if (result.decorate && layoutGeneration === state.layoutGeneration) {
+          queueDecoration(result.shell, result.decorate);
+        }
+        // Hand control back so scroll, input and paint are never starved.
+        await (idleBetween ? waitForIdle(perf.idleTaskTimeout) : yieldToBrowser());
       }
     }
 
     await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  }
+
+  // The reader only ever waits for the pages they are looking at, so paint a
+  // tight core around the center straight away and trickle the rest of the
+  // window in whenever the browser has spare time. A moved center drops the
+  // fringe entirely because the newer pass bumps the render token.
+  async function renderPositionFirst(order, token, onRendered, { forceRerender = false, afterCore = null } = {}) {
+    const coreSize = Math.min(order.length, perf.coreSpan * 2 + 1);
+    const core = order.slice(0, coreSize);
+    const fringe = order.slice(coreSize);
+
+    await renderPagesWithPool(core, token, onRendered, { forceRerender });
+    if (afterCore) afterCore();
+    if (fringe.length === 0 || token !== state.renderToken) return;
+    await renderPagesWithPool(fringe, token, onRendered, { forceRerender, idleBetween: true });
   }
 
   function getAvailablePageWidth() {
@@ -1390,9 +1462,6 @@ input[type="range"] { accent-color: #4ade7f; }
     shell.style.width = `${layoutViewport.width}px`;
     shell.style.height = `${layoutViewport.height}px`;
 
-    const textLayer = document.createElement("div");
-    textLayer.className = "textLayer";
-
     if (backend === "svg") {
       try {
         await renderSvgLayer(page, renderViewport, shell);
@@ -1411,10 +1480,18 @@ input[type="range"] { accent-color: #4ade7f; }
       shell.dataset.renderer = "canvas";
     }
 
-    await renderTextLayer(page, layoutViewport, textLayer);
-    shell.appendChild(textLayer);
-    await renderAnnotationLayer(page, layoutViewport, shell);
-    return shell;
+    // Text and annotation layers are invisible (selection/links only), so they
+    // must not hold up first paint. The shell is inserted as soon as the page
+    // content exists; decorate() attaches the remaining layers afterwards.
+    const decorate = async () => {
+      const textLayer = document.createElement("div");
+      textLayer.className = "textLayer";
+      await renderTextLayer(page, layoutViewport, textLayer);
+      shell.appendChild(textLayer);
+      await renderAnnotationLayer(page, layoutViewport, shell);
+    };
+
+    return { shell, decorate };
   }
 
   function getViewportAnchor() {
@@ -1535,7 +1612,7 @@ input[type="range"] { accent-color: #4ade7f; }
       frag.appendChild(createPlaceholder(i));
     }
     container.appendChild(frag);
-    void prefetchPlaceholderSizes();
+    schedulePlaceholderSizePrefetch();
   }
 
   function scheduleRenderWindow() {
@@ -1551,26 +1628,38 @@ input[type="range"] { accent-color: #4ade7f; }
 
   async function renderWindow() {
     if (!state.pdfDoc) return;
-    const token = ++state.renderToken;
     const total = state.pdfDoc.numPages;
     const center = clamp(state.currentPage || 1, 1, total);
-    const start = clamp(center - perf.renderBehind, 1, total);
-    const end = clamp(center + perf.renderAhead, 1, total);
-    const order = buildRenderOrder(end - start + 1, center - start + 1)
-      .map((idx) => idx + start - 1);
-    await renderPagesWithPool(order, token, async (pageNo, pageNode) => {
+
+    // A jump changes the center and supersedes the in-flight pass; otherwise
+    // don't restart work that is already running for this page.
+    if (state.renderInFlight && state.activeRenderCenter === center) return;
+    const passId = ++state.renderPassId;
+    state.activeRenderCenter = center;
+    state.renderInFlight = true;
+    try {
+      if (state.isSmallDoc) return await renderAllPages();
+
+      const token = ++state.renderToken;
+      const start = clamp(center - perf.renderBehind, 1, total);
+      const end = clamp(center + perf.renderAhead, 1, total);
+      const order = buildRenderOrder(end - start + 1, center - start + 1)
+        .map((idx) => idx + start - 1);
+      await renderPositionFirst(order, token, async (pageNo, pageNode) => {
+        swapPageShell(pageNo, pageNode);
+        state.renderedPages.add(pageNo);
+        touchRenderedPageMru(pageNo);
+        enforceRenderedPageCacheLimit();
+      });
+
       if (token !== state.renderToken) return;
-      swapPageShell(pageNo, pageNode);
-      state.renderedPages.add(pageNo);
-      touchRenderedPageMru(pageNo);
-      if (!state.isSmallDoc) enforceRenderedPageCacheLimit();
-    });
-
-    if (token !== state.renderToken) return;
-
-    // For small docs, never auto-unload; for large docs, respect the cache limit
-    if (!state.isSmallDoc && state.renderedPages.size > perf.maxRenderedPages) {
-      enforceRenderedPageCacheLimit();
+      if (state.renderedPages.size > perf.maxRenderedPages) {
+        enforceRenderedPageCacheLimit();
+      }
+    } finally {
+      // Only the newest pass may clear the flag; a superseded pass must not
+      // release ownership while the newer pass is still running.
+      if (state.renderPassId === passId) state.renderInFlight = false;
     }
   }
 
@@ -1581,8 +1670,7 @@ input[type="range"] { accent-color: #4ade7f; }
     const center = clamp(state.currentPage || 1, 1, total);
     const order = buildRenderOrder(total, center);
 
-    await renderPagesWithPool(order, token, async (pageNo, pageNode) => {
-      if (token !== state.renderToken) return;
+    await renderPositionFirst(order, token, async (pageNo, pageNode) => {
       swapPageShell(pageNo, pageNode);
       state.renderedPages.add(pageNo);
     });
@@ -1608,7 +1696,7 @@ input[type="range"] { accent-color: #4ade7f; }
         }
       }
       updateCurrentPageFromScroll();
-      if (!state.isSmallDoc) scheduleRenderWindow();
+      scheduleRenderWindow();
     }, {
       root: null,
       rootMargin: "200px 0px",
@@ -1633,11 +1721,25 @@ input[type="range"] { accent-color: #4ade7f; }
     }
   }
 
+  // Placeholder sizing is bookkeeping the reader never waits on, so it waits
+  // for a quiet main thread instead of competing with the first page paint.
+  function schedulePlaceholderSizePrefetch() {
+    void waitForIdle(perf.idleTaskTimeout).then(() => prefetchPlaceholderSizes());
+  }
+
   async function prefetchPlaceholderSizes() {
     if (!state.pdfDoc) return;
     const total = state.pdfDoc.numPages;
     const rotation = state.rotation || 0;
-    for (let i = 1; i <= total; i++) {
+    const generation = state.pageSizesGeneration;
+    // Only correct placeholder sizes near the viewport. Walking every page
+    // competes with rendering for the main thread and thrashes the page cache.
+    const center = clamp(state.currentPage || 1, 1, total);
+    const span = perf.placeholderPrefetchSpan;
+    const start = clamp(center - span, 1, total);
+    const end = clamp(center + span, 1, total);
+    for (let i = start; i <= end; i++) {
+      if (generation !== state.pageSizesGeneration) return;
       if (state.pageSizes.has(i)) continue;
       try {
         const page = await getPdfPage(i);
@@ -1688,21 +1790,31 @@ input[type="range"] { accent-color: #4ade7f; }
     for (const pageNo of pages) state.renderedPages.delete(pageNo);
 
     state.pageSizes.clear();
+    state.pageSizesGeneration += 1;
+    state.layoutGeneration += 1;
     updatePlaceholderSizes();
-    void prefetchPlaceholderSizes();
+    void schedulePlaceholderSizePrefetch();
 
-    try {
-      await renderPagesWithPool(pages, token, async (pageNo, pageNode) => {
-        if (token !== state.renderToken) return;
-        swapPageShell(pageNo, pageNode);
-        state.renderedPages.add(pageNo);
-        touchRenderedPageMru(pageNo);
-      }, { forceRerender: true });
-    } finally {
+    // Hand the viewport back as soon as the visible core is repainted; the
+    // off-screen remainder must not hold the reader hostage while it renders.
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
       restoreViewportAnchorStable(anchor);
       updateDisplayScaleSnapshot();
       endRenderMutation();
-      if (!state.isSmallDoc) scheduleRenderWindow();
+      scheduleRenderWindow();
+    };
+
+    try {
+      await renderPositionFirst(pages, token, async (pageNo, pageNode) => {
+        swapPageShell(pageNo, pageNode);
+        state.renderedPages.add(pageNo);
+        touchRenderedPageMru(pageNo);
+      }, { forceRerender: true, afterCore: release });
+    } finally {
+      release();
     }
   }
 
@@ -1714,19 +1826,16 @@ input[type="range"] { accent-color: #4ade7f; }
       state.pageObserver = null;
     }
     state.pageSizes.clear();
+    state.pageSizesGeneration += 1;
+    state.layoutGeneration += 1;
     state.renderedPages.clear();
     state.visiblePages.clear();
     buildPlaceholders();
-    if (state.isSmallDoc) {
-      await renderAllPages();
-      initPageObserver();
-      if (anchor) restoreViewportAnchorStable(anchor);
-      updateDisplayScaleSnapshot();
-      return;
-    }
     initPageObserver();
-    if (anchor) restoreViewportAnchorStable(anchor);
     state.renderPending = false;
+    // Restore before the render pass: a long render must not yank the view back
+    // to the anchor afterwards, discarding wherever the reader navigated.
+    if (anchor) restoreViewportAnchorStable(anchor);
     await renderWindow();
     updateDisplayScaleSnapshot();
   }
@@ -1741,23 +1850,11 @@ input[type="range"] { accent-color: #4ade7f; }
     }
     state.currentPage = pageNo;
     window.scrollTo({ top: Math.max(0, el.offsetTop - 15), behavior: smooth ? "smooth" : "auto" });
+    // Re-center the render queue on the target so a jump does not wait behind
+    // the pages before it; the new pass supersedes the in-flight one.
+    scheduleRenderWindow();
+    void prefetchPlaceholderSizes();
   }
-
-  // Parent embed (Campus citations) can jump pages without reloading the iframe.
-  let pendingGotoPage = null;
-  function goToPageFromParent(page) {
-    const p = Number.parseInt(page, 10);
-    if (!Number.isFinite(p) || p < 1) return;
-    if (!state.pdfDoc) {
-      pendingGotoPage = p;
-      return;
-    }
-    goToPage(p, true, false);
-  }
-  window.addEventListener("message", (e) => {
-    if (e.origin !== window.location.origin) return;
-    if (e.data?.type === "zenpdf-goto-page") goToPageFromParent(e.data.page);
-  });
 
   function bookmarkStorageKey() {
     return `zen-pdf-bookmarks:${file}`;
@@ -1826,7 +1923,7 @@ input[type="range"] { accent-color: #4ade7f; }
       scrollTimer = setTimeout(() => {
         scrollTimer = null;
         updateCurrentPageFromScroll();
-        if (!state.isSmallDoc) scheduleRenderWindow();
+        scheduleRenderWindow();
       }, 120);
     }, { passive: true });
 
@@ -1964,13 +2061,27 @@ input[type="range"] { accent-color: #4ade7f; }
         return;
       }
       
-      // Tab always returns focus to the app (campus owns Tab for tree ⇄
-      // viewer switching) — bookmarks stay reachable via 1-9 / Alt+1-9.
+      // Tab cycles through user-assigned bookmarks (no-op if none)
       if (e.key === 'Tab') {
-        if (isEmbedded) {
-          notifyParent('zenpdf-tab');
-          e.preventDefault();
+        const assigned = Array.from(state.bookmarks.keys()).sort((a, b) => a - b);
+        if (assigned.length === 0) {
+          if (isEmbedded) {
+            notifyParent('zenpdf-tab');
+            e.preventDefault();
+          }
+          return;
         }
+        e.preventDefault();
+        let last = state.lastBookmarkCycleSlot || null;
+        let idx = last !== null ? assigned.indexOf(last) : -1;
+        if (idx === -1) {
+          idx = e.shiftKey ? assigned.length - 1 : 0;
+        } else {
+          idx = e.shiftKey ? (idx - 1 + assigned.length) % assigned.length : (idx + 1) % assigned.length;
+        }
+        const slot = assigned[idx];
+        state.lastBookmarkCycleSlot = slot;
+        goToBookmark(slot);
         return;
       }
 
@@ -2186,10 +2297,6 @@ input[type="range"] { accent-color: #4ade7f; }
 
       await resetAndRender({ skipAnchorRestore: initialPage > 1 });
       if (initialPage > 1) goToPage(initialPage, false, false);
-      if (pendingGotoPage != null) {
-        goToPage(pendingGotoPage, false, false);
-        pendingGotoPage = null;
-      }
       alignFitWidthView();
     } catch (err) {
       showError(`Could not render PDF: ${err?.message || err}`);
