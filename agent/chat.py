@@ -189,6 +189,22 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
                           f"roles=[{', '.join(shape)}]", flush=True)
                 except Exception:
                     pass
+                # Full-payload capture: bifrost's envelope 400s return no
+                # useful body, so save the exact request for offline replay.
+                try:
+                    import time as _t, pathlib as _p
+                    dump = _p.Path("/tmp") / f"campus-400-{int(_t.time())}.json"
+                    dump.write_text(json.dumps({
+                        "model": model or cfg.llm_model,
+                        "messages": messages,
+                        "tools": TOOL_SCHEMAS,
+                        "url": url,
+                        "status": e.response.status_code,
+                        "response_body": body,
+                    }, default=str))
+                    print(f"  [model_call] full payload saved to {dump}", flush=True)
+                except Exception:
+                    pass
             continue
     raise last_err or RuntimeError("all LLM endpoints failed")
 
