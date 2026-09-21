@@ -373,7 +373,7 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
                 if attempt == 4:
                     raise
                 delay = attempt  # 1s, 2s, 3s backoff
-                print(f"  [model_call] transient failure ({e.__class__.__name__}: {str(e)[:120]}), retry {attempt}/3 in {delay}s…", flush=True)
+                print(f"  [model_call] transient failure ({e.__class__.__name__}: {str(e)[:600]}), retry {attempt}/3 in {delay}s…", flush=True)
                 time.sleep(delay)
         assert msg is not None  # attempt 4 re-raises, so msg is always set here
         if usage:
