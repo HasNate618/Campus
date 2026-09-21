@@ -186,9 +186,15 @@ RULES:
    configured MCP server) are for outside-the-harness questions only; prefer
    harness data for course questions.
 7. Keep answers concise and direct. No fluff, no "Lesson:"-style closers.
-8. Read efficiently: prefer ONE large content_read_file call (offset/limit,
-   up to 1000 lines) over repeated greps or paginated re-reads. Never
-   re-read a file or re-grep content you already have in context.
+8. Read efficiently. For lecture decks and PDF-derived files (the ones that
+   report pagesInFile), ask for the exact pages you need:
+   content_read_file(path=..., pages="57-60"). When the byte budget cuts a
+   range, the result's note names the exact pages to continue with — follow
+   that note, do not guess offsets. For files with no pagesInFile (no page
+   markers: notes, HTML, syllabi) use offset/limit instead, up to 1000 lines
+   in one call. Prefer ONE targeted call over repeated greps or paginated
+   re-reads. Never re-read a file or re-grep content you already have in
+   context.
 9. Start with course_map to see the whole course structure (modules, topics,
    files, extraction status) before reading or grepping — it tells you where
    the real content is and avoids blind reads.

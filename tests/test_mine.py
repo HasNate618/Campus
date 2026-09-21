@@ -782,7 +782,66 @@ def test_turn_digest_skips_without_session(tmp_path):
 
 
 def test_truncate_result_tiers():
+    import json
     from agent.chat import truncate_result
-    assert len(truncate_result("course_map", {"x": "z" * 20000})) == 12000
-    assert len(truncate_result("content_grep", {"x": "z" * 20000})) == 6000
-    assert truncate_result("anything", {"error": "boom"}) == {"error": "boom"}
+
+    # Bounded by cap, but always valid JSON with the bulk field shrunk rather
+    # than the serialized string sliced (a slice produced invalid JSON).
+    for tool, cap in (("course_map", 12000), ("content_grep", 6000)):
+        out: str = truncate_result(tool, {"x": "z" * 20000})
+        # runtime proof, not just a type claim: the old error path returned a dict
+        assert isinstance(out, str)
+        assert len(out) <= cap
+        parsed = json.loads(out)  # must remain parseable
+        assert parsed["truncated"] is True
+        assert len(parsed["x"]) < 20000
+
+    # Errors must serialize to a string: `role: "tool"` content has to be a
+    # string, and a dict here made the provider reject the whole request.
+    err: str = truncate_result("anything", {"error": "boom"})
+    assert isinstance(err, str)
+    assert json.loads(err) == {"error": "boom"}
+
+
+def test_truncate_result_keeps_cite_ids():
+    """The sources block carries the cite_ids the system prompt requires; it
+    must survive even when the payload is far over the cap."""
+    import json
+    from agent.chat import truncate_result
+
+    result = {
+        "content": "z" * 40000,
+        "sources": [{"cite_id": 7, "ref": "a/b.pdf", "label": "b.pdf"}],
+    }
+    out: str = truncate_result("content_grep", result)
+    assert isinstance(out, str)
+    parsed = json.loads(out)
+    assert parsed["sources"] == result["sources"]
+    assert "cite_id" in json.dumps(parsed)
+
+
+def test_truncate_result_small_result_untouched():
+    import json
+    from agent.chat import truncate_result
+
+    small = {"path": "a.md", "content": "hello"}
+    out: str = truncate_result("content_read_file", small)
+    assert isinstance(out, str)
+    assert json.loads(out) == small
+
+
+def test_prompt_teaches_page_addressing(cfg, db):
+    """Plan 2026-09-21 Task 3: rule 8 must name the `pages` parameter.
+
+    Deliberately black-box — build the real prompt instead of asserting on
+    inspect.getsource(build_system_prompt). A source-text assertion would have
+    MISSED the contradiction this test exists to catch: a rule promising a line
+    count that the truncation cap then denied. `cfg`/`db` are this module's own
+    fixtures (lines 10-21), so the prompt is built exactly as production builds it.
+    """
+    from agent.context import build_system_prompt
+
+    prompt = build_system_prompt(cfg, db, None)
+    assert 'pages="' in prompt, "prompt must tell the model the pages= parameter exists"
+    assert "pagesInFile" in prompt, "prompt must reference the discovery field"
+    assert "up to 1000 lines" in prompt, "offset/limit guidance must stay truthful"
