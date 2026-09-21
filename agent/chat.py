@@ -266,6 +266,27 @@ def truncate_result(name: str, result: dict) -> str | dict:
     return json.dumps(result, default=str)[:_TOOL_RESULT_CAPS.get(name, 6000)]
 
 
+def _sanitize_history(history: list[dict]) -> list[dict]:
+    """Make incoming history safe to re-send.
+
+    Providers reject `content: null` (400) and an assistant turn carrying
+    neither text nor tool_calls. Both reach us legitimately: the OpenAI shape
+    uses `content: null` on tool-call turns, and models sometimes stop having
+    emitted reasoning only. Normalise instead of forwarding the null.
+    """
+    out: list[dict] = []
+    for m in history:
+        if not isinstance(m, dict):
+            continue
+        m = dict(m)
+        if m.get("content") is None:
+            m["content"] = ""
+        if m.get("role") == "assistant" and not m.get("content") and not m.get("tool_calls"):
+            continue  # empty assistant turn — nothing to answer
+        out.append(m)
+    return out
+
+
 def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = None,
              model: str | None = None, history: list[dict] | None = None,
              verbose: bool = True, emit=None, attachments: list[dict] | None = None,
@@ -301,7 +322,7 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
     if prior_context:
         system_text += "\n\n" + prior_context
     messages = [{"role": "system", "content": system_text}]
-    messages.extend(history or [])
+    messages.extend(_sanitize_history(history or []))
     files = attachments or []
     extracted = [
         f"\n\n--- Attached file: {a['original_name']} ---\n{a['extracted_text']}\n--- End attached file ---"
@@ -359,7 +380,7 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
             for k in total_usage:
                 total_usage[k] += usage.get(k, 0)
         if not msg.get("tool_calls"):
-            final: dict = {"role": "assistant", "content": msg.get("content", "")}
+            final: dict = {"role": "assistant", "content": msg.get("content") or ""}
             if msg.get("reasoning"):
                 final["reasoning"] = msg["reasoning"]
             messages.append(final)
