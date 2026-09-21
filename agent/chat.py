@@ -166,8 +166,29 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
                 try:
                     body = (e.response.text or "")[:1000]
                 except Exception:
-                    body = ""
+                    # Streamed responses aren't read yet — .text raises
+                    # ResponseNotRead. Read the buffered bytes directly.
+                    try:
+                        body = e.response.read().decode("utf-8", "replace")[:1000]
+                    except Exception:
+                        body = ""
             last_err = e if not body else RuntimeError(f"{e} | body: {body}")
+            if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 400:
+                # Envelope-level 400s are bifrost's own validation (0ms, empty
+                # routing_info) and are invisible in the response body. Dump the
+                # payload SHAPE so the offending field is identifiable.
+                try:
+                    shape = [
+                        f"{m.get('role')}:{type(m.get('content')).__name__}"
+                        f"{'/tc' if m.get('tool_calls') else ''}"
+                        f"{'!' if m.get('content') is None else ''}"
+                        for m in messages
+                    ]
+                    print(f"  [model_call] 400 payload model={model or cfg.llm_model!r} "
+                          f"n={len(messages)} tools={len(TOOL_SCHEMAS)} "
+                          f"roles=[{', '.join(shape)}]", flush=True)
+                except Exception:
+                    pass
             continue
     raise last_err or RuntimeError("all LLM endpoints failed")
 
