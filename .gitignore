@@ -47,3 +47,6 @@ android/local.properties
 
 # never commit config backups
 config.yaml.bak*
+config.yaml.bak*
+web/dist-bak*/
+/backups/
