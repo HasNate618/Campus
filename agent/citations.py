@@ -36,6 +36,107 @@ def page_from_chunk_text(text: str) -> int | None:
     return pages[-1] if pages else None
 
 
+def line_at_page(index: list[tuple[int, int]], page: int) -> int | None:
+    """First line belonging to `page`, or None when the file has no such page.
+
+    `index` comes from build_page_index, which seeds (0, 1) so content before
+    the first marker counts as page 1.
+    """
+    for ln, pg in index:
+        if pg == page:
+            return ln
+    return None
+
+
+def pages_in_file(index: list[tuple[int, int]]) -> int | None:
+    """Highest page number, or None when the file carries no markers.
+
+    build_page_index seeds (0, 1) unconditionally, so a marker-less file would
+    otherwise report a single page and invite a `pages` read that resolves to
+    line 0. len(index) == 1 means "seed only" — no markers.
+    """
+    if len(index) <= 1:
+        return None
+    return max(pg for _, pg in index)
+
+
+def lines_for_pages(
+    index: list[tuple[int, int]], start: int, end: int, total: int,
+) -> tuple[int, int] | None:
+    """(first_line, end_line_exclusive) covering pages start..end inclusive.
+
+    end_line is the line where the first page after `end` begins, else `total`.
+    None when the range is inverted or `start` is not a page in this file.
+    """
+    if end < start:
+        return None
+    first = line_at_page(index, start)
+    if first is None:
+        return None
+    for ln, pg in index:
+        if pg > end:
+            # A marker on the same line as `first` means `start` has no lines of
+            # its own — a blank page was skipped during extraction
+            # (sync/sync.py:931-934), so page `start` has no marker at all. The
+            # span would be empty; report "not present" instead of returning "".
+            return (first, ln) if ln > first else None
+    return first, total
+
+
+def _page_blocks(lines: list[str]) -> list[tuple[int, int]]:
+    """(start, end_exclusive) line spans, one per page, in order."""
+    starts = sorted({i for i, ln in enumerate(lines) if PAGE_RE.search(ln)})
+    if not starts or starts[0] != 0:
+        starts = [0, *starts]
+    return [(s, starts[k + 1] if k + 1 < len(starts) else len(lines))
+            for k, s in enumerate(starts)]
+
+
+def _hard_cut(lines: list[str], budget: int) -> list[str]:
+    """Greedy whole-line cut that fits `budget`; always keeps at least one line."""
+    kept: list[str] = []
+    used = 0
+    for ln in lines:
+        add = len(ln) + 1
+        if kept and used + add > budget:
+            break
+        kept.append(ln)
+        used += add
+    return kept or lines[:1]
+
+
+def bound_pages(lines: list[str], budget: int) -> tuple[list[str], int]:
+    """Keep whole pages from the start of `lines` while they fit `budget`.
+
+    Returns (kept_lines, pages_kept). Cutting on a page boundary is what lets
+    the caller report exactly which pages were delivered instead of silently
+    returning a partial read — the failure that made "explain page 57" answer
+    "I got as far as page 54".
+
+    When the FIRST page alone exceeds the budget it cannot be cut on a boundary,
+    so it is hard-cut in whole lines and still counted as one page. That is a
+    PARTIAL page, and it cannot be detected from `pages_kept` — the caller must
+    compare `len(kept_lines)` against `len(lines)` and report the read as
+    truncated. Do not "fix" this by returning a fractional page count.
+
+    `pages_kept` also counts marker-delimited blocks, which equal page numbers
+    only when numbering is contiguous; the caller derives the last delivered
+    page from the page index, never from `pages_kept` arithmetic.
+    """
+    blocks = _page_blocks(lines)
+    kept: list[str] = []
+    pages = 0
+    for start, end in blocks:
+        block = lines[start:end]
+        if not kept and len("\n".join(block)) > budget:
+            return _hard_cut(block, budget), 1
+        if kept and len("\n".join(kept + block)) > budget:
+            break
+        kept.extend(block)
+        pages += 1
+    return kept, pages
+
+
 def _label_for_ref(ref: str, db: DB) -> str:
     if ref.startswith("overview/"):
         try:

@@ -151,3 +151,69 @@ def test_register_from_search_prefers_hit_page():
         "text": "…match here\n<!-- page 12 -->\nend",
         "match_at": 8, "page": 11}]})
     assert cites and cites[0]["page"] == 11
+
+
+def test_line_at_page_and_pages_in_file():
+    from agent.citations import build_page_index, line_at_page, pages_in_file
+    # Lines listed directly, as elsewhere in this file: `"lit\n…".splitlines()`
+    # types as list[LiteralString] on a narrowed literal, which list[str] rejects.
+    lines = ["title", "<!-- page 1 -->", "a", "b",
+             "<!-- page 2 -->", "c", "<!-- page 3 -->", "d"]
+    idx = build_page_index(lines)
+    assert line_at_page(idx, 1) == 0      # pre-marker content belongs to page 1
+    assert line_at_page(idx, 2) == 4
+    assert line_at_page(idx, 3) == 6
+    assert line_at_page(idx, 4) is None   # no such page
+    assert pages_in_file(idx) == 3
+
+
+def test_pages_in_file_none_without_markers():
+    from agent.citations import build_page_index, pages_in_file
+    idx = build_page_index(["notes", "no markers", "here"])
+    assert idx == [(0, 1)]
+    assert pages_in_file(idx) is None     # NOT 1 — absence is not page one
+
+
+def test_lines_for_pages_spans_to_next_page_or_eof():
+    from agent.citations import build_page_index, lines_for_pages
+    # See the note in test_line_at_page_and_pages_in_file on listing lines.
+    lines = ["<!-- page 1 -->", "a", "<!-- page 2 -->", "b", "c",
+             "<!-- page 3 -->", "d"]
+    idx = build_page_index(lines)
+    total = len(lines)
+    assert lines_for_pages(idx, 2, 2, total) == (2, 5)   # ends where page 3 begins
+    assert lines_for_pages(idx, 1, 3, total) == (0, total)  # to EOF
+    assert lines_for_pages(idx, 9, 9, total) is None
+    assert lines_for_pages(idx, 3, 2, total) is None     # inverted
+
+
+def test_lines_for_pages_rejects_an_empty_span():
+    from agent.citations import build_page_index, lines_for_pages
+    # Page 1 was blank and skipped during extraction, so its marker never
+    # appears and page 2's marker sits on line 0. Page 1's span would be empty —
+    # that must read as "not present", not as a successful empty read.
+    idx = build_page_index(["<!-- page 2 -->", "a", "<!-- page 3 -->", "b"])
+    assert lines_for_pages(idx, 1, 1, 4) is None
+
+
+def test_bound_pages_keeps_whole_pages():
+    from agent.citations import bound_pages
+    lines = ["<!-- page 1 -->", "a" * 50, "<!-- page 2 -->", "b" * 50,
+             "<!-- page 3 -->", "c" * 50]
+    # Char arithmetic: page 1 = 66 chars, pages 1-2 = 133, pages 1-3 = 200 exactly.
+    kept, pages = bound_pages(lines, 150)
+    assert pages == 2 and kept[-1] == "b" * 50   # page 3 (200 chars) exceeds 150
+    kept1, pages1 = bound_pages(lines, 10_000)
+    assert pages1 == 3 and len(kept1) == len(lines)
+    # The budget is inclusive (the cut triggers on `> budget`, not `>=`), so an
+    # exactly-fitting budget keeps the last page. Pinned so a worker tuning the
+    # comparison cannot silently flip the boundary.
+    kept_exact, pages_exact = bound_pages(lines, 200)
+    assert pages_exact == 3 and len(kept_exact) == len(lines)
+
+
+def test_bound_pages_hard_cuts_an_oversized_first_page():
+    from agent.citations import bound_pages
+    lines = ["<!-- page 1 -->"] + ["x" * 100 for _ in range(10)]
+    kept, pages = bound_pages(lines, 250)
+    assert pages == 1 and 0 < len(kept) < len(lines)
