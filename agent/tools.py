@@ -400,11 +400,28 @@ def content_read_file(db: DB, cfg: Config, args: dict) -> dict:
         note = (f"pages {start}-{delivered} of {available} "
                 f"(lines {first}-{first + len(kept)})")
         if not complete:
-            note += (f"; byte budget reached — continue with "
-                     f"pages: \"{delivered + 1}-{end}\"")
+            # Derive the continuation from the page INDEX, never from
+            # `delivered + 1`. Arithmetic invents pages a numbering gap skipped
+            # (markers 1,2,4 -> "3-4", whose read errors and wastes a turn) and
+            # inverts when the range's own last page is what got cut (pages="1"
+            # oversized -> "2-1"; pages="74" -> "75-74", past the deck). The
+            # note is the contract prompt rule 8 tells the model to follow, so
+            # every page it names must be readable back.
+            next_pg = next((pg for ln, pg in page_idx
+                            if ln > first + len(kept) - 1), None)
+            has_more = next_pg is not None and next_pg <= end
             if delivered == start:
                 note += ("; this page alone exceeds the byte budget — use "
                          "offset/limit to page within it")
+                if has_more:
+                    note += (f"; pages {next_pg}-{end} follow once it is "
+                             f"fully read")
+            elif has_more:
+                note += (f"; byte budget reached — continue with "
+                         f"pages: \"{next_pg}-{end}\"")
+            else:
+                note += ("; byte budget reached — more content follows; "
+                         "use offset/limit")
         else:
             note += f"; requested {start}-{end}"
         # Page fields lead the dict: the cross-turn digest stores a PREFIX of the

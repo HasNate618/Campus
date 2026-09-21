@@ -346,7 +346,36 @@ def truncate_result(name: str, result) -> str:
             default=None,
         )
         if key is None:
-            break
+            # Bulk payloads such as content_grep's `matches` and search_corpus's
+            # `hits` are LISTS: there is no string field to shrink, and falling
+            # straight to the protected-only fallback discarded them whole — a
+            # broad grep reached the model with ZERO matches where a plain slice
+            # once kept the first ones. Trim trailing items instead.
+            bulk = max(
+                (k for k, v in out.items()
+                 if isinstance(v, list) and k not in _NEVER_TRUNCATE),
+                key=lambda k: len(out[k]),
+                default=None,
+            )
+            if bulk is None or not out[bulk]:
+                break
+            # Copy first: `out = dict(result)` is SHALLOW, and the caller
+            # (CitationRegistry.register_from_tool) still reads this same list
+            # after truncation — popping in place would corrupt it.
+            items = list(out[bulk])
+            dropped = 0
+            while True:
+                if len(json.dumps(out, default=str)) <= cap:
+                    break                      # fits now
+                if not items:
+                    break                      # nothing left to give
+                items.pop()
+                dropped += 1
+                out[bulk] = items + [{"…": f"truncated, {dropped} item(s) omitted"}]
+            if len(json.dumps(out, default=str)) > cap:
+                break                          # even empty does not fit -> fallback
+            out["truncated"] = True
+            continue
         # leave room for the marker plus the surrounding JSON
         keep = len(out[key]) - (len(text) - cap) - 120
         if keep >= len(out[key]):

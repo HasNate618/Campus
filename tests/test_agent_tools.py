@@ -304,3 +304,65 @@ def test_missing_file_without_candidates_returns_a_plain_error(
     r = content_read_file(page_db, page_cfg,
                           {"path": "2026F/SE3316A/content/nothing-here.md"})
     assert "error" in r and "did_you_mean" not in r
+
+
+# ---------------------------------------------------------------------------
+# Continuation-note honesty (independent review, P1 finding 1).
+#
+# The note is the feature's contract — prompt rule 8 tells the model "follow
+# that note, do not guess offsets" — so it must never name a page that cannot
+# be read back:
+#   * `delivered + 1` arithmetic invents pages a numbering gap skipped
+#     (markers 1,2,4 -> proposed "3-4", whose read returns an error)
+#   * it inverts when the range's own last page is the thing that was cut
+#     (pages="1" oversized -> "2-1"; pages="74" -> "75-74", past the deck)
+# Both were reproduced against the deployed build before these tests.
+# ---------------------------------------------------------------------------
+
+
+def test_oversized_first_page_note_never_offers_an_inverted_range(
+        tmp_path, monkeypatch, page_cfg, page_db):
+    import agent.tools as tools
+
+    _, rel = _deck(tmp_path, pages=3, lines_per_page=40, pad=400)
+    monkeypatch.setattr(tools, "PAGE_READ_BUDGET", 4_000)
+    r = tools.content_read_file(page_db, page_cfg, {"path": rel, "pages": "1"})
+    assert r["truncated"] is True
+    assert '"2-1"' not in r["note"], "proposed an inverted, unreadable range"
+    assert "offset/limit" in r["note"], "must still say how to finish the page"
+
+
+def test_oversized_last_page_note_never_names_a_page_past_the_end(
+        tmp_path, monkeypatch, page_cfg, page_db):
+    import agent.tools as tools
+
+    _, rel = _deck(tmp_path, pages=74, lines_per_page=40, pad=400)
+    monkeypatch.setattr(tools, "PAGE_READ_BUDGET", 4_000)
+    r = tools.content_read_file(page_db, page_cfg, {"path": rel, "pages": "74"})
+    assert r["truncated"] is True
+    assert '"75-74"' not in r["note"]
+    # there is no page after the last one, so there is nothing to continue to
+    assert "continue with pages" not in r["note"]
+    assert "offset/limit" in r["note"]
+
+
+def test_continuation_note_skips_a_numbering_gap(
+        tmp_path, monkeypatch, page_cfg, page_db):
+    """Extraction skips blank pages (sync/sync.py:931-934), so markers can be
+    1,2,4 — arithmetic proposes page 3, whose read returns an error and wastes
+    a turn."""
+    import agent.tools as tools
+
+    root = page_cfg.data_root
+    (root / "2026F/SE3316A/content").mkdir(parents=True, exist_ok=True)
+    body = ["<!-- page 1 -->", "- a", "<!-- page 2 -->", "- b",
+            "<!-- page 4 -->"] + [f"- big {i}" + "z" * 400 for i in range(20)]
+    (root / "2026F/SE3316A/content/gap.md").write_text("\n".join(body))
+    monkeypatch.setattr(tools, "PAGE_READ_BUDGET", 2_000)
+
+    r = tools.content_read_file(
+        page_db, page_cfg,
+        {"path": "2026F/SE3316A/content/gap.md", "pages": "1-4"})
+    assert r["truncated"] is True and r["pageEnd"] == 2
+    assert '"4-4"' in r["note"], "must continue at the next page that exists"
+    assert '"3-4"' not in r["note"], "page 3 was never extracted"

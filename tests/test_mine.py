@@ -830,6 +830,37 @@ def test_truncate_result_small_result_untouched():
     assert json.loads(out) == small
 
 
+def test_truncate_result_keeps_list_payloads():
+    """content_grep's `matches` and search_corpus's `hits` are LISTS.
+
+    With no shrinkable string field, the shrink loop fell straight to the
+    protected-only fallback and discarded them whole: a broad grep reached the
+    model with ZERO matches where the old plain slice kept the first ones.
+    Reproduced against the deployed build before this test was written.
+    """
+    import json
+    from agent.chat import truncate_result
+
+    result = {
+        "matches": [{"path": f"notes/f{i}.md", "snippet": "s" * 200,
+                     "page": i} for i in range(20)],
+        "note": "paths relative to data_root",
+        "sources": [{"cite_id": i, "ref": "r.pdf", "label": "r"}
+                    for i in range(20)],
+    }
+    out: str = truncate_result("content_grep", result)
+    assert isinstance(out, str)
+    assert len(out) <= 6000
+    parsed = json.loads(out)             # must stay VALID json after shrinking
+    assert len(parsed["matches"]) > 0, "list payload was dropped whole"
+    assert len(parsed["sources"]) == 20  # protected field survives
+    assert parsed.get("truncated") is True
+    # `out = dict(result)` is a SHALLOW copy: trimming must not mutate the list
+    # the caller still reads — CitationRegistry.register_from_tool consumes this
+    # same result object after truncation.
+    assert len(result["matches"]) == 20
+
+
 def test_prompt_teaches_page_addressing(cfg, db):
     """Plan 2026-09-21 Task 3: rule 8 must name the `pages` parameter.
 
