@@ -222,6 +222,16 @@ class Config:
         _coerce_paths(cfg)
         return cfg
 
+    @classmethod
+    def load_base(cls, path: Path | None = None) -> "Config":
+        """Layers 1-3 only (defaults, config.yaml, env) — what a field would
+        resolve to with no in-app override. Used for `inherited_value`."""
+        cfg = cls()
+        _merge_layer(cfg, _read_config_file(path or DEFAULT_CONFIG_PATH))
+        _apply_env(cfg)
+        _coerce_paths(cfg)
+        return cfg
+
     # ── resolved endpoint lists ──────────────────────────────────────────
     def llm_endpoints(self) -> list[str]:
         """Ordered LLM base URLs for failover. llm_urls wins; otherwise the

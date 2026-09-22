@@ -11,11 +11,12 @@ from fastapi.responses import FileResponse, JSONResponse
 from api.auth import require_auth
 from api.auth import router as auth_router
 from api.db import db_available, ensure_wal
-from api.routers import chat, courses, data, digest, sync
+from api.routers import chat, courses, data, digest, settings, sync
+from api.version import VERSION
 
 ensure_wal()  # WAL so API readers never block the sync writer
 
-app = FastAPI(title="Campus", version="0.3.0")
+app = FastAPI(title="Campus", version=VERSION)
 
 app.add_middleware(
     CORSMiddleware,
@@ -36,6 +37,10 @@ app.include_router(data.router, dependencies=[Depends(require_auth)])
 app.include_router(sync.router, dependencies=[Depends(require_auth)])
 app.include_router(digest.router, dependencies=[Depends(require_auth)])
 app.include_router(chat.router, dependencies=[Depends(require_auth)])
+# Gated like every other data router, and deliberately absent from
+# api.auth._PUBLIC_PATHS: this one can read a masked API key and rewires the
+# LLM endpoint. (/api/config stays public — the login screen needs it at boot.)
+app.include_router(settings.router, dependencies=[Depends(require_auth)])
 
 
 @app.get("/api/health")
