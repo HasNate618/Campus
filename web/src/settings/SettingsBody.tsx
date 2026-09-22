@@ -18,7 +18,7 @@ export function SettingsBody({
 	onLogout,
 	onDirtyChange,
 }: {
-	variant: "drawer" | "page";
+	variant: "modal" | "page";
 	onLogout?: () => void;
 	onDirtyChange?: (dirty: boolean) => void;
 }) {

@@ -3815,111 +3815,236 @@ pre code.hljs {
 }
 
 /* ── settings ───────────────────────────────────────────────────────── */
+
+/* Centered floating popup, not a side drawer: same treatment as the ? help
+   overlay (dimmed + blurred backdrop, raised glass panel) so settings reads
+   as the app's own modal rather than an appended side panel. The backdrop is
+   its own flex container — the panel must NOT be a flex child of .shell. */
 .settings-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  z-index: 40;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
 }
-/* fixed, not a flex child: .shell lays out sidebar/main/tabbar, and a plain
-   sibling would participate in that grid */
-.settings-drawer {
-  position: fixed;
-  top: 0;
-  right: 0;
-  height: 100dvh;
-  width: min(420px, 100vw);
+
+.settings-modal {
+  width: min(640px, 100%);
+  max-height: 82vh;
   display: flex;
   flex-direction: column;
-  background: var(--bg-2, #14141a);
-  border-left: 1px solid var(--border, #26262f);
-  z-index: 41;
+  overflow: hidden;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--glass-edge), var(--glass-shadow);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
 }
-.settings-drawer-head {
+
+.settings-modal-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border, #26262f);
+  gap: 12px;
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--glass-border);
 }
-.settings-drawer-scroll { overflow-y: auto; padding: 16px; }
+
+.settings-modal-head h1 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* the only scroller in the panel: head stays pinned, body scrolls */
+.settings-modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 20px 20px;
+}
 .settings-body .settings-group { margin-bottom: 22px; }
 .settings-group-title {
-  font-size: 12px;
+  font-size: 11.5px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-3, #8a8a99);
-  margin: 0 0 10px;
+  letter-spacing: 0.07em;
+  color: var(--text-3);
+  margin: 0 0 12px;
 }
-.settings-field { margin-bottom: 14px; }
-.settings-label { display: block; font-size: 13px; margin-bottom: 5px; }
+.settings-group + .settings-group { margin-top: 26px; }
+.settings-field { margin-bottom: 16px; }
+.settings-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-1);
+  margin-bottom: 6px;
+}
 .settings-field input[type="text"],
 .settings-field input[type="password"],
 .settings-field input[type="number"],
 .settings-field textarea {
   width: 100%;
-  padding: 7px 9px;
-  border-radius: 7px;
-  border: 1px solid var(--border, #26262f);
-  background: rgba(255, 255, 255, 0.03);
-  color: inherit;
+  padding: 9px 11px;
+  border-radius: var(--radius-ctl);
+  border: 1px solid var(--glass-border-strong);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-1);
   font: inherit;
+  font-size: 13px;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.settings-field input[type="text"]:focus,
+.settings-field input[type="password"]:focus,
+.settings-field input[type="number"]:focus,
+.settings-field textarea:focus {
+  outline: none;
+  border-color: var(--violet-border);
+  background: rgba(255, 255, 255, 0.06);
+}
+.settings-field input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--violet-solid);
+  cursor: pointer;
 }
 .settings-field.changed .settings-label::after {
-  content: " •";
-  color: var(--violet, #8b5cf6);
+  content: "•";
+  color: var(--violet);
+  font-size: 15px;
+  line-height: 1;
 }
-.settings-help { font-size: 11.5px; color: var(--text-3, #8a8a99); margin: 4px 0 0; }
-.settings-note { font-size: 12.5px; color: var(--text-3, #8a8a99); margin: 8px 0; }
-.settings-note.error { color: var(--red, #f87171); }
+.settings-field.changed .settings-label { color: var(--violet); }
+.settings-help { font-size: 11.5px; color: var(--text-3); margin: 5px 0 0; }
+.settings-note { font-size: 12.5px; color: var(--text-3); margin: 8px 0; }
+.settings-note.error { color: var(--red); }
 .settings-tag {
-  margin-left: 6px;
-  font-size: 10px;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.08);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: var(--amber);
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.28);
 }
 .settings-notice {
   display: flex;
-  gap: 7px;
+  gap: 8px;
   align-items: flex-start;
-  font-size: 12px;
-  padding: 8px 10px;
-  border-radius: 7px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  padding: 10px 12px;
+  border-radius: var(--radius-ctl);
   background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--glass-border);
   margin-bottom: 14px;
 }
-.settings-notice.error { color: var(--red, #f87171); }
-.settings-errors { color: var(--red, #f87171); font-size: 12.5px; padding-left: 18px; }
-.settings-actions { display: flex; gap: 8px; margin: 18px 0 10px; }
+.settings-notice svg { flex: none; margin-top: 2px; }
+.settings-notice.error {
+  color: var(--red);
+  background: rgba(248, 113, 113, 0.08);
+  border-color: rgba(248, 113, 113, 0.3);
+}
+.settings-errors {
+  color: var(--red);
+  font-size: 12.5px;
+  padding-left: 18px;
+  margin: 10px 0;
+}
+.settings-actions { display: flex; gap: 10px; margin: 20px 0 12px; }
 .settings-save,
 .settings-discard,
 .settings-reset,
 .settings-rebuild,
 .settings-logout {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font: inherit;
   font-size: 13px;
-  padding: 7px 12px;
-  border-radius: 7px;
-  border: 1px solid var(--border, #26262f);
-  background: rgba(255, 255, 255, 0.04);
-  color: inherit;
+  font-weight: 600;
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--glass-border-strong);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-1);
   cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
-.settings-save:not(:disabled) { background: var(--violet, #8b5cf6); border-color: transparent; }
+.settings-save:hover:not(:disabled),
+.settings-discard:hover:not(:disabled),
+.settings-reset:hover:not(:disabled),
+.settings-rebuild:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+/* primary comes last: :not(:disabled) ties with the hover rule on
+   specificity, so source order decides the violet base */
+.settings-save:not(:disabled) {
+  background: var(--violet-solid);
+  border-color: transparent;
+  color: #fff;
+}
+.settings-save:not(:disabled):hover { background: var(--violet-solid-hover); }
 .settings-save:disabled { opacity: 0.45; cursor: default; }
-.settings-reset { font-size: 11.5px; padding: 3px 8px; margin-top: 6px; }
+.settings-reset {
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 4px 11px;
+  margin-top: 7px;
+  color: var(--text-2);
+}
 /* Clear drops the stored override (the env/config value applies again);
    Reset is the non-destructive sibling, so tint Clear apart from it. */
-.settings-clear { color: var(--red, #f87171); }
+.settings-clear { color: var(--red); border-color: rgba(248, 113, 113, 0.3); }
+.settings-clear:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.1);
+  border-color: rgba(248, 113, 113, 0.45);
+}
 .settings-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  border-top: 1px solid var(--border, #26262f);
-  padding-top: 12px;
-  margin-top: 8px;
+  gap: 12px;
+  border-top: 1px solid var(--glass-border);
+  padding-top: 14px;
+  margin-top: 10px;
 }
-.settings-path { font-size: 11px; color: var(--text-3, #8a8a99); word-break: break-all; }
-.settings-logout { display: inline-flex; align-items: center; gap: 6px; }
+.settings-path {
+  font-size: 11px;
+  color: var(--text-3);
+  word-break: break-all;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.settings-logout {
+  flex: none;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 7px 13px;
+  color: var(--text-2);
+}
+.settings-logout:hover {
+  color: var(--red);
+  border-color: rgba(248, 113, 113, 0.35);
+  background: rgba(248, 113, 113, 0.08);
+}
+
+/* phones: keep the popup floating and centered, just tighter */
+@media (max-width: 860px) {
+  .settings-backdrop { padding: 14px; }
+  .settings-modal { width: 100%; max-height: 88dvh; }
+  .settings-modal-head { padding: 14px 16px 12px; }
+  .settings-modal-body { padding: 16px; }
+}

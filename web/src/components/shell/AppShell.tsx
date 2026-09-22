@@ -6,7 +6,7 @@ import { ChatProvider } from "@/chat/ChatContext";
 import { KeyNavProvider } from "@/lib/keynav";
 import { Sidebar } from "./Sidebar";
 import { CourseKeeper } from "@/pages/CourseKeeper";
-import { SettingsDrawer } from "@/settings/SettingsDrawer";
+import { SettingsModal } from "@/settings/SettingsModal";
 
 const MOBILE_TABS = [
 	{ to: "/", label: "Home", icon: Home, end: true },
@@ -60,7 +60,7 @@ function ShellInner({ onLogout }: { onLogout: () => void }) {
 				<CourseKeeper />
 
 				{/* Outside the keyed wrapper on purpose — see CourseKeeper's note. */}
-				<SettingsDrawer
+				<SettingsModal
 					open={settingsOpen}
 					onClose={() => setSettingsOpen(false)}
 					onLogout={onLogout}

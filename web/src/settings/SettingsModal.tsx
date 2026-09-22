@@ -4,7 +4,7 @@ import { X } from "lucide-react";
 import { useKeyNav, zoneForPath } from "@/lib/keynav";
 import { SettingsBody } from "./SettingsBody";
 
-export function SettingsDrawer({
+export function SettingsModal({
 	open,
 	onClose,
 	onLogout,
@@ -13,8 +13,8 @@ export function SettingsDrawer({
 	onClose: () => void;
 	onLogout: () => void;
 }) {
-	// The drawer owns a keynav zone: while it is open, sidebar j/k must not
-	// drive (and scroll) the list behind the backdrop while the drawer's own
+	// The modal owns a keynav zone: while it is open, sidebar j/k must not
+	// drive (and scroll) the list behind the backdrop while the modal's own
 	// fields keep working. Closing hands the zone back to the route's zone —
 	// not a hardcoded 'sidebar', which would strand /courses or /chat.
 	const { setZone } = useKeyNav();
@@ -47,7 +47,7 @@ export function SettingsDrawer({
 			if (e.key !== "Escape") return;
 			// keynav is registered at provider mount, so it runs first: it blurs a
 			// focused field and closes its help modal with preventDefault. If it
-			// already consumed this Escape, do not also close the drawer.
+			// already consumed this Escape, do not also close the modal.
 			if (e.defaultPrevented) return;
 			// Order-independent guard: e.target is fixed at dispatch, unlike
 			// document.activeElement, which keynav has already blurred.
@@ -63,24 +63,38 @@ export function SettingsDrawer({
 
 	if (!open) return null;
 	return (
-		<>
-			<div className="settings-backdrop" onClick={requestClose} />
+		// Centered floating popup, NOT a side drawer: the backdrop dims and
+		// blurs the page and the panel is the app's raised glass surface (the
+		// same treatment as the ? help overlay). Clicking the backdrop closes;
+		// clicks inside the panel must not bubble out to it.
+		<div className="settings-backdrop" onClick={requestClose}>
 			{/* data-kbd-zone keeps sidebar j/k from scrolling the list behind it */}
-			<aside className="settings-drawer" data-kbd-zone="settings">
-				<header className="settings-drawer-head">
+			<div
+				className="settings-modal"
+				role="dialog"
+				aria-modal="true"
+				aria-label="Settings"
+				data-kbd-zone="settings"
+				onClick={(e) => e.stopPropagation()}
+			>
+				<header className="settings-modal-head">
 					<h1>Settings</h1>
-					<button className="icon-btn" onClick={requestClose} aria-label="Close settings">
+					<button
+						className="icon-btn"
+						onClick={requestClose}
+						aria-label="Close settings"
+					>
 						<X size={17} />
 					</button>
 				</header>
-				<div className="settings-drawer-scroll">
+				<div className="settings-modal-body">
 					<SettingsBody
-						variant="drawer"
+						variant="modal"
 						onLogout={onLogout}
 						onDirtyChange={setDirty}
 					/>
 				</div>
-			</aside>
-		</>
+			</div>
+		</div>
 	);
 }
