@@ -139,6 +139,9 @@
     display: flex;
     height: 100dvh;
     overflow: hidden;
+    /* positioning context for .keeper, which overlays this box without
+       taking part in the row flex layout below */
+    position: relative;
   }
 
   .sidebar {
@@ -555,17 +558,25 @@
     padding: 20px 20px 40px;
   }
 
-  /* keep-alive course tabs: the keeper + live tab MUST be bounded flex
-     columns, or every flex:1/min-height:0 height contract below (motion
-     wrapper > .keeper > .keeper-tab > .page.course-page > .course-scroll)
-     goes inert and the page spills past the viewport. Hidden tabs are
-     absolute/invisible so only the live tab sizes the keeper. */
+  /* keep-alive course tabs: this widget renders ONLY hidden replicas of
+     INACTIVE courses — the active course renders through the Outlet — so it
+     must claim ZERO layout space. It is a sibling of .main inside the
+     ROW-flex .shell, where `flex: 1` means WIDTH: a flexible keeper split
+     the shell 50/50 with .main and left the right half of the window blank
+     (the invisible replicas). Absolute inset:0 over .shell keeps the
+     min-height:0 height contract below intact (the chain still terminates
+     in a bounded box) while taking no width. Hidden tabs stay
+     visibility:hidden, never display:none — the PDF iframe's browsing
+     context survives that way. pointer-events:none so the overlay can
+     never swallow clicks meant for .main. */
   .keeper {
-    position: relative;
+    position: absolute;
+    inset: 0;
     display: flex;
     flex-direction: column;
-    flex: 1;
     min-height: 0;
+    overflow: hidden;
+    pointer-events: none;
   }
 
   .keeper-tab {
