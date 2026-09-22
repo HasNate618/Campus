@@ -276,6 +276,7 @@ input[type="range"] { accent-color: #4ade7f; }
     maxRenderedPages: 50,
     coreSpan: 2,
     idleTaskTimeout: 1000,
+    recenterDelay: 120,
     textContentCacheMax: 60,
     svgImageZenCacheMax: 48,
   };
@@ -361,6 +362,7 @@ input[type="range"] { accent-color: #4ade7f; }
   state.textContentCache = new Map();
   state.rerenderInFlight = false;
   state.rerenderRepeat = false;
+  state.navigationSeq = 0;
 
   function clamp(v, min, max) {
     return Math.min(max, Math.max(min, v));
@@ -842,6 +844,9 @@ input[type="range"] { accent-color: #4ade7f; }
       img.setAttribute("href", dataUrl);
       img.removeAttribute("xlink:href");
       img.style.filter = "";
+      // Async callback: every path already yields a promise, but returning
+      // explicitly keeps the array-callback contract obvious to readers.
+      return;
     }));
   }
 
@@ -1545,7 +1550,8 @@ input[type="range"] { accent-color: #4ade7f; }
   }
 
   function getViewportAnchor() {
-    if (!state.pdfDoc) return { page: state.currentPage || 1, centerVRatio: 0.5, centerHRatio: 0.5 };
+    const navSeq = state.navigationSeq;
+    if (!state.pdfDoc) return { page: state.currentPage || 1, centerVRatio: 0.5, centerHRatio: 0.5, navSeq };
     const top = window.scrollY;
     const left = window.scrollX;
     const centerY = window.scrollY + window.innerHeight / 2;
@@ -1560,6 +1566,7 @@ input[type="range"] { accent-color: #4ade7f; }
         page,
         centerVRatio: 0.5,
         centerHRatio: 0.5,
+        navSeq,
         docTopRatio: clamp(top / docHeight, 0, 1),
         docLeftRatio: clamp(left / docWidth, 0, 1),
         docCenterYRatio: clamp(centerY / docHeight, 0, 1),
@@ -1572,6 +1579,7 @@ input[type="range"] { accent-color: #4ade7f; }
       page,
       centerVRatio,
       centerHRatio,
+      navSeq,
       docTopRatio: clamp(top / docHeight, 0, 1),
       docLeftRatio: clamp(left / docWidth, 0, 1),
       docCenterYRatio: clamp(centerY / docHeight, 0, 1),
@@ -1579,8 +1587,12 @@ input[type="range"] { accent-color: #4ade7f; }
     };
   }
 
-  function restoreViewportAnchor(anchor) {
+  function restoreViewportAnchor(anchor, { respectNavigation = false } = {}) {
     if (!anchor) return;
+    // An automatic restore must not drag the reader back to where they were when
+    // the anchor was captured: a pass can run for seconds, and a jump in the
+    // meantime was deliberate. Bookmark jumps pass respectNavigation: false.
+    if (respectNavigation && (anchor.navSeq ?? 0) !== state.navigationSeq) return;
     const el = document.getElementById(`page-${anchor.page}`);
     const maxTop = Math.max(document.documentElement.scrollHeight - window.innerHeight, 0);
     const maxLeft = Math.max(document.documentElement.scrollWidth - window.innerWidth, 0);
@@ -1614,11 +1626,11 @@ input[type="range"] { accent-color: #4ade7f; }
     });
   }
 
-  function restoreViewportAnchorStable(anchor) {
+  function restoreViewportAnchorStable(anchor, options) {
     if (!anchor) return;
-    restoreViewportAnchor(anchor);
+    restoreViewportAnchor(anchor, options);
     requestAnimationFrame(() => {
-      restoreViewportAnchor(anchor);
+      restoreViewportAnchor(anchor, options);
     });
   }
 
@@ -1674,6 +1686,23 @@ input[type="range"] { accent-color: #4ade7f; }
       if (state.suspendWindowRendering) return;
       renderWindow();
     });
+  }
+
+  let recenterTimer = null;
+
+  // Scrolling moves the center on every frame, and renderWindow treats any moved
+  // center as a supersede — so re-centering eagerly restarts the pass before a
+  // single page can finish, and nothing renders until the scroll stops. Both the
+  // scroll handler and the page observer share this one debounce. Visible-page
+  // bookkeeping stays immediate; only the re-center and its pass wait.
+  function scheduleRecenterFromScroll() {
+    if (recenterTimer) clearTimeout(recenterTimer);
+    recenterTimer = setTimeout(() => {
+      recenterTimer = null;
+      if (state.suspendObserverUpdates) return;
+      updateCurrentPageFromScroll();
+      scheduleRenderWindow();
+    }, perf.recenterDelay);
   }
 
   async function renderWindow() {
@@ -1745,8 +1774,7 @@ input[type="range"] { accent-color: #4ade7f; }
           state.visiblePages.delete(pageNo);
         }
       }
-      updateCurrentPageFromScroll();
-      scheduleRenderWindow();
+      scheduleRecenterFromScroll();
     }, {
       root: null,
       rootMargin: "200px 0px",
@@ -1876,7 +1904,7 @@ input[type="range"] { accent-color: #4ade7f; }
     const release = () => {
       if (released) return;
       released = true;
-      restoreViewportAnchorStable(anchor);
+      restoreViewportAnchorStable(anchor, { respectNavigation: true });
       updateDisplayScaleSnapshot();
       endRenderMutation();
       scheduleRenderWindow();
@@ -1910,7 +1938,7 @@ input[type="range"] { accent-color: #4ade7f; }
     state.renderPending = false;
     // Restore before the render pass: a long render must not yank the view back
     // to the anchor afterwards, discarding wherever the reader navigated.
-    if (anchor) restoreViewportAnchorStable(anchor);
+    if (anchor) restoreViewportAnchorStable(anchor, { respectNavigation: true });
     await renderWindow();
     updateDisplayScaleSnapshot();
   }
@@ -1924,6 +1952,8 @@ input[type="range"] { accent-color: #4ade7f; }
       state.jumpForward = [];
     }
     state.currentPage = pageNo;
+    // A deliberate jump invalidates any in-flight anchor restore.
+    state.navigationSeq += 1;
     window.scrollTo({ top: Math.max(0, el.offsetTop - 15), behavior: smooth ? "smooth" : "auto" });
     // Re-center the render queue on the target so a jump does not wait behind
     // the pages before it; the new pass supersedes the in-flight one.
@@ -1992,14 +2022,8 @@ input[type="range"] { accent-color: #4ade7f; }
     compactKeybindsTable();
 
     // keep current page synced while user scrolls
-    let scrollTimer = null;
     window.addEventListener('scroll', () => {
-      if (scrollTimer) clearTimeout(scrollTimer);
-      scrollTimer = setTimeout(() => {
-        scrollTimer = null;
-        updateCurrentPageFromScroll();
-        scheduleRenderWindow();
-      }, 120);
+      scheduleRecenterFromScroll();
     }, { passive: true });
 
     function openKeybinds() {
