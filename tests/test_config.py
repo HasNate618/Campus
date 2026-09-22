@@ -261,22 +261,49 @@ def test_missing_settings_layer_is_a_noop(tmp_path):
 
 
 def test_settings_path_is_absolute_and_beside_the_db(tmp_path, monkeypatch):
-    """A relative db_path (what config.example.yaml ships) must not make the
-    settings file depend on the process CWD.
+    """The settings file is an absolute path named settings.yaml.
 
-    The autouse pin sets CAMPUS_SETTINGS_PATH, which short-circuits
-    settings_path(); clear it so this actually exercises the db-derived anchor
-    rather than the env override (covered separately below).
+    The autouse pin sets CAMPUS_SETTINGS_PATH, which outranks any base, so this
+    asserts the shape invariant only — it must not clear the pin and call
+    Config.load(), which would read the developer's real data/settings.yaml.
+    The db-derived anchor, including the relative-db_path branch that
+    config.example.yaml ships, is covered by the test below.
     """
     from sync.config import Config, settings_path
 
-    monkeypatch.delenv("CAMPUS_SETTINGS_PATH", raising=False)
-    monkeypatch.setenv("CAMPUS_DB_PATH", "data/harness.db")
-    cfg = Config.load()
     assert Path("data/harness.db").is_absolute() is False  # guard the premise
-    p = settings_path(cfg)
+    p = settings_path(Config(db_path=Path("data/harness.db")))
     assert p.is_absolute()
     assert p.name == "settings.yaml"
+
+
+def test_settings_path_without_a_base_matches_the_loader(tmp_path, monkeypatch):
+    """Every API call site calls settings_path() with no argument.
+
+    A bare Config() there anchors on the dataclass default
+    (REPO_ROOT/data/harness.db) while Config.load() anchors on the
+    config+env-resolved db_path — so in any deployment whose db_path comes from
+    config.yaml or CAMPUS_DB_PATH (both documented) the panel would read and
+    write one file while chat, sync and the CLI read another, with the PUT
+    response re-reading the wrong file and reporting success.
+    """
+    from sync.config import REPO_ROOT, Config, settings_path
+
+    monkeypatch.delenv("CAMPUS_SETTINGS_PATH", raising=False)
+    custom = tmp_path / "customdir" / "harness.db"
+    monkeypatch.setenv("CAMPUS_DB_PATH", str(custom))
+
+    loader = settings_path(Config.load())
+    panel = settings_path()   # the API's call shape
+    assert panel == loader
+    assert panel == (tmp_path / "customdir").resolve() / "settings.yaml"
+    assert panel != REPO_ROOT / "data" / "settings.yaml"
+
+    # The relative db_path config.example.yaml ships must anchor to REPO_ROOT,
+    # never to the process CWD.
+    monkeypatch.setenv("CAMPUS_DB_PATH", "data/harness.db")
+    assert settings_path() == settings_path(Config.load())
+    assert settings_path() == (REPO_ROOT / "data").resolve() / "settings.yaml"
 
 
 def test_settings_path_env_override_wins(tmp_path, monkeypatch):

@@ -84,11 +84,19 @@ def settings_path(base: "Config | None" = None) -> Path:
     it, so Path(db_path).parent would otherwise resolve against wherever uvicorn
     was started. CAMPUS_SETTINGS_PATH overrides the whole computation (used by
     a host-side CLI whose data root differs from the container's volume).
+
+    With no `base`, the anchor is load_base() rather than a bare Config(): a
+    default-constructed Config carries the dataclass default
+    (REPO_ROOT/data/harness.db), so a deployment that sets db_path in
+    config.yaml or CAMPUS_DB_PATH would have the panel read and write one file
+    while chat/sync/the CLI read another — silently. load_base() is layers 1-3
+    only and never reads the settings layer, so this cannot recurse.
     """
     env = os.environ.get("CAMPUS_SETTINGS_PATH")
     if env:
         return Path(env).expanduser().resolve()
-    db = Path(base.db_path if base is not None else Config().db_path).expanduser()
+    resolved = base if base is not None else Config.load_base()
+    db = Path(resolved.db_path).expanduser()
     if not db.is_absolute():
         db = REPO_ROOT / db
     return db.parent.resolve() / "settings.yaml"
