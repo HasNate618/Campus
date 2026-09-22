@@ -33,21 +33,27 @@ export function SettingsDrawer({
 	// confirm on unmount: that is not a user-initiated close.
 	const requestClose = useCallback(() => {
 		if (dirty && !window.confirm("Discard unsaved settings changes?")) return;
+		// Closing ends this form's session: clear the flag here, or a reopen would
+		// confirm edits that no longer exist while SettingsBody remounts.
+		setDirty(false);
 		onClose();
 	}, [dirty, onClose]);
 
-	// Escape closes only when no field is focused: web/src/lib/keynav.tsx blurs
-	// a focused input on Escape without stopping propagation, so without this
-	// guard the first Escape would both blur the field and discard the drawer.
+	// Escape is two-press while a field is focused: the first blurs it, the second
+	// closes. Order matters and BOTH guards below are needed.
 	useEffect(() => {
 		if (!open) return;
 		const onKey = (e: KeyboardEvent) => {
 			if (e.key !== "Escape") return;
-			const el = document.activeElement;
+			// keynav is registered at provider mount, so it runs first: it blurs a
+			// focused field and closes its help modal with preventDefault. If it
+			// already consumed this Escape, do not also close the drawer.
+			if (e.defaultPrevented) return;
+			// Order-independent guard: e.target is fixed at dispatch, unlike
+			// document.activeElement, which keynav has already blurred.
+			const el = e.target as HTMLElement | null;
 			const typing =
-				!!el &&
-				((el as HTMLElement).tagName === "INPUT" ||
-					(el as HTMLElement).tagName === "TEXTAREA");
+				!!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
 			if (typing) return;
 			requestClose();
 		};
