@@ -7,10 +7,13 @@ it at boot, but this endpoint can read a masked API key and changes LLM wiring.
 from __future__ import annotations
 
 import os
+import threading
 
-from fastapi import APIRouter
+import yaml
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
-from api.settings_fields import REGISTRY
+from api.settings_fields import REGISTRY, ValidationError, normalize
 from api.version import VERSION
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -139,4 +142,92 @@ def _origin(env_key: str, attr: str) -> str:
 
 @router.get("")
 def get_settings():
+    return _snapshot()
+
+
+# ── write path ───────────────────────────────────────────────────────────
+# PUT is a read-modify-write over the whole file: two overlapping requests
+# would each merge into their own snapshot and the later write would silently
+# discard the earlier field. Same shape as api/services.py::_sync_lock, which
+# exists because "the bare flag raced in the threadpool". In-process is correct
+# here — the deployment runs a single uvicorn process (Dockerfile:49).
+_write_lock = threading.Lock()
+
+# Kinds whose string values are trimmed at the request boundary. The validators
+# in api/settings_fields.py are deliberately strict and do not trim, so a pasted
+# "  https://ntfy.sh/x  " would be rejected rather than saved. `json` is absent
+# because its own validator strips before parsing.
+_TRIMMED_KINDS = frozenset({"text", "secret", "url"})
+
+
+class PutBody(BaseModel):
+    values: dict[str, object] = Field(default_factory=dict)
+
+
+def _trim(field, raw):
+    """Trim surrounding whitespace from a value before it is validated.
+
+    This belongs at the request boundary, not in the validators: the validators
+    answer "is this a legal value?", and for a pasted value the answer depends
+    on whitespace the user did not mean to type. List elements are trimmed too
+    (the UI splits one URL per line).
+    """
+    if field.kind == "json":
+        return raw
+    if isinstance(raw, str):
+        return raw.strip() if field.kind in _TRIMMED_KINDS else raw
+    if isinstance(raw, list):
+        return [v.strip() if isinstance(v, str) else v for v in raw]
+    return raw
+
+
+def _apply(layer: dict, field, value) -> None:
+    if value is None:
+        layer.pop(field.key, None)
+    else:
+        layer[field.key] = value
+    # Alias coupling: llm_endpoints()/mcp_endpoints() prefer the plural, so a
+    # singular left behind in THIS layer would resurrect when the user clears
+    # the list. Writing the plural blanks the singular; clearing pops both.
+    for c in field.couples:
+        if value is None:
+            layer.pop(c, None)
+        else:
+            layer[c] = ""
+
+
+@router.put("")
+def put_settings(body: PutBody):
+    from sync.config import read_settings_layer, settings_path
+    from sync.token_store import write_secret
+
+    # Validate EVERYTHING before touching the file: a rejected request must
+    # leave it byte-identical.
+    errors: list[dict] = []
+    updates: dict[str, object] = {}
+    for key, raw in body.values.items():
+        field = REGISTRY.get(key)
+        if field is None:
+            errors.append({"key": key, "message": "unknown setting"})
+            continue
+        try:
+            updates[key] = normalize(field, _trim(field, raw))
+        except ValidationError as e:
+            errors.append({"key": key, "message": str(e)})
+    if errors:
+        raise HTTPException(400, {"errors": errors})
+
+    path = settings_path()
+    with _write_lock:
+        layer, _err = read_settings_layer(path)
+        for key, value in updates.items():
+            _apply(layer, REGISTRY[key], value)
+        try:
+            write_secret(path, yaml.safe_dump(layer, sort_keys=True),
+                         chmod_parent=False)
+        except OSError as e:
+            raise HTTPException(
+                500, f"could not write {path}: {e}") from None
+    # Called outside the lock: it re-reads the file, which is already replaced
+    # atomically.
     return _snapshot()

@@ -202,6 +202,166 @@ def test_get_reports_module_level_restart_flags(tmp_path, monkeypatch):
     assert by_key["llm_model"]["restart"] is False
 
 
+def _client(tmp_path, monkeypatch, settings_body: str = "", env: dict | None = None):
+    _setup(tmp_path, monkeypatch, settings_body, env)
+    from fastapi.testclient import TestClient
+    from api.main import app
+    return TestClient(app)
+
+
+def test_put_writes_the_layer_and_reports_new_sources(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch)
+    res = c.put("/api/settings", json={"values": {"pilot_only": False,
+                                                 "long_scan_skip_pages": 42}})
+    assert res.status_code == 200
+    assert (tmp_path / "settings.yaml").exists()
+    by_key = {f["key"]: f for f in res.json()["fields"]}
+    assert by_key["pilot_only"]["value"] is False
+    assert by_key["pilot_only"]["source"] == "settings"
+    from sync.config import Config
+    assert Config.load().long_scan_skip_pages == 42
+
+
+def test_put_rejects_unknown_key(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch)
+    res = c.put("/api/settings", json={"values": {"data_root": "/etc"}})
+    assert res.status_code == 400
+    assert res.json()["detail"]["errors"][0]["key"] == "data_root"
+
+
+def test_put_rejects_bad_value_and_leaves_the_file_untouched(tmp_path, monkeypatch):
+    path = tmp_path / "settings.yaml"
+    c = _client(tmp_path, monkeypatch, settings_body="pilot_only: false\n")
+    before = path.read_bytes()
+    res = c.put("/api/settings", json={"values": {"ntfy_url": "ftp://x"}})
+    assert res.status_code == 400
+    assert "ftp://x" in res.json()["detail"]["errors"][0]["message"]
+    assert path.read_bytes() == before          # byte-identical
+
+
+def test_put_int_rejects_bool_and_leaves_the_file_untouched(tmp_path, monkeypatch):
+    path = tmp_path / "settings.yaml"
+    c = _client(tmp_path, monkeypatch)
+    res = c.put("/api/settings", json={"values": {"long_scan_skip_pages": True}})
+    assert res.status_code == 400
+    assert not path.exists() or path.read_bytes() == b""
+
+
+def test_put_null_deletes_and_restores_inheritance(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch, settings_body="llm_model: from-settings\n",
+                env={"OPENAI_MODEL": "from-env"})
+    # Precondition: the override really is winning before we delete it, so the
+    # assertions below prove the delete changed something.
+    before = {f["key"]: f for f in c.get("/api/settings").json()["fields"]}
+    assert before["llm_model"]["value"] == "from-settings"
+    assert before["llm_model"]["source"] == "settings"
+
+    res = c.put("/api/settings", json={"values": {"llm_model": None}})
+    by_key = {f["key"]: f for f in res.json()["fields"]}
+    assert by_key["llm_model"]["value"] == "from-env"
+    assert "llm_model" not in (tmp_path / "settings.yaml").read_text()
+
+
+def test_put_llm_urls_blanks_the_singular_alias(tmp_path, monkeypatch):
+    """llm_endpoints() prefers llm_urls, so a stale singular in the same layer
+    would resurrect after the user clears the list."""
+    c = _client(tmp_path, monkeypatch,
+                settings_body="llm_url: https://stale/v1\n")
+    c.put("/api/settings", json={"values": {"llm_urls": ["https://new/v1"]}})
+    import yaml
+
+    text = (tmp_path / "settings.yaml").read_text()
+    assert "https://stale/v1" not in text        # the stale value is gone
+    # ...and the singular is BLANKED rather than left absent. Asserted on the
+    # parsed value, not on a quoting style: safe_dump writes `''`, not `""`.
+    layer = yaml.safe_load(text)
+    assert layer["llm_url"] == ""
+    assert layer["llm_urls"] == ["https://new/v1"]
+    from sync.config import Config
+    assert Config.load().llm_endpoints() == ["https://new/v1"]
+
+
+def test_put_clearing_urls_does_not_resurrect_the_stale_singular(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch, settings_body="llm_url: https://stale/v1\n")
+    c.put("/api/settings", json={"values": {"llm_urls": []}})
+    from sync.config import Config
+    assert Config.load().llm_endpoints() == []   # not ["https://stale/v1"]
+
+
+def test_put_trims_whitespace_before_validating(tmp_path, monkeypatch):
+    """A pasted value arrives with surrounding whitespace. The validators in
+    api/settings_fields.py are deliberately strict, so trimming has to happen
+    at the request boundary — otherwise a paste is rejected, not saved."""
+    c = _client(tmp_path, monkeypatch)
+    res = c.put("/api/settings", json={"values": {
+        "ntfy_url": "  https://ntfy.sh/mine  ",
+        "timezone": " America/Toronto ",
+        "llm_urls": ["  http://localhost:11434/v1  "],
+        "llm_api_key": "  sk-padded-9999  ",
+        "institution": "  Example University  ",
+    }})
+    assert res.status_code == 200, res.text
+    by_key = {f["key"]: f for f in res.json()["fields"]}
+    assert by_key["ntfy_url"]["value"] == "https://ntfy.sh/mine"
+    assert by_key["timezone"]["value"] == "America/Toronto"
+    assert by_key["llm_urls"]["value"] == ["http://localhost:11434/v1"]
+    assert by_key["institution"]["value"] == "Example University"
+    # The secret is stored trimmed (and still never echoed).
+    assert "sk-padded-9999" not in res.text
+    assert "sk-padded-9999" in (tmp_path / "settings.yaml").read_text()
+    assert "  sk-padded-9999  " not in (tmp_path / "settings.yaml").read_text()
+
+
+def test_put_applies_nothing_when_one_value_is_invalid(tmp_path, monkeypatch):
+    """Validate-before-write at REQUEST granularity. A request mixing a legal
+    and an illegal value must apply neither: a partially-applied write would
+    leave the file holding a change the user never got told about, because the
+    request failed."""
+    path = tmp_path / "settings.yaml"
+    c = _client(tmp_path, monkeypatch, settings_body="pilot_only: false\n")
+    before = path.read_bytes()
+    res = c.put("/api/settings", json={"values": {
+        "long_scan_skip_pages": 99,     # legal — must NOT be applied
+        "ntfy_url": "ftp://x",          # illegal
+    }})
+    assert res.status_code == 400
+    assert [e["key"] for e in res.json()["detail"]["errors"]] == ["ntfy_url"]
+    assert path.read_bytes() == before
+    import yaml
+
+    layer = yaml.safe_load(path.read_text())
+    assert "long_scan_skip_pages" not in layer
+
+
+def test_put_file_is_0600_and_parent_mode_is_untouched(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch)
+    before = tmp_path.stat().st_mode & 0o777
+    c.put("/api/settings", json={"values": {"pilot_only": False}})
+    mode = (tmp_path / "settings.yaml").stat().st_mode & 0o777
+    assert mode == 0o600
+    assert (tmp_path.stat().st_mode & 0o777) == before   # not tightened by us
+
+
+def test_put_concurrent_writes_keep_both_fields(tmp_path, monkeypatch):
+    import concurrent.futures as cf
+
+    c = _client(tmp_path, monkeypatch)
+    with cf.ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(lambda kv: c.put("/api/settings", json={"values": {kv[0]: kv[1]}}),
+                      [("pilot_only", False), ("long_scan_skip_pages", 7)]))
+    from sync.config import Config
+    cfg = Config.load()
+    assert cfg.pilot_only is False and cfg.long_scan_skip_pages == 7
+
+
+def test_put_secret_is_never_echoed(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch)
+    res = c.put("/api/settings", json={"values": {"llm_api_key": "sk-abcdefgh9999"}})
+    assert res.status_code == 200
+    assert "sk-abcdefgh9999" not in res.text
+    assert (tmp_path / "settings.yaml").stat().st_mode & 0o777 == 0o600
+
+
 def test_get_does_not_leak_the_key_through_a_malformed_file(tmp_path, monkeypatch):
     """A stray `*` turns the value into an alias reference, and PyYAML's
     ComposerError echoes the alias NAME — the secret itself — in its message.
