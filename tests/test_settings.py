@@ -125,9 +125,16 @@ def test_registry_shape():
 
 
 def _setup(tmp_path, monkeypatch, settings_body: str = "", env: dict | None = None):
-    """Point the harness at a scratch config + settings pair and import fresh."""
+    """Point the harness at a scratch config + settings pair and import fresh.
+
+    CAMPUS_DB_PATH as well as CAMPUS_DB: sync.Config reads only the former, so
+    without it _snapshot() -> _search_index() -> search_index_summary() would
+    open the developer's real data/harness.db read-write (sqlite3.connect
+    creates the file), and one GET could seed a stray real DB.
+    """
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("CAMPUS_DB", str(tmp_path / "harness.db"))
+    monkeypatch.setenv("CAMPUS_DB_PATH", str(tmp_path / "harness.db"))
     monkeypatch.setenv("CAMPUS_SETTINGS_PATH", str(tmp_path / "settings.yaml"))
     (tmp_path / "settings.yaml").write_text(settings_body)
     for k, v in (env or {}).items():
@@ -160,6 +167,10 @@ def test_get_reports_values_and_sources(tmp_path, monkeypatch):
     assert set(body["readonly"]) == {"db_path", "data_root", "token_dir"}
     for entry in body["readonly"].values():
         assert "value" in entry and "from" in entry
+    # search_index is the only signal in the payload that the vectors are stale
+    # after a model change; dropping it from _snapshot() must not go unnoticed.
+    assert set(body["search_index"]) == {"chunks", "embed_model", "stale"}
+    assert body["search_index"]["chunks"] == 0   # the scratch DB has no chunks
 
 
 def test_get_never_returns_the_plaintext_key(tmp_path, monkeypatch):
@@ -393,6 +404,10 @@ def test_search_index_summary_on_an_unindexed_db(db_path, tmp_path, monkeypatch)
     # fixture alone would leave Config.load().db_path on the developer's real
     # data/harness.db and this assertion would read their index.
     monkeypatch.setenv("CAMPUS_DB_PATH", str(db_path))
+    # An exported CAMPUS_EMBED_MODEL would make the stored model differ from the
+    # configured one and flip `stale` to True — the test must not depend on
+    # ambient shell state.
+    monkeypatch.delenv("CAMPUS_EMBED_MODEL", raising=False)
     _setup(tmp_path, monkeypatch)
     from sync.config import Config
     from api.services import search_index_summary
