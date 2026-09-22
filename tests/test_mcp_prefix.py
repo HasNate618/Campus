@@ -8,11 +8,33 @@ import types
 import pytest
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent))
-sys.modules["yaml"] = types.SimpleNamespace(safe_load=lambda *a, **k: None)
+# The stub exists only so that agent.tools' import-time Config.load() (it
+# discovered MCP tools at module scope) sees no config. Capture the real PyYAML
+# by IMPORTING it, not via sys.modules.get(): in the orderings that matter
+# (e.g. `pytest tests/test_mcp_prefix.py tests/test_settings.py`) nothing has
+# imported yaml yet, so a get()-based guard would skip the restore below
+# entirely and leave the stub installed for the rest of the session.
+import yaml as _real_yaml
+
+_stub = types.ModuleType("yaml")
+_stub.safe_load = lambda *a, **k: None
+sys.modules["yaml"] = _stub
 
 import agent.mcp as M
 import agent.tools as T
 import re as _re
+
+# Undo the stub. Restoring sys.modules is not enough on its own: importing
+# agent.tools above pulls in sync.config, and whenever this module is the first
+# to do so, sync.config captures the stub as its own `yaml` — an already-bound
+# module attribute that a sys.modules restore cannot reach. Left alone,
+# sync.config then parses every settings/config file as empty and silently
+# reports a malformed file as loadable.
+sys.modules["yaml"] = _real_yaml
+import sync.config as _sync_config
+
+if _sync_config.yaml is not _real_yaml:
+    _sync_config.yaml = _real_yaml
 
 
 def _fake_client_class():

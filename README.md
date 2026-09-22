@@ -135,7 +135,8 @@ python3 tools/ics_import.py seed/sample.ics
 ## Real deployment
 
 Everything environment-specific lives in `config.yaml` (gitignored) or
-`CAMPUS_*` env vars — the repo itself carries zero personal configuration.
+`CAMPUS_*` env vars (plus the panel-written `settings.yaml` — see *In-app
+settings*) — the repo itself carries zero personal configuration.
 
 | Config key | Env var | Purpose |
 | ----------- | --------- | --------- |
@@ -153,6 +154,7 @@ Everything environment-specific lives in `config.yaml` (gitignored) or
 | `term_dates` | — | Anchors computed class events |
 | `timezone` | `CAMPUS_TIMEZONE` | User-facing datetimes + prompt clock |
 | `web_password` | `CAMPUS_WEB_PASSWORD` | Optional single password for the web API; empty = open demo |
+| In-app settings | `CAMPUS_SETTINGS_PATH` | `settings.yaml` beside the DB; written by the Settings panel; overrides env vars |
 
 ### Authentication
 
@@ -202,7 +204,7 @@ prerequisites so it doesn't guess.
 
 ## Configuration
 
-All personal values live in `config.yaml` (gitignored) or `CAMPUS_*` env vars. The repo ships with no secrets.
+All personal values live in `config.yaml` (gitignored) or `CAMPUS_*` env vars (plus the panel-written `settings.yaml` — see *In-app settings*). The repo ships with no secrets.
 
 | Key | Env var | Purpose |
 | --- | --- | --- |
@@ -215,6 +217,7 @@ All personal values live in `config.yaml` (gitignored) or `CAMPUS_*` env vars. T
 | `web_password` | `CAMPUS_WEB_PASSWORD` | Single password for `/api/*` routes; empty = open demo |
 | `timezone` | `CAMPUS_TIMEZONE` | Dates you see and the clock in the prompt; empty = host local time |
 | `term_dates` | n/a | Start/end dates that anchor class events |
+| In-app settings | `CAMPUS_SETTINGS_PATH` | `settings.yaml` beside the DB; written by the Settings panel; overrides env vars |
 
 ### Not using Brightspace/D2L?
 

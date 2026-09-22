@@ -14,6 +14,157 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG_PATH = REPO_ROOT / "config.yaml"
 
+# ── environment overrides ────────────────────────────────────────────────
+# Env name -> Config attribute. Two naming conventions are supported so the
+# project is portable: the conventional OpenAI-compatible names (OPENAI_*) any
+# outsider already knows, and the Campus-specific CAMPUS_* names used by the
+# homelab deployment for non-LLM services. For the LLM, only the standard
+# OPENAI_* names are accepted (no CAMPUS_LLM_* aliases) so the interface stays
+# clean. Single + plural (comma-separated) forms both work.
+#
+# The attribute here is the REAL field name, never a "_csv" pseudo-name: these
+# values are also what env_set_attrs() reports, and a name like "llm_urls_csv"
+# matches no Config field, so a failover deployment would look unconfigured.
+ENV_OVERRIDES: list[tuple[str, str]] = [
+    ("OPENAI_ENDPOINT", "llm_url"),
+    ("OPENAI_ENDPOINTS", "llm_urls"),
+    ("OPENAI_API_KEY", "llm_api_key"),
+    ("OPENAI_MODEL", "llm_model"),
+    ("CAMPUS_BASE_URL", "base_url"),
+    ("CAMPUS_DATA_ROOT", "data_root"),
+    ("CAMPUS_DB_PATH", "db_path"),
+    ("CAMPUS_TOKEN_DIR", "token_dir"),
+    ("CAMPUS_TIMEZONE", "timezone"),
+    ("CAMPUS_PDF_EXTRACTOR_URL", "pdf_extractor_url"),
+    ("CAMPUS_NTFY_URL", "ntfy_url"),
+    ("CAMPUS_MCP_URL", "mcp_url"),
+    ("CAMPUS_MCP_URLS", "mcp_urls"),
+    ("CAMPUS_EMBED_MODEL", "embed_model"),
+    ("CAMPUS_RERANK_MODEL", "rerank_model"),
+    ("CAMPUS_BRIGHTSPACE_BASE_URL", "brightspace_base_url"),
+    ("CAMPUS_WEB_PASSWORD", "web_password"),
+]
+
+# Comma-separated in the environment, lists on Config.
+_ENV_CSV_ATTRS = frozenset({"llm_urls", "mcp_urls"})
+
+# Handled outside ENV_OVERRIDES: secrets and the host allowlist. Unlike the
+# table above these keep their original semantics (see _apply_env): an
+# explicitly-empty credential clears the value from config.yaml, because that
+# is what `os.environ.get(name, current)` has always done here.
+ENV_EXTRA: dict[str, str] = {
+    "CAMPUS_USERNAME": "username",
+    "CAMPUS_BRIGHTSPACE_PASSWORD": "password",
+    "CAMPUS_BRIGHTSPACE_HOSTS": "brightspace_hosts",
+}
+
+
+def env_set_attrs() -> set[str]:
+    """Config attributes the environment currently supplies a value for.
+
+    Pure: reads os.environ only. An exported-but-empty value counts as unset,
+    matching _apply_env's `if not val: continue` for the table. The two
+    credential extras are the exception — _apply_env lets an explicitly-empty
+    CAMPUS_USERNAME / CAMPUS_BRIGHTSPACE_PASSWORD clear a file value — but
+    neither is a settings field, so this can never mislabel a field the
+    Settings panel displays.
+    """
+    return {
+        attr
+        for env_key, attr in {**dict(ENV_OVERRIDES), **ENV_EXTRA}.items()
+        if os.environ.get(env_key)
+    }
+
+
+def settings_path(base: "Config | None" = None) -> Path:
+    """Absolute path of the web-written overrides layer.
+
+    Anchored to the DB directory, never the process CWD: config.example.yaml
+    ships a *relative* db_path ("data/harness.db") and load() only expanduser()s
+    it, so Path(db_path).parent would otherwise resolve against wherever uvicorn
+    was started. CAMPUS_SETTINGS_PATH overrides the whole computation (used by
+    a host-side CLI whose data root differs from the container's volume).
+
+    With no `base`, the anchor is load_base() rather than a bare Config(): a
+    default-constructed Config carries the dataclass default
+    (REPO_ROOT/data/harness.db), so a deployment that sets db_path in
+    config.yaml or CAMPUS_DB_PATH would have the panel read and write one file
+    while chat/sync/the CLI read another — silently. load_base() is layers 1-3
+    only and never reads the settings layer, so this cannot recurse.
+    """
+    env = os.environ.get("CAMPUS_SETTINGS_PATH")
+    if env:
+        return Path(env).expanduser().resolve()
+    resolved = base if base is not None else Config.load_base()
+    db = Path(resolved.db_path).expanduser()
+    if not db.is_absolute():
+        db = REPO_ROOT / db
+    return db.parent.resolve() / "settings.yaml"
+
+
+def read_settings_layer(path: Path) -> tuple[dict, str | None]:
+    """(settings dict, error-or-None). NEVER raises.
+
+    Called on every Config.load(), i.e. once per request. An unreadable file
+    (a host CLI running as a different uid than the container) or invalid YAML
+    must behave as "absent" rather than take the API down. Mirrors the reasoning
+    in sync/token_store.write_secret, which swallows chmod failures for the
+    same class of reason.
+
+    Resolution is left to open(): Path.exists() swallows the PermissionError
+    and reports False, so an exists() pre-check would make an unreadable file
+    indistinguishable from a missing one — empty settings with no explanation.
+    Only "no file yet" is silent; everything else carries an error.
+
+    The returned message must never carry the file's CONTENT. It is served
+    over HTTP (settings_file_error) and any future consumer may log it, so the
+    scrub belongs here, where the string is built, rather than at one boundary.
+    PyYAML is the hazard: an undefined alias (`llm_api_key: *sk-...`) reports
+    the alias NAME — the secret itself — so a YAML failure is reported as
+    position only. Errno text ("Permission denied", "Is a directory") carries
+    no content and is kept verbatim, because the panel must let a user tell
+    "I cannot read your file" from "your file is malformed".
+    """
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        return {}, None
+    except yaml.YAMLError as e:
+        return {}, _yaml_error_message(path, e)
+    except OSError as e:
+        return {}, f"{path}: {e}"
+    except Exception as e:
+        # UnicodeDecodeError (a binary or non-UTF-8 file) is neither an OSError
+        # nor a yaml.YAMLError, so it needs its own branch or it escapes and
+        # breaks the never-raises contract this function exists to keep. Only
+        # the class name is reported: str(e) is the codec message, which quotes
+        # the offending byte.
+        return {}, f"{path}: unreadable ({type(e).__name__})"
+    if not isinstance(data, dict):
+        return {}, f"{path}: top level must be a mapping"
+    return data, None
+
+
+def _yaml_error_message(path: Path, e: yaml.YAMLError) -> str:
+    """A YAML failure as path + position only — never the message text.
+
+    The context mark is preferred when present: an unterminated flow sequence or
+    quote reports the PROBLEM at end-of-stream (line 3 of a two-line file), while
+    the context mark is where the construct actually opened (the offending line).
+    Six failure shapes were checked — alias, flow, tab indent, colon-in-scalar,
+    bad indent, unclosed quote — and in each one the context mark either names the
+    offending line or is absent, in which case the problem mark is already right.
+    """
+    mark = getattr(e, "context_mark", None) or getattr(e, "problem_mark", None)
+    if mark is None:
+        return f"{path}: not valid YAML — fix or delete the file"
+    # PyYAML marks are 0-based; report them the way an editor counts.
+    return (
+        f"{path} (line {mark.line + 1}, column {mark.column + 1}): "
+        "not valid YAML — fix or delete the file"
+    )
+
 
 @dataclass
 class Config:
@@ -106,64 +257,25 @@ class Config:
     @classmethod
     def load(cls, path: Path | None = None) -> "Config":
         cfg = cls()
-        path = path or DEFAULT_CONFIG_PATH
-        if path.exists():
-            with open(path) as f:
-                data = yaml.safe_load(f) or {}
-            for k, v in data.items():
-                if hasattr(cfg, k) and v is not None:
-                    setattr(cfg, k, v)
-        # env overrides. Two naming conventions are supported so the project
-        # is portable: the conventional OpenAI-compatible names (OPENAI_*) any
-        # outsider already knows, and the Campus-specific CAMPUS_* names used by
-        # the homelab deployment for non-LLM services. For the LLM, only the
-        # standard OPENAI_* names are accepted (no CAMPUS_LLM_* aliases) so the
-        # interface stays clean. Single + plural (comma-separated) forms both work.
-        overrides = [
-            ("OPENAI_ENDPOINT", "llm_url"),
-            ("OPENAI_ENDPOINTS", "llm_urls_csv"),
-            ("OPENAI_API_KEY", "llm_api_key"),
-            ("OPENAI_MODEL", "llm_model"),
-            ("CAMPUS_BASE_URL", "base_url"),
-            ("CAMPUS_DATA_ROOT", "data_root"),
-            ("CAMPUS_DB_PATH", "db_path"),
-            ("CAMPUS_TOKEN_DIR", "token_dir"),
-            ("CAMPUS_TIMEZONE", "timezone"),
-            ("CAMPUS_PDF_EXTRACTOR_URL", "pdf_extractor_url"),
-            ("CAMPUS_NTFY_URL", "ntfy_url"),
-            ("CAMPUS_MCP_URL", "mcp_url"),
-            ("CAMPUS_MCP_URLS", "mcp_urls_csv"),
-            ("CAMPUS_EMBED_MODEL", "embed_model"),
-            ("CAMPUS_RERANK_MODEL", "rerank_model"),
-            ("CAMPUS_BRIGHTSPACE_BASE_URL", "brightspace_base_url"),
-            ("CAMPUS_WEB_PASSWORD", "web_password"),
-        ]
-        for env_key, attr in overrides:
-            val = os.environ.get(env_key)
-            if not val:
-                continue
-            if attr.endswith("_csv"):  # comma-separated list -> list field
-                setattr(cfg, attr[:-4], [u.strip() for u in val.split(",") if u.strip()])
-            else:
-                setattr(cfg, attr, val)
-        cfg.username = os.environ.get("CAMPUS_USERNAME", cfg.username)
-        cfg.password = os.environ.get("CAMPUS_BRIGHTSPACE_PASSWORD", cfg.password)
-        if os.environ.get("CAMPUS_BRIGHTSPACE_HOSTS"):
-            cfg.brightspace_hosts = [
-                h.strip() for h in os.environ["CAMPUS_BRIGHTSPACE_HOSTS"].split(",") if h.strip()
-            ]
-        if os.environ.get("CAMPUS_MCP_URLS"):
-            cfg.mcp_urls = [
-                u.strip() for u in os.environ["CAMPUS_MCP_URLS"].split(",") if u.strip()
-            ]
-        # expand ~ and coerce to Path (YAML strings don't auto-coerce)
-        for field in ("data_root", "db_path", "token_dir", "browser_profile_dir"):
-            val = getattr(cfg, field)
-            if isinstance(val, str):
-                val = Path(val)
-            if isinstance(val, Path):
-                val = Path(os.path.expanduser(str(val)))
-            setattr(cfg, field, val)
+        _merge_layer(cfg, _read_config_file(path or DEFAULT_CONFIG_PATH))
+        _apply_env(cfg)
+        # The in-app layer sits ABOVE env: the user is the deployer, and the
+        # settings a deployment must control (passwords, paths) are not
+        # writable from the panel at all. Resolved after env so a
+        # CAMPUS_DB_PATH from the environment anchors the same directory.
+        data, _err = read_settings_layer(settings_path(cfg))
+        _merge_layer(cfg, data)
+        _coerce_paths(cfg)
+        return cfg
+
+    @classmethod
+    def load_base(cls, path: Path | None = None) -> "Config":
+        """Layers 1-3 only (defaults, config.yaml, env) — what a field would
+        resolve to with no in-app override. Used for `inherited_value`."""
+        cfg = cls()
+        _merge_layer(cfg, _read_config_file(path or DEFAULT_CONFIG_PATH))
+        _apply_env(cfg)
+        _coerce_paths(cfg)
         return cfg
 
     # ── resolved endpoint lists ──────────────────────────────────────────
@@ -184,3 +296,65 @@ class Config:
         if self.mcp_url:
             return [self.mcp_url]
         return []
+
+
+# ── load() layers (defaults < config.yaml < env < settings.yaml) ──────────
+def _read_config_file(path: Path) -> dict:
+    """config.yaml as a mapping; {} when absent.
+
+    Deliberately keeps today's failure modes — read_settings_layer is the layer
+    that must never raise.
+    """
+    if not path.exists():
+        return {}
+    with open(path) as f:
+        return yaml.safe_load(f) or {}
+
+
+def _merge_layer(cfg: "Config", data: dict) -> None:
+    """Copy known keys from a YAML mapping onto cfg. Unknown keys are ignored;
+    None values do not clobber a real value.
+
+    The guard is __dataclass_fields__ rather than hasattr, so a YAML key named
+    `load` or `llm_endpoints` cannot shadow a method on the instance.
+    """
+    fields = type(cfg).__dataclass_fields__
+    for k, v in data.items():
+        if k in fields and v is not None:
+            setattr(cfg, k, v)
+
+
+def _apply_env(cfg: "Config") -> None:
+    for env_key, attr in ENV_OVERRIDES:
+        val = os.environ.get(env_key)
+        if not val:
+            continue
+        if attr in _ENV_CSV_ATTRS:  # comma-separated list -> list field
+            setattr(cfg, attr, [u.strip() for u in val.split(",") if u.strip()])
+        else:
+            setattr(cfg, attr, val)
+    for env_key, attr in ENV_EXTRA.items():
+        if attr == "brightspace_hosts":
+            # falsy check: an empty allowlist means "proxy stays disabled",
+            # not "clear the hosts from config.yaml"
+            if os.environ.get(env_key):
+                cfg.brightspace_hosts = [
+                    h.strip() for h in os.environ[env_key].split(",") if h.strip()
+                ]
+        else:
+            # os.environ.get(name, current): an explicitly-empty credential
+            # clears the file's value. Preserved verbatim from the pre-refactor
+            # code — this task normalises the table, it does not change
+            # credential semantics.
+            setattr(cfg, attr, os.environ.get(env_key, getattr(cfg, attr)))
+
+
+def _coerce_paths(cfg: "Config") -> None:
+    """expand ~ and coerce to Path (YAML strings don't auto-coerce)."""
+    for field in ("data_root", "db_path", "token_dir", "browser_profile_dir"):
+        val = getattr(cfg, field)
+        if isinstance(val, str):
+            val = Path(val)
+        if isinstance(val, Path):
+            val = Path(os.path.expanduser(str(val)))
+        setattr(cfg, field, val)

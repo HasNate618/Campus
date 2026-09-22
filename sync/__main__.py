@@ -38,7 +38,9 @@ def main() -> int:
         from sync.sync import mine_main
         sys.argv = ["sync.mine"] + rest
         return mine_main()
+    if cmd == "models":
         from sync.extract import list_models
+        sys.argv = ["sync.models"] + rest
         return list_models()
     print(f"Unknown command: {cmd}\n{__doc__}")
     return 2

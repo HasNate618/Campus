@@ -1,4 +1,5 @@
-import { CalendarDays, Home, LogOut } from "lucide-react";
+import { Link } from "react-router-dom";
+import { CalendarDays, Home, Settings } from "lucide-react";
 import { ZenMarkdown } from "@/lib/ZenMarkdown";
 import { api } from "@/api/client";
 import { useSWR } from "@/lib/useSWR";
@@ -15,7 +16,7 @@ function eventChipClass(kind: string): string {
 	return "chip";
 }
 
-export function TodayPage({ onLogout }: { onLogout?: () => void }) {
+export function TodayPage() {
 	// SWR-cached loads: revisiting this tab paints instantly and revalidates
 	const [digest, digestLoading] = useSWR<Digest | null>(
 		"digest",
@@ -51,16 +52,14 @@ export function TodayPage({ onLogout }: { onLogout?: () => void }) {
 							<h1 className="page-title">Home</h1>
 							<p className="page-sub">{today}</p>
 						</div>
-						{onLogout && (
-							<button
-								className="icon-btn mobile-only page-logout"
-								onClick={onLogout}
-								title="Log out"
-								aria-label="Log out"
-							>
-								<LogOut size={18} />
-							</button>
-						)}
+						<Link
+							to="/settings"
+							className="icon-btn mobile-only page-settings"
+							title="Settings"
+							aria-label="Settings"
+						>
+							<Settings size={18} />
+						</Link>
 					</div>
 				</div>
 

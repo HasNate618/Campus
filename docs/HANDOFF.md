@@ -23,7 +23,9 @@ Read first: [DESIGN.md](DESIGN.md), [DATA_MODEL.md](DATA_MODEL.md),
 | Notifications | `ntfy_url` in config (empty = disabled) |
 
 Every URL, path, and credential is config-driven: `config.yaml` (gitignored,
-copy of `config.example.yaml`) + `CAMPUS_*` env overrides.
+copy of `config.example.yaml`) + `CAMPUS_*` env overrides. Most of it can also
+be changed from the app: the Settings panel writes `settings.yaml` (beside the
+DB, `CAMPUS_SETTINGS_PATH` to move it), which takes precedence over both.
 
 ## Rules
 

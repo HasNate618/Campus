@@ -3,10 +3,10 @@ import { NavLink, useNavigate } from "react-router-dom";
 import {
 	CalendarDays,
 	Home,
-	LogOut,
 	PanelLeftClose,
 	PanelLeftOpen,
 	Pencil,
+	Settings,
 	Trash2,
 } from "lucide-react";
 import { CampusLogo } from "@/components/CampusLogo";
@@ -26,7 +26,7 @@ const NAV = [
 	{ to: "/schedule", label: "Schedule", icon: CalendarDays, end: true },
 ];
 
-export function Sidebar({ onLogout }: { onLogout: () => void }) {
+export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
 	const [courses, setCourses] = useState<Course[]>([]);
 	const [collapsed, setCollapsed] = useState(
 		() => localStorage.getItem("hc.sidebar.collapsed") === "1",
@@ -353,15 +353,15 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
 
 			<div className="sidebar-footer">
 				<button
-					className="nav-item sidebar-logout"
-					onClick={onLogout}
-					onMouseEnter={(e) => showTip(e, "Log out")}
+					className="nav-item sidebar-settings"
+					onClick={onOpenSettings}
+					onMouseEnter={(e) => showTip(e, "Settings")}
 					onMouseLeave={hideTip}
-					title="Log out"
-					aria-label="Log out"
+					title="Settings"
+					aria-label="Settings"
 				>
-					<LogOut size={17} />
-					<span className="side-label">Log out</span>
+					<Settings size={17} />
+					<span className="side-label">Settings</span>
 				</button>
 			</div>
 

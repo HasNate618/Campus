@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-def write_secret(path: Path, text: str) -> None:
+def write_secret(path: Path, text: str, chmod_parent: bool = True) -> None:
     """Write `text` to `path` with mode 0600, atomically, creating the parent
     0700.
 
@@ -26,12 +26,17 @@ def write_secret(path: Path, text: str) -> None:
     or its directory was created by another uid (e.g. a root-owned container
     volume) being unable to *tighten* permissions must not break
     authentication. Being unable to write at all still raises.
+
+    `chmod_parent=False` skips tightening the parent directory. The settings
+    writer shares data/ with the DB and the corpus tree, so it must not change
+    their mode; the token dir (the original caller) keeps the 0700 default.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        path.parent.chmod(0o700)
-    except OSError:
-        pass
+    if chmod_parent:
+        try:
+            path.parent.chmod(0o700)
+        except OSError:
+            pass
     tmp = path.with_name(path.name + ".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:

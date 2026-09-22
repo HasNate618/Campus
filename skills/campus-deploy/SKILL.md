@@ -63,9 +63,22 @@ anywhere, those env names do nothing — use `OPENAI_*` instead.
 | Semantic search models | `CAMPUS_EMBED_MODEL` / `CAMPUS_RERANK_MODEL` | optional, opt-in |
 | Timezone | `CAMPUS_TIMEZONE` | e.g. `America/New_York`; empty = host local |
 | Web API password | `CAMPUS_WEB_PASSWORD` | empty = open demo |
+| In-app settings layer | `CAMPUS_SETTINGS_PATH` | relocates the default (`settings.yaml` beside the DB); only needed when the CLI and container don't share a data root |
 
-Precedence: defaults < `config.yaml` (gitignored) < env vars. Config keys map
+Precedence: defaults < `config.yaml` (gitignored) < env vars < `settings.yaml` (written by the in-app Settings panel; lives beside the DB, override with `CAMPUS_SETTINGS_PATH`). Config keys map
 1:1 to these env names (see `sync/config.py` `Config.load`).
+
+The in-app Settings panel is the supported way to change non-deploy-time
+settings, and its `settings.yaml` layer wins over env vars: once a value is
+saved in the panel, changing the matching env var no longer takes effect — the
+panel shows the shadowed value with a "Reset to inherited". `mcp_urls` is the
+one setting that needs a restart (MCP tools are discovered at import), and
+deploy-time values (paths, `web_password`, LMS credentials) are not in the
+panel at all.
+
+Host-CLI caveat: a host-side CLI reads a *different* `settings.yaml` than the
+container unless the two share a data root — point `CAMPUS_SETTINGS_PATH` at
+the container's file so the CLI sees the in-app values.
 
 ## The Brightspace/D2L honesty
 
