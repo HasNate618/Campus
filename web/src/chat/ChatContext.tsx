@@ -14,6 +14,7 @@ import {
 	type ChatAttachment,
 	type ChatServerSession,
 } from "@/api/client";
+import type { ViewContext } from "@/types";
 
 /** Chat message tree (Open WebUI-style): a flat node store linked by
  *  parentId/children. The visible conversation is the path from the root
@@ -143,6 +144,9 @@ interface ChatContextValue {
 	pinned: string[];
 	setPinned: (p: string[]) => void;
 	setLastCourse: (c: number) => void;
+	/** The content pages announce what the user is looking at, so a deictic
+	 *  question ("explain this") can resolve to it. */
+	publishView: (view: ViewContext) => void;
 	sessionsFor: (courseId: number) => ChatSession[];
 	activeFor: (courseId: number) => ChatSession | null;
 	openSession: (courseId: number, sessionId: string) => void;
@@ -436,6 +440,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			.catch(() => {});
 	}, []);
 	const busyRef = useRef(false);
+	// What the user has open, keyed by course. A ref, not state: this is
+	// written on scroll and must never re-render the chat tree. It lives in
+	// the provider — above the routes — because the content pane UNMOUNTS when
+	// the chat goes fullscreen, which is exactly when "explain this" gets
+	// asked. Keying by course means a hidden course tab (CourseKeeper keeps
+	// them mounted) writes only its own slot and can never claim another
+	// course's view.
+	const viewRef = useRef<Map<number, ViewContext>>(new Map());
 	// abort handle for the in-flight turn — stop() trips it
 	const turnAbortRef = useRef<AbortController | null>(null);
 	const serverReadyRef = useRef(false);
@@ -669,6 +681,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 		} catch {
 			/* quota/security — non-fatal */
 		}
+	}, []);
+
+	/** Publish what is on screen. Called by the content pages; the value is read
+	 *  at send time, so it must survive the publisher unmounting. */
+	const publishView = useCallback((view: ViewContext) => {
+		viewRef.current.set(view.courseId, view);
 	}, []);
 
 	const setModel = useCallback((m: string | null) => {
@@ -1089,6 +1107,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				ac.signal,
 				serverId ?? null,
 				sid,
+				// Looked up by THIS conversation's course, so a view published for
+				// another course can never be attached to this turn.
+				courseId == null ? null : (viewRef.current.get(courseId) ?? null),
 			)
 				.catch((err) => {
 					closeThought();
@@ -1472,6 +1493,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			pinned,
 			setPinned,
 			setLastCourse,
+			publishView,
 			sessionsFor,
 			activeFor,
 			openSession,
@@ -1498,6 +1520,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			pinned,
 			setPinned,
 			setLastCourse,
+			publishView,
 			sessionsFor,
 			activeFor,
 			openSession,

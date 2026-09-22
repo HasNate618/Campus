@@ -164,6 +164,27 @@ export interface ChatMessage {
   toolResult?: string
 }
 
+/** What the user has open in the app, sent with a turn so "explain this"
+ *  resolves to something concrete.
+ *
+ *  Identity and position only — the server looks the path, title and deadline
+ *  up from the database, so a stale field here cannot invent them, and an id
+ *  that no longer exists simply produces no context.
+ */
+export type ViewContext =
+  | {
+      kind: 'content'
+      courseId: number
+      fileId: number
+      page: number | null
+      pageCount: number | null
+    }
+  | {
+      kind: 'assignment'
+      courseId: number
+      assignmentId: number
+    }
+
 // ── schedule (GET /api/courses/schedule) ───────────────────────────────
 export interface Meeting {
   day: 'M' | 'Tu' | 'W' | 'Th' | 'F'

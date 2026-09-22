@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, ExternalLink, Paperclip } from 'lucide-react'
 import { api } from '@/api/client'
 import { useZoneKeys } from '@/lib/keynav'
+import { useChat } from '@/chat/ChatContext'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { fmtDue, isPast } from '@/lib/format'
 import type { Assignment, Rubric, RubricCell } from '@/types'
@@ -62,6 +63,7 @@ export function AssignmentDetailPage() {
   const cid = Number(courseId)
   const aid = Number(assignmentId)
   const navigate = useNavigate()
+  const { publishView } = useChat()
   const [a, setA] = useState<Assignment | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -82,6 +84,15 @@ export function AssignmentDetailPage() {
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [cid, aid])
+
+  // Announce the open assignment so "explain this" or "what do I need to do"
+  // resolves to it. Ids only — the server reads the title, due date and status
+  // from the database. Left in place when this page unmounts, because the chat
+  // pane may be fullscreen by the time the question is asked.
+  useEffect(() => {
+    if (!Number.isFinite(cid) || !Number.isFinite(aid)) return
+    publishView({ kind: 'assignment', courseId: cid, assignmentId: aid })
+  }, [cid, aid, publishView])
 
   if (loading) return <div className="empty compact">Loading…</div>
   if (!a) return <div className="empty compact">Assignment not found.</div>

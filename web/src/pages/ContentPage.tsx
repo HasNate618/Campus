@@ -4,6 +4,7 @@ import { motion } from 'framer-motion'
 import { ArrowLeft, ChevronRight, Columns2, Download, ExternalLink, Maximize2 } from 'lucide-react'
 import { api } from '@/api/client'
 import { listKeys, useKeyNav, useListCursor, useZoneKeys } from '@/lib/keynav'
+import { useChat } from '@/chat/ChatContext'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { getBrightspaceBaseUrl } from '@/lib/appConfig'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
@@ -319,6 +320,10 @@ export function ContentPage() {
   const [fileTopics, setFileTopics] = useState<{ file_id: number; topic_id: number }[]>([])
   const [contentInfo, setContentInfo] = useState<FileContent | null>(null)
   const [loadingContent, setLoadingContent] = useState(false)
+  // The page the viewer is actually showing. The ?page= param is only the
+  // entry point (citations set it); scrolling never updates the URL, so the
+  // viewer has to report its position back or the app cannot know it.
+  const [livePage, setLivePage] = useState<{ page: number; pageCount: number } | null>(null)
   // The tree hides (display:none) while a topic is viewed in full-width
   // mode — hiding zeroes its scrollTop, and the reset happens inside React
   // Router's navigation transition, so no scroll-event guard can tell it
@@ -334,6 +339,7 @@ export function ContentPage() {
   // Tab toggles keyboard focus between the tree and the content viewer.
   const [viewerFocus, setViewerFocus] = useState(false)
   const { setZone } = useKeyNav()
+  const { publishView } = useChat()
 
   useEffect(() => {
     if (nid === null && prevNidRef.current !== null && treeRef.current) {
@@ -359,11 +365,41 @@ export function ContentPage() {
       } else if (e.data?.type === 'zenpdf-tab') {
         setViewerFocus(false)
         pdfFrameRef.current?.blur()
+      } else if (e.data?.type === 'zenpdf-page') {
+        const page = Number(e.data.page)
+        const total = Number(e.data.pageCount)
+        if (Number.isFinite(page) && page > 0) {
+          setLivePage({
+            page,
+            pageCount: Number.isFinite(total) && total > 0 ? total : 0,
+          })
+        }
       }
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
   }, [setZone])
+
+  // A different document: drop the previous page rather than pair a new file
+  // id with the old page number while the new viewer loads.
+  useEffect(() => setLivePage(null), [fileParam])
+
+  // Announce what is on screen, for the chat pane beside this one. Publishing
+  // (instead of the chat reading it when you hit send) is what lets the pointer
+  // outlive this pane: the fullscreen-chat toggle unmounts it.
+  useEffect(() => {
+    if (!Number.isFinite(cid) || fileParam == null) return
+    const file = files.find((f) => f.id === fileParam)
+    if (!file) return
+    const isPdf = file.path.toLowerCase().endsWith('.pdf')
+    publishView({
+      kind: 'content',
+      courseId: cid,
+      fileId: fileParam,
+      page: livePage?.page ?? (isPdf ? pdfStartPage : null),
+      pageCount: livePage?.pageCount || null,
+    })
+  }, [cid, fileParam, files, livePage, pdfStartPage, publishView])
 
   const postPdfGotoPage = (page: number) => {
     if (page < 1) return

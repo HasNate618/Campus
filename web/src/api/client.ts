@@ -8,6 +8,7 @@ import type {
 	FileContent,
 	FileRecord,
 	SyncRun,
+	ViewContext,
 	WorkspaceTree,
 } from "../types";
 
@@ -228,6 +229,24 @@ async function del(path: string): Promise<{ ok: boolean }> {
 	return res.json();
 }
 
+/** Wire shape for the current-view context. The API speaks snake_case and the
+ *  app camelCase — mapped here like every other field on this request. */
+function viewToWire(v: ViewContext) {
+	return v.kind === "content"
+		? {
+				kind: "content",
+				course_id: v.courseId,
+				file_id: v.fileId,
+				page: v.page,
+				page_count: v.pageCount,
+			}
+		: {
+				kind: "assignment",
+				course_id: v.courseId,
+				assignment_id: v.assignmentId,
+			};
+}
+
 export async function streamChat(
 	message: string,
 	courseId: number | null,
@@ -240,6 +259,8 @@ export async function streamChat(
 	sessionId?: number | null,
 	// stable per-conversation id -> server forwards it as upstream x-session-id
 	clientSessionId?: string,
+	// what the user has open, so a deictic "explain this" resolves to it
+	view?: ViewContext | null,
 ): Promise<void> {
 	const res = await fetch("/api/chat", {
 		method: "POST",
@@ -256,6 +277,7 @@ export async function streamChat(
 			attachments,
 			session_id: sessionId ?? null,
 			client_session_id: clientSessionId,
+			view: view ? viewToWire(view) : null,
 		}),
 		signal,
 	});
