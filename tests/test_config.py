@@ -300,10 +300,11 @@ def test_settings_path_without_a_base_matches_the_loader(tmp_path, monkeypatch):
     assert panel != REPO_ROOT / "data" / "settings.yaml"
 
     # The relative db_path config.example.yaml ships must anchor to REPO_ROOT,
-    # never to the process CWD.
+    # never to the process CWD. Checked against an explicit base rather than
+    # Config.load(), which would read a real data/settings.yaml if one exists.
     monkeypatch.setenv("CAMPUS_DB_PATH", "data/harness.db")
-    assert settings_path() == settings_path(Config.load())
     assert settings_path() == (REPO_ROOT / "data").resolve() / "settings.yaml"
+    assert settings_path() == settings_path(Config(db_path=Path("data/harness.db")))
 
 
 def test_settings_path_env_override_wins(tmp_path, monkeypatch):
