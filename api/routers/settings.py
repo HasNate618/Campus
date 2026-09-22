@@ -7,6 +7,7 @@ it at boot, but this endpoint can read a masked API key and changes LLM wiring.
 from __future__ import annotations
 
 import os
+import re
 
 from fastapi import APIRouter
 
@@ -62,6 +63,29 @@ def _mask(value) -> str | None:
     return f"••••{text[-4:]}" if len(text) > 4 else "••••"
 
 
+# "line 2, column 14" / "line 3, column 1" — the only part of a PyYAML
+# message that is safe to serve.
+_LINE_RE = re.compile(r"line (\d+)")
+
+
+def _safe_settings_error(err: str | None) -> str | None:
+    """Strip file CONTENT out of read_settings_layer's message before serving it.
+
+    PyYAML echoes the offending text in some failures: an undefined alias
+    (`llm_api_key: *sk-...`) puts the anchor name — the secret itself — into the
+    exception message, and read_settings_layer prefixes that message with the
+    path. Only the path and a line number survive here; the message text never
+    does. The plaintext key must be unable to leave the process through any
+    response field, and this one is otherwise a content passthrough.
+    """
+    if not err:
+        return None
+    path = err.split(":", 1)[0]
+    m = _LINE_RE.search(err)
+    where = f" (line {m.group(1)})" if m else ""
+    return f"{path}{where}: not valid YAML — fix or delete the file"
+
+
 def _snapshot() -> dict:
     from api.config import cfg as api_cfg, DB_PATH, SCHOOL_ROOT
     from sync.config import Config, env_set_attrs, settings_path
@@ -104,7 +128,7 @@ def _snapshot() -> dict:
         "fields": fields,
         "settings_file": str(sp),
         "settings_writable": os.access(sp.parent, os.W_OK),
-        "settings_file_error": err,
+        "settings_file_error": _safe_settings_error(err),
         "auth_enabled": bool(api_cfg.web_password),
         "version": VERSION,
         "readonly": {

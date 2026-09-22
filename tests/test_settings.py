@@ -200,3 +200,26 @@ def test_get_reports_module_level_restart_flags(tmp_path, monkeypatch):
     by_key = {f["key"]: f for f in TestClient(app).get("/api/settings").json()["fields"]}
     assert by_key["mcp_urls"]["restart"] is True
     assert by_key["llm_model"]["restart"] is False
+
+
+def test_get_does_not_leak_the_key_through_a_malformed_file(tmp_path, monkeypatch):
+    """A stray `*` turns the value into an alias reference, and PyYAML's
+    ComposerError echoes the alias NAME — the secret itself — in its message.
+    read_settings_layer prefixes that with the path, so serving it verbatim
+    puts the plaintext key in the response body. The error must stay
+    reportable, just without the file's content."""
+    _setup(tmp_path, monkeypatch,
+           settings_body="llm_api_key: *sk-leak-canary-9999\n")
+    from fastapi.testclient import TestClient
+    from api.main import app
+
+    res = TestClient(app).get("/api/settings")
+    assert "sk-leak-canary-9999" not in res.text
+    body = res.json()
+    # ...while the failure is still reportable and still points at the line
+    assert body["settings_file_error"]
+    assert "settings.yaml" in body["settings_file_error"]
+    assert "line 1" in body["settings_file_error"]
+    # and the layer failed to load, so the field falls back to unset
+    by_key = {f["key"]: f for f in body["fields"]}
+    assert by_key["llm_api_key"]["value"] is None
