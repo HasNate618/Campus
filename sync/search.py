@@ -21,6 +21,7 @@ from pathlib import Path
 import httpx
 
 from agent.chat import llm_headers
+from sync.dedupe import canonical_map
 
 CHUNK_CHARS = 800
 RERANK_CANDIDATES = 20
@@ -155,6 +156,10 @@ def _corpus(cfg, db) -> list[dict]:
     markdown from disk + announcements, node descriptions, active facts."""
     items: list[dict] = []
     root = Path(cfg.data_root).resolve()
+    # Same-source duplicates (one PDF extracted twice, under two folders) are
+    # indexed ONCE, under their canonical path. See sync/dedupe.py — the rule is
+    # derived from node placement, never from a folder name.
+    noncanonical = canonical_map(db.conn)
 
     def add(ref: str, course_id: int | None, text: str) -> None:
         if not text.strip():
@@ -175,6 +180,8 @@ def _corpus(cfg, db) -> list[dict]:
                 continue
             text = _strip_html(raw) if md.suffix.lower() == ".html" else raw
             rel = str(md.relative_to(root))
+            if rel in noncanonical:
+                continue
             tc = rel.split("/")[0] + "/" + rel.split("/", 2)[1]
             add(rel, _course_id(db, tc), text)
 
@@ -230,6 +237,18 @@ def rebuild(cfg, db) -> dict:
         db.conn.commit()
 
     items = _corpus(cfg, db)
+    # Chunks whose ref has LEFT the corpus are never removed by the incremental
+    # logic below: `todo` only rewrites changed items, so a ref that `_corpus()`
+    # no longer yields is never revisited. Without this explicit prune a
+    # collapsed duplicate would stay embedded forever.
+    pruned_refs = 0
+    for ref in canonical_map(db.conn):
+        cur_prune = db.conn.cursor()
+        cur_prune.execute("DELETE FROM chunks WHERE ref=?", (ref,))
+        if cur_prune.rowcount > 0:
+            pruned_refs += 1
+    if pruned_refs:
+        db.conn.commit()
     known = {
         (r["ref"], r["src_hash"])
         for r in db.conn.execute("SELECT ref, src_hash FROM chunks").fetchall()
@@ -237,7 +256,8 @@ def rebuild(cfg, db) -> dict:
     todo = [it for it in items if (it["ref"], it["hash"]) not in known]
     if not todo:
         return {"chunks": db.conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0],
-                "embedded_items": 0, "items": len(items)}
+                "embedded_items": 0, "items": len(items),
+                "pruned_refs": pruned_refs}
     # Lexical mode: write empty embeddings, no network.
     if not cfg.embed_model:
         cur = db.conn.cursor()
@@ -251,7 +271,8 @@ def rebuild(cfg, db) -> dict:
                 )
         db.conn.commit()
         return {"chunks": db.conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0],
-                "embedded_items": 0, "items": len(items)}
+                "embedded_items": 0, "items": len(items),
+                "pruned_refs": pruned_refs}
     texts = [t for it in todo for t in _chunk(it["text"])]
     try:
         vectors = _embed(cfg, texts)
@@ -272,7 +293,8 @@ def rebuild(cfg, db) -> dict:
         db.conn.execute("UPDATE chunk_meta SET v='none' WHERE k='embed_model'")
         db.conn.commit()
         return {"chunks": db.conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0],
-                "embedded_items": 0, "items": len(items), "lexical_fallback": True}
+                "embedded_items": 0, "items": len(items),
+                "lexical_fallback": True, "pruned_refs": pruned_refs}
     vec_iter = iter(vectors)  # consume sequentially — zipping per item from the
     # head of the list misaligns every item after the first (all get the same
     # head vectors → identical cosines). This was a real bug; fixed.
@@ -287,7 +309,8 @@ def rebuild(cfg, db) -> dict:
             )
     db.conn.commit()
     return {"chunks": db.conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0],
-            "embedded_items": len(todo), "items": len(items)}
+            "embedded_items": len(todo), "items": len(items),
+            "pruned_refs": pruned_refs}
 
 
 def _lexical_hits(db, course_id: int | None, query: str, limit: int = 8
@@ -429,7 +452,7 @@ def search(cfg, db, query: str, course_id: int | None = None,
     elif (len([t for t in re.split(r"\s+", query) if len(t) >= 3]) >= 2
           and ranked and max(score for score, _ in ranked) < 0.1):
         terms = [t for t in re.split(r"\s+", query) if len(t) >= 3][:6]
-        scored_terms: list[tuple[float, object]] = []
+        scored_terms: list[tuple[float, sqlite3.Row]] = []
         for r in q:
             t = r["text"].lower()
             c = sum(1 for w in terms if w in t)

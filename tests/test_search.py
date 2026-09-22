@@ -5,8 +5,12 @@ matching, snippet windowing, chunking, cosine). Pure functions, no network.
 from __future__ import annotations
 
 import math
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    from sync.db import DB
 
 
 def test_chunk_paragraph_aware():
@@ -117,6 +121,93 @@ def test_strip_html():
     from sync.search import _strip_html
     assert _strip_html("<p>Hello <b>world</b></p>") == "Hello world"
     assert _strip_html("plain text") == "plain text"
+
+
+# ---------------------------------------------------------------------------
+# Same-source duplicates: the index must carry ONE copy, and must actually
+# REMOVE the other. `rebuild()` only rewrites changed items, so a ref that
+# leaves the corpus is never revisited — exclusion alone would leave the
+# duplicate embedded forever.
+# ---------------------------------------------------------------------------
+
+
+def _indexed(db, path, node=None, sha=None):
+    db.conn.execute(
+        "INSERT INTO files (path, kind, source, content_node_id, sha256) "
+        "VALUES (?, 'slide', 'manual', ?, ?)", (path, node, sha))
+    db.conn.commit()
+
+
+def _node(db, nid, title="topic"):
+    """files.content_node_id is a real FK and DB turns foreign_keys ON, so a
+    node has to exist before a file can point at it."""
+    cid = db.conn.execute("SELECT id FROM courses LIMIT 1").fetchone()[0]
+    db.conn.execute(
+        "INSERT INTO content_nodes (id, course_id, brightspace_id, node_type, title) "
+        "VALUES (?, ?, ?, 'topic', ?)", (nid, cid, nid, title))
+    db.conn.commit()
+
+
+def _write_marked_deck(root, rel, lines=40):
+    p = root / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("<!-- page 1 -->\n# Slide 1\n"
+                 + "\n".join(f"- bullet {i}" for i in range(lines)))
+    return p
+
+
+def _refs(db):
+    return {r[0] for r in db.conn.execute("SELECT DISTINCT ref FROM chunks")}
+
+
+def test_rebuild_excludes_and_prunes_non_canonical_duplicates(tmp_path, db_path):
+    from sync.config import Config
+    from sync.db import DB
+    from sync.search import rebuild
+
+    root = tmp_path / "school"
+    (root / "2026F" / "SE3316A" / "content").mkdir(parents=True)
+    dup = "2026F/SE3316A/content/Notes-2025/deck.md"
+    canon = "2026F/SE3316A/content/Units/deck.md"
+    _write_marked_deck(root, dup)
+    _write_marked_deck(root, canon)
+    # empty embed_model = lexical mode: no /embeddings call, so the whole
+    # rebuild runs offline and the test asserts indexing, not network behaviour
+    cfg = Config(data_root=root, db_path=db_path)
+    db = DB(db_path)
+
+    # Phase 1 — production today: both copies indexed, no collapse evidence yet
+    _indexed(db, dup)
+    _indexed(db, canon)
+    first = rebuild(cfg, db)
+    assert first["chunks"] > 0
+    assert first["pruned_refs"] == 0
+    assert {dup, canon} <= _refs(db)
+
+    # Phase 2 — the same-source evidence arrives: sibling .pdf rows carrying the
+    # SAME sha, plus node placement (Units gets its own topic node, Notes-2025
+    # hangs off a bucket node many files share)
+    _node(db, 1001, "Slides")      # shared bucket
+    _node(db, 1002, "Week 1 - Intro")
+    _indexed(db, dup[:-3] + ".pdf", node=1001, sha="sha-same")
+    _indexed(db, canon[:-3] + ".pdf", node=1002, sha="sha-same")
+    db.conn.execute("UPDATE files SET content_node_id=1001 WHERE path=?", (dup,))
+    db.conn.execute("UPDATE files SET content_node_id=1002 WHERE path=?", (canon,))
+    for i in range(5):
+        _indexed(db, f"2026F/SE3316A/content/bucket{i}.md", node=1001)
+    db.conn.commit()
+
+    second = rebuild(cfg, db)
+    assert second["pruned_refs"] == 1
+    assert canon in _refs(db)
+    assert dup not in _refs(db)
+
+    # Idempotent: the duplicate's `files` row still exists (sync re-adds it on
+    # every run), so a later rebuild must neither prune again nor resurrect it.
+    third = rebuild(cfg, db)
+    assert third["pruned_refs"] == 0
+    assert third["chunks"] == second["chunks"]
+    assert dup not in _refs(db)
 
 
 def test_hit_page_resolves_before_window():
