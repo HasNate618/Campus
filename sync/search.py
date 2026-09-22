@@ -199,9 +199,9 @@ def _corpus(cfg, db) -> list[dict]:
 
     # active memory facts
     for r in db.conn.execute(
-        "SELECT fact, course_id FROM memory_facts WHERE is_active=1"
+        "SELECT id, fact, course_id FROM memory_facts WHERE is_active=1"
     ).fetchall():
-        add(f"facts/{r['course_id']}", r["course_id"], r["fact"])
+        add(f"fact/{r['id']}", r["course_id"], r["fact"])
 
     return items
 
@@ -237,6 +237,13 @@ def rebuild(cfg, db) -> dict:
         db.conn.commit()
 
     items = _corpus(cfg, db)
+    # One-time cleanup of the old fact-ref namespace. Fact refs used to be keyed
+    # by course (`facts/<course_id>`), so every fact in a course collided on a
+    # single ref and the delete-by-ref below left only the LAST fact of each
+    # course indexed — silently gutting the fact corpus search_corpus reads
+    # from. They are `fact/<id>` now. Idempotent.
+    db.conn.execute("DELETE FROM chunks WHERE ref LIKE 'facts/%'")
+    db.conn.commit()
     # Chunks whose ref has LEFT the corpus are never removed by the incremental
     # logic below: `todo` only rewrites changed items, so a ref that `_corpus()`
     # no longer yields is never revisited. Without this explicit prune a

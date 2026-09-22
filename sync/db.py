@@ -151,21 +151,28 @@ class DB:
             (course_id, path, kind, source, sha256, size, content_node_id),
         )
         self.conn.commit()
-        return cur.lastrowid, True
+        return cur.lastrowid or 0, True          # lastrowid types as int | None
 
     def mark_processed(self, file_id: int) -> None:
         self.conn.execute("UPDATE files SET processed=1 WHERE id=?", (file_id,))
         self.conn.commit()
 
     def unprocessed_files(self, course_id: int | None = None) -> list[sqlite3.Row]:
-        q = "SELECT * FROM files WHERE processed=0"
+        # Two literal statements rather than one built string: the dynamic form
+        # reads as an injection sink, and a literal costs nothing here.
         if course_id:
-            q += f" AND course_id={int(course_id)}"
-        return self.conn.execute(q).fetchall()
+            return self.conn.execute(
+                "SELECT * FROM files WHERE processed=0 AND course_id=?",
+                (course_id,)).fetchall()
+        return self.conn.execute(
+            "SELECT * FROM files WHERE processed=0").fetchall()
 
     # ── announcements ───────────────────────────────────────────────────
     def upsert_announcement(self, course_id: int, ann: dict) -> bool:
         """Returns True if new (not previously seen)."""
+        # Truthiness rather than int(): the value arrives in the LMS payload,
+        # and int() on a non-numeric string raised instead of just being truthy.
+        pinned = 1 if ann.get("is_pinned") else 0
         existing = self.conn.execute(
             "SELECT id FROM announcements WHERE brightspace_id=?",
             (ann["brightspace_id"],)).fetchone()
@@ -174,14 +181,14 @@ class DB:
                 """UPDATE announcements SET title=?, body=?, body_html=?, author=?,
                    posted_at=?, is_pinned=? WHERE id=?""",
                 (ann["title"], ann.get("body", ""), ann.get("body_html", ""), ann.get("author"),
-                 ann.get("posted_at"), int(ann.get("is_pinned", False)), existing["id"]))
+                 ann.get("posted_at"), pinned, existing["id"]))
             self.conn.commit()
             return False
         self.conn.execute(
             """INSERT INTO announcements (course_id, title, body, body_html, author, posted_at, is_pinned, brightspace_id)
                VALUES (?,?,?,?,?,?,?,?)""",
             (course_id, ann["title"], ann.get("body", ""), ann.get("body_html", ""), ann.get("author"),
-             ann.get("posted_at"), int(ann.get("is_pinned", False)), ann["brightspace_id"]))
+             ann.get("posted_at"), pinned, ann["brightspace_id"]))
         self.conn.commit()
         return True
 
@@ -218,13 +225,20 @@ class DB:
         if existing:
             # COALESCE guards mined backfills: a Brightspace NULL must never
             # wipe a due_at/weight the miner filled in (registrar non-NULLs still win).
+            # `status` is deliberately NOT touched. It holds user state
+            # (submitted/graded/in_progress/extended, written by the agent's
+            # mutate_update_assignment), and sync has no LMS status to apply —
+            # the INSERT below does not set one either. The previous
+            # `status=CASE WHEN status='extended' ... ELSE 'open' END` silently
+            # reopened every submitted/graded assignment on every sync, which
+            # is why those states never stuck and the rows dropped out of the
+            # open-assignment counts.
             self.conn.execute(
                 """UPDATE assignments SET title=?, description=?,
                    due_at=COALESCE(?, due_at), weight=COALESCE(?, weight),
                    url=?, rubrics_json=?, category=?, group_category=?, points=?,
                    attachments_json=?, availability_json=?,
                    brightspace_folder_id=COALESCE(?, brightspace_folder_id),
-                   status=CASE WHEN status='extended' THEN 'extended' ELSE 'open' END,
                    updated_at=datetime('now') WHERE id=?""",
                 (a["title"], a.get("description"), a.get("due_at"), a.get("weight"),
                  a.get("url"), a.get("rubrics_json"), a.get("category"),
@@ -245,7 +259,7 @@ class DB:
              a.get("points"), a.get("attachments_json"), a.get("availability_json")),
         )
         self.conn.commit()
-        return cur.lastrowid, True
+        return cur.lastrowid or 0, True
 
     # ── sync_runs ───────────────────────────────────────────────────────
     def start_sync(self, trigger: str = "manual") -> int:
@@ -253,7 +267,7 @@ class DB:
             "INSERT INTO sync_runs (trigger) VALUES (?)", (trigger,)
         )
         self.conn.commit()
-        return cur.lastrowid
+        return cur.lastrowid or 0
 
     def finish_sync(self, run_id: int, status: str, **counts) -> None:
         cols = ", ".join(f"{k}=?" for k in counts)
