@@ -22,7 +22,7 @@ export function MorePage() {
       label: 'Sync',
       sub: lastRun ? `Last run ${fmtRelative(lastRun.started_at)} · ${lastRun.status}` : 'Never synced',
     },
-    { to: '/more', icon: Settings, label: 'Settings', sub: 'Appearance, courses, memory — coming soon' },
+    { to: '/settings', icon: Settings, label: 'Settings', sub: 'AI, search, content, sync, account' },
     { to: '/more', icon: Info, label: 'About', sub: 'Campus · personal AI study system' },
   ]
 

@@ -9,6 +9,7 @@ import { CalendarPage } from './pages/CalendarPage'
 import { SchedulePage } from './pages/SchedulePage'
 import { SyncPage } from './pages/SyncPage'
 import { MorePage } from './pages/MorePage'
+import { SettingsPage } from './settings/SettingsPage'
 import { CoursesPage } from './pages/CoursesPage'
 import { CourseHubPage, CourseLayout } from './pages/CourseHubPage'
 import { CourseNestedRoutes } from './pages/CourseKeeper'
@@ -41,7 +42,8 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<AppShell onLogout={logout} />}>
-          <Route index element={<TodayPage onLogout={logout} />} />
+          <Route index element={<TodayPage />} />
+          <Route path="settings" element={<SettingsPage onLogout={logout} />} />
           <Route path="today" element={<Navigate to="/" replace />} />
           <Route path="chat" element={<ChatTabPage />} />
           <Route path="calendar" element={<CalendarPage />} />

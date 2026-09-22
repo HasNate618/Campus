@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import { BookOpen, CalendarDays, Home, MessageSquare } from "lucide-react";
@@ -5,6 +6,7 @@ import { ChatProvider } from "@/chat/ChatContext";
 import { KeyNavProvider } from "@/lib/keynav";
 import { Sidebar } from "./Sidebar";
 import { CourseKeeper } from "@/pages/CourseKeeper";
+import { SettingsDrawer } from "@/settings/SettingsDrawer";
 
 const MOBILE_TABS = [
 	{ to: "/", label: "Home", icon: Home, end: true },
@@ -15,6 +17,7 @@ const MOBILE_TABS = [
 
 function ShellInner({ onLogout }: { onLogout: () => void }) {
 	const location = useLocation();
+	const [settingsOpen, setSettingsOpen] = useState(false);
 	// Animate TOP-LEVEL navigation only: slice(0,2) keeps '/courses' stable
 	// across course switches — REQUIRED for keep-alive tabs (CourseKeeper):
 	// remounting this wrapper would unmount every live tab (iframes/PDFs
@@ -27,7 +30,7 @@ function ShellInner({ onLogout }: { onLogout: () => void }) {
 	return (
 		<ChatProvider>
 			<div className="shell">
-				<Sidebar onLogout={onLogout} />
+				<Sidebar onOpenSettings={() => setSettingsOpen(true)} />
 				<main className="main" data-kbd-zone="course">
 					{/* Keyed remount → exactly ONE entrance animation per navigation.
               Deliberately no AnimatePresence/exit animation: exit + enter
@@ -55,6 +58,13 @@ function ShellInner({ onLogout }: { onLogout: () => void }) {
 					every live tab (iframes/PDFs reloaded, defeating instant return).
 					See CourseKeeper for the placement invariant. */}
 				<CourseKeeper />
+
+				{/* Outside the keyed wrapper on purpose — see CourseKeeper's note. */}
+				<SettingsDrawer
+					open={settingsOpen}
+					onClose={() => setSettingsOpen(false)}
+					onLogout={onLogout}
+				/>
 
 				<nav className="tabbar">
 					{MOBILE_TABS.map(({ to, label, icon: Icon, end }) => (
