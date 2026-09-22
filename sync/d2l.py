@@ -54,7 +54,7 @@ class D2LClient:
         self.token_provider = token_provider
         self.timeout = timeout
         self._on_auth_error = on_auth_error
-        self._versions: dict | None = None
+        self._versions: dict = {}
         self._bucket = TokenBucket()
         self._client = httpx.Client(
             timeout=timeout,
@@ -101,7 +101,13 @@ class D2LClient:
         token = self.token_provider()
         if not token:
             raise D2LAuthError("No valid token — run `python -m sync.auth`")
-        return self._request("GET", path, token)
+        data = self._request("GET", path, token)
+        # _request returns a Response only for raw=True, which this is not;
+        # narrow it rather than trusting the union, so a future change to that
+        # method fails loudly here instead of handing a Response to callers.
+        if not isinstance(data, (dict, list)):
+            raise D2LError(f"unexpected non-JSON response for {path}")
+        return data
 
     def get_raw(self, path: str) -> httpx.Response:
         token = self.token_provider()

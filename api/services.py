@@ -27,6 +27,27 @@ def _row(q: str, args: tuple = ()) -> dict | None:
     return rows[0] if rows else None
 
 
+def _count(q: str, args: tuple = (), col: str = "n") -> int:
+    """A COUNT(*) always yields a row, but `_row` types as `dict | None`.
+    Keeping the subscript in one place means a None can never be indexed."""
+    row = _row(q, args)
+    return row[col] if row else 0
+
+
+def _loads(raw: object, default):
+    """json.loads over a stored column, without raising out of a read: one
+    malformed *_json value used to fail the whole assignments listing with a
+    JSONDecodeError instead of degrading to that single field."""
+    if isinstance(raw, (bytes, bytearray)):
+        raw = raw.decode("utf-8", "replace")
+    if not isinstance(raw, str):
+        return default
+    try:
+        return json.loads(raw)
+    except ValueError:
+        return default
+
+
 def _now_iso() -> str:
     return datetime.datetime.now().isoformat()
 
@@ -55,10 +76,21 @@ KIND_ORDER = {"LEC": 0, "LAB": 1, "TUT": 2}
 
 
 def _fmt_12h(t: str) -> str:
-    """'11:30' -> '11:30 AM', '18:30' -> '6:30 PM'."""
-    hh, mm = t.split(":")
-    h = int(hh) % 12 or 12
-    return f"{h}:{mm} {'AM' if int(hh) < 12 else 'PM'}"
+    """'11:30' -> '11:30 AM', '18:30' -> '6:30 PM'.
+
+    Unparseable values come back unchanged rather than raising: a single
+    malformed course_sessions row used to raise out of get_schedule() and 500
+    the entire timetable endpoint instead of showing one odd entry.
+    """
+    parts = str(t or "").split(":")
+    # isdecimal(), not isdigit(): "²".isdigit() is True but int("²") raises,
+    # while int() accepts every character isdecimal() accepts. The guard is
+    # therefore airtight rather than merely usually-right.
+    if len(parts) != 2 or not parts[0].strip().isdecimal():
+        return str(t or "")
+    hour = int(parts[0].strip())
+    mm = parts[1]
+    return f"{hour % 12 or 12}:{mm} {'AM' if hour < 12 else 'PM'}"
 
 
 def get_schedule() -> list[dict]:
@@ -88,7 +120,7 @@ def get_schedule() -> list[dict]:
             block = {
                 "type": r["kind"],
                 "section": r["section"] or "",
-                "crn": int(r["class_nbr"]) if r["class_nbr"] else 0,
+                "crn": int(r["class_nbr"]) if str(r["class_nbr"] or "").strip().isdecimal() else 0,
                 "meetings": [],
             }
             if r["instructor"]:
@@ -127,9 +159,9 @@ def course_hub(course_id: int) -> dict | None:
     recent_files = _rows(
         "SELECT * FROM files WHERE course_id=? ORDER BY id DESC LIMIT 8", (course_id,))
     stats = {
-        "file_count": _row("SELECT COUNT(*) n FROM files WHERE course_id=?", (course_id,))["n"],
-        "assignment_count": _row("SELECT COUNT(*) n FROM assignments WHERE course_id=?", (course_id,))["n"],
-        "processed_files": _row("SELECT COUNT(*) n FROM files WHERE course_id=? AND processed=1", (course_id,))["n"],
+        "file_count": _count("SELECT COUNT(*) n FROM files WHERE course_id=?", (course_id,)),
+        "assignment_count": _count("SELECT COUNT(*) n FROM assignments WHERE course_id=?", (course_id,)),
+        "processed_files": _count("SELECT COUNT(*) n FROM files WHERE course_id=? AND processed=1", (course_id,)),
     }
     return {
         "course": course,
@@ -264,7 +296,7 @@ def _parse_assignment(r: dict) -> dict:
     for col, key in (("rubrics_json", "rubrics"), ("attachments_json", "attachments"),
                      ("availability_json", "availability")):
         j = r.get(col)
-        r[key] = json.loads(j) if j else None
+        r[key] = _loads(j, None) if j else None
         r.pop(col, None)
     # the user's team name ("Group 29") for group assignments
     r["group_name"] = None
