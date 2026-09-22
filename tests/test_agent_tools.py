@@ -455,6 +455,46 @@ def test_malformed_json_columns_do_not_break_a_listing(page_cfg, page_db):
     assert any(a["title"] == "Broken" for a in r["assignments"])
 
 
+def test_offset_read_puts_metadata_before_content(tmp_path, page_cfg, page_db):
+    """The cross-turn digest stores a PREFIX of the serialized result, so any
+    field written after `content` never reaches the next turn — that is how
+    pagesInFile was being lost on the offset path."""
+    from agent.tools import content_read_file
+
+    _root, rel = _deck(tmp_path)
+    r = content_read_file(page_db, page_cfg,
+                          {"path": rel, "offset": 0, "limit": 5})
+    keys = list(r.keys())
+    assert "pagesInFile" in keys and "currentPage" in keys
+    assert keys.index("pagesInFile") < keys.index("content")
+    assert keys.index("currentPage") < keys.index("content")
+    assert keys.index("note") < keys.index("content")
+
+
+def test_pages_on_an_overview_ref_is_rejected_not_silently_ignored(
+        page_cfg, page_db):
+    """`pages=` on an overview/<id> ref used to be ignored in silence: the
+    model asked for page 2 of a module description, got the first N lines, and
+    had no way to tell that the page parameter did nothing."""
+    from agent.tools import content_read_file
+
+    cid = page_db.conn.execute("SELECT id FROM courses LIMIT 1").fetchone()[0]
+    page_db.conn.execute(
+        "INSERT INTO content_nodes (id, course_id, brightspace_id, node_type, "
+        "title, description) VALUES (9001, ?, 9001, 'topic', 'Module', "
+        "'<p>hello there</p>')", (cid,))
+    page_db.conn.commit()
+
+    r = content_read_file(page_db, page_cfg, {"path": "overview/9001", "pages": "2"})
+    assert "error" in r
+    assert "offset/limit" in r["error"]
+    assert r.get("pagesInFile") is None
+
+    # the supported way still works on the same ref
+    ok = content_read_file(page_db, page_cfg, {"path": "overview/9001", "limit": 5})
+    assert "hello there" in ok["content"]
+
+
 def test_missing_file_read_suggests_a_real_path(tmp_path, page_cfg, page_db):
     from agent.tools import content_read_file
 

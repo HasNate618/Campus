@@ -41,7 +41,9 @@ def test_registry_dedupes_same_ref():
     class FakeDb:
         conn = FakeConn()
 
-    reg = CitationRegistry(FakeDb(), type("Cfg", (), {"data_root": "/tmp"})(), 1)
+    # The fakes satisfy the runtime contract (only .conn.execute/fetchone are
+    # touched); they are deliberately not real DB/Config instances.
+    reg = CitationRegistry(FakeDb(), type("Cfg", (), {"data_root": "/tmp"})(), 1)  # type: ignore[arg-type]
     a = reg.register("Winter2026/CS101/content/a.md", excerpt="same")
     b = reg.register("Winter2026/CS101/content/a.md", excerpt="same")
     assert a is not None
@@ -61,7 +63,7 @@ def test_register_from_search_hit():
     class FakeDb:
         conn = FakeConn()
 
-    reg = CitationRegistry(FakeDb(), type("Cfg", (), {"data_root": "/tmp"})(), 3)
+    reg = CitationRegistry(FakeDb(), type("Cfg", (), {"data_root": "/tmp"})(), 3)  # type: ignore[arg-type]
     text = "<!-- page 4 -->\nmatched phrase here\n<!-- page 9 -->\ntail"
     cites = reg.register_from_tool(
         "search_corpus",
@@ -112,7 +114,7 @@ def test_read_file_prefers_current_page():
     class FakeDb:
         conn = FakeConn()
 
-    reg = CitationRegistry(FakeDb(), type("Cfg", (), {"data_root": "/tmp"})(), 3)
+    reg = CitationRegistry(FakeDb(), type("Cfg", (), {"data_root": "/tmp"})(), 3)  # type: ignore[arg-type]
     cites = reg.register_from_tool("content_read_file", {
         "path": "2026F/CS1100A/content/a.md", "offset": 0,
         "content": "a\n<!-- page 5 -->\nzzz\n<!-- page 9 -->\nend",
@@ -143,7 +145,7 @@ def test_register_from_search_prefers_hit_page():
     class FakeDb:
         conn = FakeConn()
 
-    reg = CitationRegistry(FakeDb(), type("Cfg", (), {"data_root": "/tmp"})(), 3)
+    reg = CitationRegistry(FakeDb(), type("Cfg", (), {"data_root": "/tmp"})(), 3)  # type: ignore[arg-type]
     # snippet markers alone would resolve to 12; the search-time
     # full-chunk resolution says 11 — the hit page must win.
     cites = reg.register_from_tool("search_corpus", {"hits": [{
@@ -217,3 +219,42 @@ def test_bound_pages_hard_cuts_an_oversized_first_page():
     lines = ["<!-- page 1 -->"] + ["x" * 100 for _ in range(10)]
     kept, pages = bound_pages(lines, 250)
     assert pages == 1 and 0 < len(kept) < len(lines)
+
+
+# ---------------------------------------------------------------------------
+# read_window — the single streaming pass every page-addressed read depends on.
+# It had no direct test; it was only exercised through content_read_file.
+# ---------------------------------------------------------------------------
+
+
+def test_read_window_counts_every_line_and_collects_markers_whole_file():
+    """The window is bounded by offset/limit, but `total` and the page index
+    must describe the WHOLE file — that is what lets a large transcript report
+    its real length and lets a later call page to any part of it."""
+    from agent.citations import read_window
+
+    lines = ["intro", "<!-- page 2 -->", "a", "<!-- page 5 -->", "b", "c"]
+    window, total, index = read_window(lines, 2, 2)
+    assert window == ["a", "<!-- page 5 -->"]     # the requested slice only
+    assert total == 6                              # every line counted
+    assert index == [(0, 1), (1, 2), (3, 5)]       # markers from the whole file
+
+
+def test_read_window_past_the_end_still_reports_the_real_total():
+    """The regression this function was written for: slicing the text made
+    total_lines describe only the part that had been read, so a large file
+    appeared to end early and the model could never page past it."""
+    from agent.citations import read_window
+
+    lines = [f"line {i}" for i in range(500)]
+    window, total, _ = read_window(lines, 4000, 200)
+    assert window == []
+    assert total == 500
+
+
+def test_read_window_strips_only_line_endings():
+    from agent.citations import read_window
+
+    window, total, _ = read_window(["a\r\n", "b\n"], 0, 2)
+    assert window == ["a", "b"]
+    assert total == 2

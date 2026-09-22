@@ -830,6 +830,31 @@ def test_truncate_result_small_result_untouched():
     assert json.loads(out) == small
 
 
+def test_truncate_result_last_resort_is_valid_json_with_cite_ids():
+    """A payload made ONLY of protected fields hits the last-resort path.
+
+    `sources` is in _NEVER_TRUNCATE, so there is no string to shrink and no
+    unprotected list to trim; the function used to fall through to
+    json.dumps(...)[:cap], slicing the serialized JSON mid-string. The model
+    then received something it could neither parse nor cite — the exact failure
+    the function exists to prevent, on a narrower path.
+    """
+    import json
+    from agent.chat import truncate_result
+
+    sources = [{"cite_id": i, "ref": f"2026F/A/content/x{i}.md",
+                "label": f"document number {i}"} for i in range(200)]
+    out = truncate_result("search_corpus", {"sources": sources,
+                                            "note": "results follow"})
+    assert isinstance(out, str)
+    assert len(out) <= 6000
+    parsed = json.loads(out)              # valid JSON, not a sliced fragment
+    assert parsed["truncated"] is True
+    assert parsed["sources"], "leading cite_ids must survive"
+    assert parsed["sources"][0]["cite_id"] == 0
+    assert "cite_id" in json.dumps(parsed)
+
+
 def test_truncate_result_keeps_list_payloads():
     """content_grep's `matches` and search_corpus's `hits` are LISTS.
 

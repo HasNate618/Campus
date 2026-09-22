@@ -385,11 +385,38 @@ def truncate_result(name: str, result) -> str:
         out["truncated"] = True
 
     # Last resort (many oversized fields): keep only what the model must have,
-    # and never drop the cite_ids.
+    # and never drop the cite_ids. The reduction happens on the DATA — this used
+    # to end in json.dumps(...)[:cap], slicing serialized JSON, which returned an
+    # unparseable fragment with `sources` cut mid-string. That is precisely the
+    # failure this function exists to prevent, just on a narrower path.
     minimal = {k: v for k, v in out.items() if k in _NEVER_TRUNCATE}
     minimal.setdefault("truncated", True)
     minimal["note"] = "result too large for history — bulk payload omitted"
-    return json.dumps(minimal, default=str)[:cap]
+    text = json.dumps(minimal, default=str)
+    if len(text) <= cap:
+        return text
+    src = minimal.get("sources")
+    if isinstance(src, list) and src:
+        # Binary search the longest prefix of cite_ids that fits, so a 200-item
+        # list costs ~8 serializations instead of 200.
+        lo, hi, best = 0, len(src), 0
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            minimal["sources"] = src[:mid]
+            if len(json.dumps(minimal, default=str)) <= cap:
+                best = mid
+                lo = mid + 1
+            else:
+                hi = mid - 1
+        minimal["sources"] = src[:best]
+        text = json.dumps(minimal, default=str)
+        if len(text) <= cap:
+            return text
+    # Absolute fallback: a fixed, tiny, valid payload — never a slice. Every
+    # unbounded field has been reduced by now, so this always fits.
+    return json.dumps({"truncated": True,
+                       "note": "result too large for history — bulk payload omitted"},
+                      default=str)
 
 
 def _normalize_messages(messages: list[dict]) -> list[dict]:
@@ -465,7 +492,11 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
     system_text = build_system_prompt(cfg, db, course_id)
     if prior_context:
         system_text += "\n\n" + prior_context
-    messages = [{"role": "system", "content": system_text}]
+    # Annotated, not inferred: the initializer is all-strings, so Pyright
+    # pinned this to list[dict[str, str]] and then rejected the multimodal user
+    # message below, whose content is str | list[dict]. The function's own
+    # return type is list[dict] — this is the honest type.
+    messages: list[dict] = [{"role": "system", "content": system_text}]
     messages.extend(_sanitize_history(history or []))
     files = attachments or []
     extracted = [

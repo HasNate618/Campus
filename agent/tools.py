@@ -375,6 +375,13 @@ def content_read_file(db: DB, cfg: Config, args: dict) -> dict:
             (nid,)).fetchone()
         if not row:
             return {"error": f"no content node {nid}"}
+        # pages= addresses <!-- page N --> markers in a FILE; a module
+        # description has none. Ignoring it silently made the model believe it
+        # had read "page 2" when it had read the first N lines.
+        if args.get("pages") is not None:
+            return {"error": ("pages= needs a file with <!-- page N --> markers; "
+                              "this is a module description — use offset/limit"),
+                    "pagesInFile": None}
         import re as _re
         desc = _re.sub(r"<[^>]+>", " ", row["description"] or "")
         desc = _re.sub(r"\s+", " ", desc).strip()
@@ -544,8 +551,11 @@ def content_read_file(db: DB, cfg: Config, args: dict) -> dict:
         # can still blow past the read budget
         chunk = chunk[:MAX_READ_BYTES]
     available = pages_in_file(page_idx)
-    result = {"path": str(path), "content": chunk,
-              "offset": offset, "total_lines": total}
+    # Metadata is written BEFORE `content`. The cross-turn digest stores a
+    # PREFIX of the serialized result, so any field placed after the content
+    # body never reaches the next turn — that is how pagesInFile, present and
+    # correct here, was invisible to the model on the offset path.
+    result: dict = {"path": str(path), "offset": offset, "total_lines": total}
     if available:
         result["pagesInFile"] = available
     if current_page:
@@ -561,6 +571,7 @@ def content_read_file(db: DB, cfg: Config, args: dict) -> dict:
         result["requestedPath"] = requested
         result["note"] = (f"served from the canonical copy of this document "
                           f"(requested {requested}); {result['note']}")
+    result["content"] = chunk
     return result
 
 
