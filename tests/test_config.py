@@ -319,6 +319,46 @@ def test_unreadable_settings_file_is_reported_not_silently_absent(tmp_path):
     assert err and "Permission denied" in err
 
 
+def test_yaml_error_reports_position_without_echoing_content(tmp_path):
+    """PyYAML's message can quote the offending text — an undefined alias
+    (`llm_api_key: *sk-...`) reports the alias NAME, i.e. the secret itself.
+    The layer reports position instead, because this string is served over HTTP
+    (settings_file_error) and no consumer of it may be able to leak the value."""
+    from sync.config import read_settings_layer
+
+    p = tmp_path / "settings.yaml"
+    p.write_text("llm_api_key: *sk-canary-4321\n")
+    data, err = read_settings_layer(p)
+    assert data == {}
+    assert err
+    assert "sk-canary-4321" not in err
+    assert "settings.yaml" in err
+    assert "line 1" in err and "column" in err
+
+    # An unterminated flow sequence reports the PROBLEM at end-of-stream; the
+    # context mark is where the construct actually opened — the line to fix.
+    flow = tmp_path / "flow.yaml"
+    flow.write_text("pilot_only: true\nllm_model: [oops\n")
+    data2, err2 = read_settings_layer(flow)
+    assert data2 == {}
+    assert err2
+    assert "line 2" in err2 and "column 12" in err2
+
+
+def test_non_utf8_settings_file_is_reported_not_raised(tmp_path):
+    """UnicodeDecodeError is neither an OSError nor a yaml.YAMLError, so a
+    catch split by class needs a fallback: otherwise a binary settings file
+    raises out of Config.load() — which runs per request — and 500s the API."""
+    from sync.config import read_settings_layer
+
+    p = tmp_path / "settings.yaml"
+    p.write_bytes(b"llm_api_key: \xff\xfe\x00bad\n")
+    data, err = read_settings_layer(p)
+    assert data == {}
+    assert err and "UnicodeDecodeError" in err
+    assert "llm_api_key" not in err   # no content in this class either
+
+
 def test_read_settings_layer_on_a_directory_is_reported(tmp_path):
     """A directory where the file should be must not raise out of load()."""
     from sync.config import read_settings_layer

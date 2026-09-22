@@ -107,17 +107,55 @@ def read_settings_layer(path: Path) -> tuple[dict, str | None]:
     and reports False, so an exists() pre-check would make an unreadable file
     indistinguishable from a missing one — empty settings with no explanation.
     Only "no file yet" is silent; everything else carries an error.
+
+    The returned message must never carry the file's CONTENT. It is served
+    over HTTP (settings_file_error) and any future consumer may log it, so the
+    scrub belongs here, where the string is built, rather than at one boundary.
+    PyYAML is the hazard: an undefined alias (`llm_api_key: *sk-...`) reports
+    the alias NAME — the secret itself — so a YAML failure is reported as
+    position only. Errno text ("Permission denied", "Is a directory") carries
+    no content and is kept verbatim, because the panel must let a user tell
+    "I cannot read your file" from "your file is malformed".
     """
     try:
         with open(path) as f:
             data = yaml.safe_load(f) or {}
     except FileNotFoundError:
         return {}, None
-    except Exception as e:  # PermissionError, IsADirectoryError, yaml.YAMLError, ...
+    except yaml.YAMLError as e:
+        return {}, _yaml_error_message(path, e)
+    except OSError as e:
         return {}, f"{path}: {e}"
+    except Exception as e:
+        # UnicodeDecodeError (a binary or non-UTF-8 file) is neither an OSError
+        # nor a yaml.YAMLError, so it needs its own branch or it escapes and
+        # breaks the never-raises contract this function exists to keep. Only
+        # the class name is reported: str(e) is the codec message, which quotes
+        # the offending byte.
+        return {}, f"{path}: unreadable ({type(e).__name__})"
     if not isinstance(data, dict):
         return {}, f"{path}: top level must be a mapping"
     return data, None
+
+
+def _yaml_error_message(path: Path, e: yaml.YAMLError) -> str:
+    """A YAML failure as path + position only — never the message text.
+
+    The context mark is preferred when present: an unterminated flow sequence or
+    quote reports the PROBLEM at end-of-stream (line 3 of a two-line file), while
+    the context mark is where the construct actually opened (the offending line).
+    Six failure shapes were checked — alias, flow, tab indent, colon-in-scalar,
+    bad indent, unclosed quote — and in each one the context mark either names the
+    offending line or is absent, in which case the problem mark is already right.
+    """
+    mark = getattr(e, "context_mark", None) or getattr(e, "problem_mark", None)
+    if mark is None:
+        return f"{path}: not valid YAML — fix or delete the file"
+    # PyYAML marks are 0-based; report them the way an editor counts.
+    return (
+        f"{path} (line {mark.line + 1}, column {mark.column + 1}): "
+        "not valid YAML — fix or delete the file"
+    )
 
 
 @dataclass
