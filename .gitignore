@@ -8,6 +8,9 @@ school/
 # Secrets
 .env
 config.yaml
+# settings.yaml is written beside the DB; data/ already ignores the default
+# location, but this guards CAMPUS_SETTINGS_PATH pointed at the repo root.
+settings.yaml
 *.token
 !config.example.yaml
 

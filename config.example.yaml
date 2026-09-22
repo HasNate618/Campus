@@ -6,6 +6,15 @@
 # courses, and the corpus search uses a built-in lexical ranker (no embeddings
 # model needed). Only set what you have.
 #
+# ── Changing these while the app is running ──────────────────────────────
+# Most of these values can be set from the app itself: Settings (the gear in
+# the sidebar footer on desktop, the Home header on mobile) writes a
+# `settings.yaml` next to the DB — gitignored, and the TOP layer of the
+# precedence stack, so it overrides this file and any env var:
+#   defaults < config.yaml < env vars < settings.yaml
+# Only the settings that need a restart (mcp_urls) or are deploy-time (paths,
+# passwords) are absent from the panel.
+#
 # ── Not using Brightspace/D2L? ─────────────────────────────────────────────────
 # Campus's *automated sync* targets Brightspace/D2L (a common LMS).
 # Everything else — browse, corpus search, chat, MCP web tools, PDF reading —
@@ -84,6 +93,9 @@ llm_api_key: ""               # Bearer auth when set (OpenAI, OpenRouter, ...); 
 # to enable semantic search; a 404 on either degrades back to lexical.
 # embed_model: "text-embedding-3-small"
 # rerank_model: "cohere/rerank-english-v3.0"
+
+# institution label used in the AI system prompt, e.g. "Your University"
+# institution: ""
 
 # timezone for user-facing datetimes + the system prompt clock.
 # Empty = system local time. e.g. timezone: "America/Toronto"

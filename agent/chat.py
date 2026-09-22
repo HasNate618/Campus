@@ -476,16 +476,15 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
     # Preflight: chat needs an LLM endpoint + model. Fail clearly instead of
     # letting httpx raise an opaque connection error at request time.
     if not cfg.llm_endpoints():
-        msg = ("No LLM endpoint configured. Set llm_url/llm_urls (and llm_model) in "
-               "config.yaml or OPENAI_ENDPOINT/OPENAI_ENDPOINTS, then retry. "
+        msg = ("No LLM endpoint configured. Set it in Settings (the gear in the "
+               "sidebar) or set OPENAI_ENDPOINT/OPENAI_ENDPOINTS, then retry. "
                "Sync, browse, and corpus search work without an LLM.")
         if emit:
             emit("done", {"answer": msg, "model": None, "usage": None})
         return msg, history or []
     if not (model or cfg.llm_model):
         msg = ("No LLM model configured. Run `python -m sync models` to list "
-               "available models at your endpoint, then set llm_model in "
-               "config.yaml or OPENAI_MODEL.")
+               "available models, then pick one in Settings or set OPENAI_MODEL.")
         if emit:
             emit("done", {"answer": msg, "model": None, "usage": None})
         return msg, history or []
