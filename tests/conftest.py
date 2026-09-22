@@ -10,11 +10,19 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import tempfile
 from pathlib import Path
 
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
+
+# Same import-time hazard as CAMPUS_DB above: `Config.load()` now reads a
+# settings layer, and api/config.py loads the config at import. Pin a scratch
+# path here — module scope, so it lands before any test module imports `api.*`
+# — or a developer's real data/settings.yaml would leak into the suite.
+# test_config.py re-pins per test (its _clean_env deletes every CAMPUS_* var).
+os.environ["CAMPUS_SETTINGS_PATH"] = str(Path(tempfile.mkdtemp()) / "settings.yaml")
 
 
 @pytest.fixture()

@@ -15,6 +15,50 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG_PATH = REPO_ROOT / "config.yaml"
 
 
+def settings_path(base: "Config | None" = None) -> Path:
+    """Absolute path of the web-written overrides layer.
+
+    Anchored to the DB directory, never the process CWD: config.example.yaml
+    ships a *relative* db_path ("data/harness.db") and load() only expanduser()s
+    it, so Path(db_path).parent would otherwise resolve against wherever uvicorn
+    was started. CAMPUS_SETTINGS_PATH overrides the whole computation (used by
+    a host-side CLI whose data root differs from the container's volume).
+    """
+    env = os.environ.get("CAMPUS_SETTINGS_PATH")
+    if env:
+        return Path(env).expanduser().resolve()
+    db = Path(base.db_path if base is not None else Config().db_path).expanduser()
+    if not db.is_absolute():
+        db = REPO_ROOT / db
+    return db.parent.resolve() / "settings.yaml"
+
+
+def read_settings_layer(path: Path) -> tuple[dict, str | None]:
+    """(settings dict, error-or-None). NEVER raises.
+
+    Called on every Config.load(), i.e. once per request. An unreadable file
+    (a host CLI running as a different uid than the container) or invalid YAML
+    must behave as "absent" rather than take the API down. Mirrors the reasoning
+    in sync/token_store.write_secret, which swallows chmod failures for the
+    same class of reason.
+
+    Resolution is left to open(): Path.exists() swallows the PermissionError
+    and reports False, so an exists() pre-check would make an unreadable file
+    indistinguishable from a missing one — empty settings with no explanation.
+    Only "no file yet" is silent; everything else carries an error.
+    """
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        return {}, None
+    except Exception as e:  # PermissionError, IsADirectoryError, yaml.YAMLError, ...
+        return {}, f"{path}: {e}"
+    if not isinstance(data, dict):
+        return {}, f"{path}: top level must be a mapping"
+    return data, None
+
+
 @dataclass
 class Config:
     base_url: str = ""  # LMS base URL, e.g. https://your-university.brightspace.com
@@ -106,64 +150,15 @@ class Config:
     @classmethod
     def load(cls, path: Path | None = None) -> "Config":
         cfg = cls()
-        path = path or DEFAULT_CONFIG_PATH
-        if path.exists():
-            with open(path) as f:
-                data = yaml.safe_load(f) or {}
-            for k, v in data.items():
-                if hasattr(cfg, k) and v is not None:
-                    setattr(cfg, k, v)
-        # env overrides. Two naming conventions are supported so the project
-        # is portable: the conventional OpenAI-compatible names (OPENAI_*) any
-        # outsider already knows, and the Campus-specific CAMPUS_* names used by
-        # the homelab deployment for non-LLM services. For the LLM, only the
-        # standard OPENAI_* names are accepted (no CAMPUS_LLM_* aliases) so the
-        # interface stays clean. Single + plural (comma-separated) forms both work.
-        overrides = [
-            ("OPENAI_ENDPOINT", "llm_url"),
-            ("OPENAI_ENDPOINTS", "llm_urls_csv"),
-            ("OPENAI_API_KEY", "llm_api_key"),
-            ("OPENAI_MODEL", "llm_model"),
-            ("CAMPUS_BASE_URL", "base_url"),
-            ("CAMPUS_DATA_ROOT", "data_root"),
-            ("CAMPUS_DB_PATH", "db_path"),
-            ("CAMPUS_TOKEN_DIR", "token_dir"),
-            ("CAMPUS_TIMEZONE", "timezone"),
-            ("CAMPUS_PDF_EXTRACTOR_URL", "pdf_extractor_url"),
-            ("CAMPUS_NTFY_URL", "ntfy_url"),
-            ("CAMPUS_MCP_URL", "mcp_url"),
-            ("CAMPUS_MCP_URLS", "mcp_urls_csv"),
-            ("CAMPUS_EMBED_MODEL", "embed_model"),
-            ("CAMPUS_RERANK_MODEL", "rerank_model"),
-            ("CAMPUS_BRIGHTSPACE_BASE_URL", "brightspace_base_url"),
-            ("CAMPUS_WEB_PASSWORD", "web_password"),
-        ]
-        for env_key, attr in overrides:
-            val = os.environ.get(env_key)
-            if not val:
-                continue
-            if attr.endswith("_csv"):  # comma-separated list -> list field
-                setattr(cfg, attr[:-4], [u.strip() for u in val.split(",") if u.strip()])
-            else:
-                setattr(cfg, attr, val)
-        cfg.username = os.environ.get("CAMPUS_USERNAME", cfg.username)
-        cfg.password = os.environ.get("CAMPUS_BRIGHTSPACE_PASSWORD", cfg.password)
-        if os.environ.get("CAMPUS_BRIGHTSPACE_HOSTS"):
-            cfg.brightspace_hosts = [
-                h.strip() for h in os.environ["CAMPUS_BRIGHTSPACE_HOSTS"].split(",") if h.strip()
-            ]
-        if os.environ.get("CAMPUS_MCP_URLS"):
-            cfg.mcp_urls = [
-                u.strip() for u in os.environ["CAMPUS_MCP_URLS"].split(",") if u.strip()
-            ]
-        # expand ~ and coerce to Path (YAML strings don't auto-coerce)
-        for field in ("data_root", "db_path", "token_dir", "browser_profile_dir"):
-            val = getattr(cfg, field)
-            if isinstance(val, str):
-                val = Path(val)
-            if isinstance(val, Path):
-                val = Path(os.path.expanduser(str(val)))
-            setattr(cfg, field, val)
+        _merge_layer(cfg, _read_config_file(path or DEFAULT_CONFIG_PATH))
+        _apply_env(cfg)
+        # The in-app layer sits ABOVE env: the user is the deployer, and the
+        # settings a deployment must control (passwords, paths) are not
+        # writable from the panel at all. Resolved after env so a
+        # CAMPUS_DB_PATH from the environment anchors the same directory.
+        data, _err = read_settings_layer(settings_path(cfg))
+        _merge_layer(cfg, data)
+        _coerce_paths(cfg)
         return cfg
 
     # ── resolved endpoint lists ──────────────────────────────────────────
@@ -184,3 +179,86 @@ class Config:
         if self.mcp_url:
             return [self.mcp_url]
         return []
+
+
+# ── load() layers (defaults < config.yaml < env < settings.yaml) ──────────
+def _read_config_file(path: Path) -> dict:
+    """config.yaml as a mapping; {} when absent.
+
+    Deliberately keeps today's failure modes — read_settings_layer is the layer
+    that must never raise.
+    """
+    if not path.exists():
+        return {}
+    with open(path) as f:
+        return yaml.safe_load(f) or {}
+
+
+def _merge_layer(cfg: "Config", data: dict) -> None:
+    """Copy known keys from a YAML mapping onto cfg. Unknown keys are ignored;
+    None values do not clobber a real value.
+
+    The guard is __dataclass_fields__ rather than hasattr, so a YAML key named
+    `load` or `llm_endpoints` cannot shadow a method on the instance.
+    """
+    fields = type(cfg).__dataclass_fields__
+    for k, v in data.items():
+        if k in fields and v is not None:
+            setattr(cfg, k, v)
+
+
+def _apply_env(cfg: "Config") -> None:
+    # env overrides. Two naming conventions are supported so the project
+    # is portable: the conventional OpenAI-compatible names (OPENAI_*) any
+    # outsider already knows, and the Campus-specific CAMPUS_* names used by
+    # the homelab deployment for non-LLM services. For the LLM, only the
+    # standard OPENAI_* names are accepted (no CAMPUS_LLM_* aliases) so the
+    # interface stays clean. Single + plural (comma-separated) forms both work.
+    overrides = [
+        ("OPENAI_ENDPOINT", "llm_url"),
+        ("OPENAI_ENDPOINTS", "llm_urls_csv"),
+        ("OPENAI_API_KEY", "llm_api_key"),
+        ("OPENAI_MODEL", "llm_model"),
+        ("CAMPUS_BASE_URL", "base_url"),
+        ("CAMPUS_DATA_ROOT", "data_root"),
+        ("CAMPUS_DB_PATH", "db_path"),
+        ("CAMPUS_TOKEN_DIR", "token_dir"),
+        ("CAMPUS_TIMEZONE", "timezone"),
+        ("CAMPUS_PDF_EXTRACTOR_URL", "pdf_extractor_url"),
+        ("CAMPUS_NTFY_URL", "ntfy_url"),
+        ("CAMPUS_MCP_URL", "mcp_url"),
+        ("CAMPUS_MCP_URLS", "mcp_urls_csv"),
+        ("CAMPUS_EMBED_MODEL", "embed_model"),
+        ("CAMPUS_RERANK_MODEL", "rerank_model"),
+        ("CAMPUS_BRIGHTSPACE_BASE_URL", "brightspace_base_url"),
+        ("CAMPUS_WEB_PASSWORD", "web_password"),
+    ]
+    for env_key, attr in overrides:
+        val = os.environ.get(env_key)
+        if not val:
+            continue
+        if attr.endswith("_csv"):  # comma-separated list -> list field
+            setattr(cfg, attr[:-4], [u.strip() for u in val.split(",") if u.strip()])
+        else:
+            setattr(cfg, attr, val)
+    cfg.username = os.environ.get("CAMPUS_USERNAME", cfg.username)
+    cfg.password = os.environ.get("CAMPUS_BRIGHTSPACE_PASSWORD", cfg.password)
+    if os.environ.get("CAMPUS_BRIGHTSPACE_HOSTS"):
+        cfg.brightspace_hosts = [
+            h.strip() for h in os.environ["CAMPUS_BRIGHTSPACE_HOSTS"].split(",") if h.strip()
+        ]
+    if os.environ.get("CAMPUS_MCP_URLS"):
+        cfg.mcp_urls = [
+            u.strip() for u in os.environ["CAMPUS_MCP_URLS"].split(",") if u.strip()
+        ]
+
+
+def _coerce_paths(cfg: "Config") -> None:
+    """expand ~ and coerce to Path (YAML strings don't auto-coerce)."""
+    for field in ("data_root", "db_path", "token_dir", "browser_profile_dir"):
+        val = getattr(cfg, field)
+        if isinstance(val, str):
+            val = Path(val)
+        if isinstance(val, Path):
+            val = Path(os.path.expanduser(str(val)))
+        setattr(cfg, field, val)

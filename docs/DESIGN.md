@@ -118,6 +118,11 @@ Everything environment-specific lives in `config.yaml` (gitignored) or
 model, term dates. The repo ships `config.example.yaml` + `seed/courses.example.json`
 with sample data so a fresh clone runs without any personal configuration.
 
+Settings a user would change are also editable in the app: the Settings panel
+writes `settings.yaml` next to the DB, and that layer wins over both
+`config.yaml` and env vars (`Config.load`). Paths and passwords are not part of
+it — they stay deploy-time.
+
 ## Open (implementer may decide)
 
 - Term start/end dates for event materialization (config `term_dates`)

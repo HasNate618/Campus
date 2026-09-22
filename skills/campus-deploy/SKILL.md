@@ -64,7 +64,7 @@ anywhere, those env names do nothing — use `OPENAI_*` instead.
 | Timezone | `CAMPUS_TIMEZONE` | e.g. `America/New_York`; empty = host local |
 | Web API password | `CAMPUS_WEB_PASSWORD` | empty = open demo |
 
-Precedence: defaults < `config.yaml` (gitignored) < env vars. Config keys map
+Precedence: defaults < `config.yaml` (gitignored) < env vars < `settings.yaml` (written by the in-app Settings panel; lives beside the DB, override with `CAMPUS_SETTINGS_PATH`). Config keys map
 1:1 to these env names (see `sync/config.py` `Config.load`).
 
 ## The Brightspace/D2L honesty
