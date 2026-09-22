@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { X } from "lucide-react";
 import { useKeyNav, zoneForPath } from "@/lib/keynav";
@@ -25,6 +25,17 @@ export function SettingsDrawer({
 		return () => setZone(zoneForPath(pathname));
 	}, [open, pathname, setZone]);
 
+	const [dirty, setDirty] = useState(false);
+
+	// Every close a user can start — the X button, the backdrop, the second
+	// Escape — confirms first while edits are unsaved: "explicit Save" cuts both
+	// ways, and a backdrop click is the most reflexive accidental close. No
+	// confirm on unmount: that is not a user-initiated close.
+	const requestClose = useCallback(() => {
+		if (dirty && !window.confirm("Discard unsaved settings changes?")) return;
+		onClose();
+	}, [dirty, onClose]);
+
 	// Escape closes only when no field is focused: web/src/lib/keynav.tsx blurs
 	// a focused input on Escape without stopping propagation, so without this
 	// guard the first Escape would both blur the field and discard the drawer.
@@ -38,26 +49,30 @@ export function SettingsDrawer({
 				((el as HTMLElement).tagName === "INPUT" ||
 					(el as HTMLElement).tagName === "TEXTAREA");
 			if (typing) return;
-			onClose();
+			requestClose();
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [open, onClose]);
+	}, [open, requestClose]);
 
 	if (!open) return null;
 	return (
 		<>
-			<div className="settings-backdrop" onClick={onClose} />
+			<div className="settings-backdrop" onClick={requestClose} />
 			{/* data-kbd-zone keeps sidebar j/k from scrolling the list behind it */}
 			<aside className="settings-drawer" data-kbd-zone="settings">
 				<header className="settings-drawer-head">
 					<h1>Settings</h1>
-					<button className="icon-btn" onClick={onClose} aria-label="Close settings">
+					<button className="icon-btn" onClick={requestClose} aria-label="Close settings">
 						<X size={17} />
 					</button>
 				</header>
 				<div className="settings-drawer-scroll">
-					<SettingsBody variant="drawer" onLogout={onLogout} />
+					<SettingsBody
+						variant="drawer"
+						onLogout={onLogout}
+						onDirtyChange={setDirty}
+					/>
 				</div>
 			</aside>
 		</>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LogOut, PlugZap, RefreshCw, ShieldAlert } from "lucide-react";
 import { metaFor, GROUP_META } from "./fieldMeta";
 import { useSettings, type FieldValue, type SettingsField } from "./useSettings";
@@ -16,11 +16,20 @@ function asText(v: FieldValue): string {
 export function SettingsBody({
 	variant,
 	onLogout,
+	onDirtyChange,
 }: {
 	variant: "drawer" | "page";
 	onLogout?: () => void;
+	onDirtyChange?: (dirty: boolean) => void;
 }) {
 	const s = useSettings();
+
+	// Report unsaved-edit state so a shell can refuse to discard it by accident.
+	// Above the early returns below, so hook order stays stable while the form is
+	// loading, failed or payload-less.
+	useEffect(() => {
+		onDirtyChange?.(s.dirty);
+	}, [onDirtyChange, s.dirty]);
 
 	if (s.loading) return <p className="settings-note">Loading…</p>;
 	if (s.error) return <p className="settings-note error">Could not load settings: {s.error}</p>;
