@@ -68,6 +68,84 @@ def test_env_overrides(monkeypatch):
     assert cfg.timezone == "Europe/Berlin"
 
 
+def test_env_set_attrs_normalises_csv_aliases(monkeypatch):
+    """The *_csv pseudo-attrs must never leak: they match no registry key, so
+    a failover deployment would look unconfigured."""
+    from sync.config import env_set_attrs
+
+    monkeypatch.setenv("OPENAI_ENDPOINTS", "https://a/v1, https://b/v1")
+    monkeypatch.setenv("CAMPUS_MCP_URLS", "http://s1/mcp")
+    attrs = env_set_attrs()
+    assert "llm_urls" in attrs
+    assert "mcp_urls" in attrs
+    assert not any(a.endswith("_csv") for a in attrs)
+
+
+def test_env_set_attrs_covers_extras_and_secrets(monkeypatch):
+    from sync.config import env_set_attrs
+
+    monkeypatch.setenv("CAMPUS_USERNAME", "u123")
+    monkeypatch.setenv("CAMPUS_BRIGHTSPACE_PASSWORD", "pw")
+    attrs = env_set_attrs()
+    assert {"username", "password"} <= attrs
+
+
+def test_env_set_attrs_ignores_empty_values(monkeypatch):
+    """An exported-but-empty var supplies no value, so it must not be
+    reported as a source (matching _apply_env's `if not val: continue`)."""
+    from sync.config import env_set_attrs
+
+    monkeypatch.setenv("OPENAI_MODEL", "")
+    monkeypatch.setenv("CAMPUS_NTFY_URL", "")
+    attrs = env_set_attrs()
+    assert "llm_model" not in attrs
+    assert "ntfy_url" not in attrs
+
+
+def test_mcp_urls_env_still_splits(monkeypatch):
+    """Dropping the duplicated CAMPUS_MCP_URLS block must not change parsing."""
+    from sync.config import Config
+
+    monkeypatch.setenv("CAMPUS_MCP_URLS", "http://s1/mcp, http://s2/mcp")
+    assert Config.load().mcp_endpoints() == ["http://s1/mcp", "http://s2/mcp"]
+
+
+def test_env_extras_override_the_file(tmp_path, monkeypatch):
+    """CAMPUS_USERNAME / CAMPUS_BRIGHTSPACE_PASSWORD / CAMPUS_BRIGHTSPACE_HOSTS
+    now come from ENV_EXTRA; a non-empty value must still beat config.yaml."""
+    from sync.config import Config
+
+    yaml_path = tmp_path / "config.yaml"
+    yaml_path.write_text(
+        "username: from-yaml\npassword: from-yaml\n"
+        "brightspace_hosts:\n  - from-yaml.edu\n"
+    )
+    monkeypatch.setenv("CAMPUS_USERNAME", "from-env")
+    monkeypatch.setenv("CAMPUS_BRIGHTSPACE_PASSWORD", "from-env")
+    monkeypatch.setenv("CAMPUS_BRIGHTSPACE_HOSTS", "a.edu, b.edu")
+    cfg = Config.load(path=yaml_path)
+    assert cfg.username == "from-env"
+    assert cfg.password == "from-env"
+    assert cfg.brightspace_hosts == ["a.edu", "b.edu"]
+
+
+def test_empty_env_value_does_not_clear_a_file_value(tmp_path, monkeypatch):
+    """Equivalence guard for the table refactor: an exported-but-empty var
+    must leave a config.yaml value alone rather than blanking it, and an empty
+    list var must not reset a file list to []."""
+    from sync.config import Config
+
+    yaml_path = tmp_path / "config.yaml"
+    yaml_path.write_text(
+        "llm_model: from-yaml\nmcp_urls:\n  - http://from-yaml/mcp\n"
+    )
+    monkeypatch.setenv("OPENAI_MODEL", "")
+    monkeypatch.setenv("CAMPUS_MCP_URLS", "")
+    cfg = Config.load(path=yaml_path)
+    assert cfg.llm_model == "from-yaml"
+    assert cfg.mcp_urls == ["http://from-yaml/mcp"]
+
+
 def test_legacy_bifrost_env_is_gone(monkeypatch):
     """The old CAMPUS_BIFROST_URL alias was removed — a stale env var must
     NOT silently rewire the endpoint."""

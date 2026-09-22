@@ -14,6 +14,67 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG_PATH = REPO_ROOT / "config.yaml"
 
+# ── environment overrides ────────────────────────────────────────────────
+# Env name -> Config attribute. Two naming conventions are supported so the
+# project is portable: the conventional OpenAI-compatible names (OPENAI_*) any
+# outsider already knows, and the Campus-specific CAMPUS_* names used by the
+# homelab deployment for non-LLM services. For the LLM, only the standard
+# OPENAI_* names are accepted (no CAMPUS_LLM_* aliases) so the interface stays
+# clean. Single + plural (comma-separated) forms both work.
+#
+# The attribute here is the REAL field name, never a "_csv" pseudo-name: these
+# values are also what env_set_attrs() reports, and a name like "llm_urls_csv"
+# matches no Config field, so a failover deployment would look unconfigured.
+ENV_OVERRIDES: list[tuple[str, str]] = [
+    ("OPENAI_ENDPOINT", "llm_url"),
+    ("OPENAI_ENDPOINTS", "llm_urls"),
+    ("OPENAI_API_KEY", "llm_api_key"),
+    ("OPENAI_MODEL", "llm_model"),
+    ("CAMPUS_BASE_URL", "base_url"),
+    ("CAMPUS_DATA_ROOT", "data_root"),
+    ("CAMPUS_DB_PATH", "db_path"),
+    ("CAMPUS_TOKEN_DIR", "token_dir"),
+    ("CAMPUS_TIMEZONE", "timezone"),
+    ("CAMPUS_PDF_EXTRACTOR_URL", "pdf_extractor_url"),
+    ("CAMPUS_NTFY_URL", "ntfy_url"),
+    ("CAMPUS_MCP_URL", "mcp_url"),
+    ("CAMPUS_MCP_URLS", "mcp_urls"),
+    ("CAMPUS_EMBED_MODEL", "embed_model"),
+    ("CAMPUS_RERANK_MODEL", "rerank_model"),
+    ("CAMPUS_BRIGHTSPACE_BASE_URL", "brightspace_base_url"),
+    ("CAMPUS_WEB_PASSWORD", "web_password"),
+]
+
+# Comma-separated in the environment, lists on Config.
+_ENV_CSV_ATTRS = frozenset({"llm_urls", "mcp_urls"})
+
+# Handled outside ENV_OVERRIDES: secrets and the host allowlist. Unlike the
+# table above these keep their original semantics (see _apply_env): an
+# explicitly-empty credential clears the value from config.yaml, because that
+# is what `os.environ.get(name, current)` has always done here.
+ENV_EXTRA: dict[str, str] = {
+    "CAMPUS_USERNAME": "username",
+    "CAMPUS_BRIGHTSPACE_PASSWORD": "password",
+    "CAMPUS_BRIGHTSPACE_HOSTS": "brightspace_hosts",
+}
+
+
+def env_set_attrs() -> set[str]:
+    """Config attributes the environment currently supplies a value for.
+
+    Pure: reads os.environ only. An exported-but-empty value counts as unset,
+    matching _apply_env's `if not val: continue` for the table. The two
+    credential extras are the exception — _apply_env lets an explicitly-empty
+    CAMPUS_USERNAME / CAMPUS_BRIGHTSPACE_PASSWORD clear a file value — but
+    neither is a settings field, so this can never mislabel a field the
+    Settings panel displays.
+    """
+    return {
+        attr
+        for env_key, attr in {**dict(ENV_OVERRIDES), **ENV_EXTRA}.items()
+        if os.environ.get(env_key)
+    }
+
 
 def settings_path(base: "Config | None" = None) -> Path:
     """Absolute path of the web-written overrides layer.
@@ -208,49 +269,28 @@ def _merge_layer(cfg: "Config", data: dict) -> None:
 
 
 def _apply_env(cfg: "Config") -> None:
-    # env overrides. Two naming conventions are supported so the project
-    # is portable: the conventional OpenAI-compatible names (OPENAI_*) any
-    # outsider already knows, and the Campus-specific CAMPUS_* names used by
-    # the homelab deployment for non-LLM services. For the LLM, only the
-    # standard OPENAI_* names are accepted (no CAMPUS_LLM_* aliases) so the
-    # interface stays clean. Single + plural (comma-separated) forms both work.
-    overrides = [
-        ("OPENAI_ENDPOINT", "llm_url"),
-        ("OPENAI_ENDPOINTS", "llm_urls_csv"),
-        ("OPENAI_API_KEY", "llm_api_key"),
-        ("OPENAI_MODEL", "llm_model"),
-        ("CAMPUS_BASE_URL", "base_url"),
-        ("CAMPUS_DATA_ROOT", "data_root"),
-        ("CAMPUS_DB_PATH", "db_path"),
-        ("CAMPUS_TOKEN_DIR", "token_dir"),
-        ("CAMPUS_TIMEZONE", "timezone"),
-        ("CAMPUS_PDF_EXTRACTOR_URL", "pdf_extractor_url"),
-        ("CAMPUS_NTFY_URL", "ntfy_url"),
-        ("CAMPUS_MCP_URL", "mcp_url"),
-        ("CAMPUS_MCP_URLS", "mcp_urls_csv"),
-        ("CAMPUS_EMBED_MODEL", "embed_model"),
-        ("CAMPUS_RERANK_MODEL", "rerank_model"),
-        ("CAMPUS_BRIGHTSPACE_BASE_URL", "brightspace_base_url"),
-        ("CAMPUS_WEB_PASSWORD", "web_password"),
-    ]
-    for env_key, attr in overrides:
+    for env_key, attr in ENV_OVERRIDES:
         val = os.environ.get(env_key)
         if not val:
             continue
-        if attr.endswith("_csv"):  # comma-separated list -> list field
-            setattr(cfg, attr[:-4], [u.strip() for u in val.split(",") if u.strip()])
+        if attr in _ENV_CSV_ATTRS:  # comma-separated list -> list field
+            setattr(cfg, attr, [u.strip() for u in val.split(",") if u.strip()])
         else:
             setattr(cfg, attr, val)
-    cfg.username = os.environ.get("CAMPUS_USERNAME", cfg.username)
-    cfg.password = os.environ.get("CAMPUS_BRIGHTSPACE_PASSWORD", cfg.password)
-    if os.environ.get("CAMPUS_BRIGHTSPACE_HOSTS"):
-        cfg.brightspace_hosts = [
-            h.strip() for h in os.environ["CAMPUS_BRIGHTSPACE_HOSTS"].split(",") if h.strip()
-        ]
-    if os.environ.get("CAMPUS_MCP_URLS"):
-        cfg.mcp_urls = [
-            u.strip() for u in os.environ["CAMPUS_MCP_URLS"].split(",") if u.strip()
-        ]
+    for env_key, attr in ENV_EXTRA.items():
+        if attr == "brightspace_hosts":
+            # falsy check: an empty allowlist means "proxy stays disabled",
+            # not "clear the hosts from config.yaml"
+            if os.environ.get(env_key):
+                cfg.brightspace_hosts = [
+                    h.strip() for h in os.environ[env_key].split(",") if h.strip()
+                ]
+        else:
+            # os.environ.get(name, current): an explicitly-empty credential
+            # clears the file's value. Preserved verbatim from the pre-refactor
+            # code — this task normalises the table, it does not change
+            # credential semantics.
+            setattr(cfg, attr, os.environ.get(env_key, getattr(cfg, attr)))
 
 
 def _coerce_paths(cfg: "Config") -> None:
