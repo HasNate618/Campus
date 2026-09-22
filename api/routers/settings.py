@@ -112,6 +112,7 @@ def _snapshot() -> dict:
         "settings_file_error": err,
         "auth_enabled": bool(api_cfg.web_password),
         "version": VERSION,
+        "search_index": _search_index(),
         "readonly": {
             # The API's OWN resolved values — they are what the running server
             # serves, and they can differ from the harness cfg (CAMPUS_DB vs
@@ -123,6 +124,13 @@ def _snapshot() -> dict:
                           "from": _origin("CAMPUS_TOKEN_DIR", "token_dir")},
         },
     }
+
+
+def _search_index() -> dict:
+    from api import services
+    from sync.config import Config
+
+    return services.search_index_summary(Config.load())
 
 
 def _env_name_map() -> dict[str, str]:

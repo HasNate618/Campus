@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from api.auth import require_auth
 from api.auth import router as auth_router
 from api.db import db_available, ensure_wal
-from api.routers import chat, courses, data, digest, settings, sync
+from api.routers import chat, courses, data, digest, search, settings, sync
 from api.version import VERSION
 
 ensure_wal()  # WAL so API readers never block the sync writer
@@ -41,6 +41,7 @@ app.include_router(chat.router, dependencies=[Depends(require_auth)])
 # api.auth._PUBLIC_PATHS: this one can read a masked API key and rewires the
 # LLM endpoint. (/api/config stays public — the login screen needs it at boot.)
 app.include_router(settings.router, dependencies=[Depends(require_auth)])
+app.include_router(search.router, dependencies=[Depends(require_auth)])
 
 
 @app.get("/api/health")

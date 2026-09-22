@@ -612,6 +612,44 @@ def trigger_sync(course_id: int | None = None) -> dict:
     return {"run_id": 0, "status": "started", "message": "sync running in background"}
 
 
+def sync_in_progress() -> bool:
+    """Whether a background sync holds the engine. Public accessor so other
+    modules don't reach into the private flag."""
+    return _sync_in_progress
+
+
+def search_index_summary(cfg) -> dict:
+    """Chunk count + which embed_model built the vectors.
+
+    `chunk_meta` is created by sync.search.rebuild, so on a never-indexed DB
+    the SELECTs raise OperationalError — that means "no index", not an error.
+
+    Plain sqlite3, not sync.db.DB: DB.__init__ runs schema migrations, so a
+    GET would mutate the DB as a side effect, and when _migrate() raises on an
+    unseeded DB its connection is never closed — one leak per settings read.
+    """
+    chunks = 0
+    stored: str | None = None
+    conn = None
+    try:
+        conn = sqlite3.connect(str(cfg.db_path))
+        chunks = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+        row = conn.execute("SELECT v FROM chunk_meta WHERE k='embed_model'").fetchone()
+        stored = row[0] if row else None
+    except sqlite3.OperationalError:
+        pass
+    except Exception:
+        logging.exception("[settings] could not read the search index summary")
+    finally:
+        if conn is not None:
+            conn.close()
+    want = cfg.embed_model or None
+    # "none" is what rebuild writes in lexical mode.
+    stored_model = None if stored in (None, "none") else stored
+    return {"chunks": chunks, "embed_model": stored_model,
+            "stale": stored_model != want}
+
+
 # ── auth ────────────────────────────────────────────────────────────────────
 _auth_lock = threading.Lock()
 _auth_in_progress = False

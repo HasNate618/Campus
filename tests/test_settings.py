@@ -6,6 +6,8 @@ so a developer's real data/settings.yaml can never be read or written.
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 
@@ -383,3 +385,40 @@ def test_get_does_not_leak_the_key_through_a_malformed_file(tmp_path, monkeypatc
     # and the layer failed to load, so the field falls back to unset
     by_key = {f["key"]: f for f in body["fields"]}
     assert by_key["llm_api_key"]["value"] is None
+
+
+def test_search_index_summary_on_an_unindexed_db(db_path, tmp_path, monkeypatch):
+    """chunk_meta only exists after a rebuild — the summary must not raise."""
+    # sync.Config reads CAMPUS_DB_PATH (CAMPUS_DB is the API's own var), so the
+    # fixture alone would leave Config.load().db_path on the developer's real
+    # data/harness.db and this assertion would read their index.
+    monkeypatch.setenv("CAMPUS_DB_PATH", str(db_path))
+    _setup(tmp_path, monkeypatch)
+    from sync.config import Config
+    from api.services import search_index_summary
+
+    summary = search_index_summary(Config.load())
+    assert summary == {"chunks": 0, "embed_model": None, "stale": False}
+
+
+def test_rebuild_endpoint_starts_and_reports(db_path, tmp_path, monkeypatch):
+    # Pinned like the test above: the rebuild thread calls Config.load(), and an
+    # unpinned run would rewrite the real data/harness.db index from a test.
+    monkeypatch.setenv("CAMPUS_DB_PATH", str(db_path))
+    c = _client(tmp_path, monkeypatch)
+    assert c.post("/api/search/rebuild").json()["status"] in {"started", "running"}
+    state: dict = {}
+    for _ in range(50):   # the rebuild runs in a daemon thread
+        state = c.get("/api/search/rebuild/status").json()
+        if state["status"] != "running":
+            break
+        time.sleep(0.1)
+    assert state["status"] in {"done", "error"}
+    assert "index" in state
+
+
+def test_rebuild_refuses_while_a_sync_is_running(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch)
+    import api.services as services
+    monkeypatch.setattr(services, "sync_in_progress", lambda: True)
+    assert c.post("/api/search/rebuild").json()["status"] == "sync_running"
