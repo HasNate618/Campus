@@ -282,6 +282,155 @@ def test_suggest_paths_never_raises_when_the_table_is_gone(page_db):
     assert _suggest_paths(page_db, P("2026F/SE3316A/content/deck.md")) == []
 
 
+# ---------------------------------------------------------------------------
+# Same-source duplicates: one canonical path across every agent surface. The
+# duplicate's `files` row still exists (sync re-adds it), so suggestions, grep
+# and reads must all resolve to the copy the index actually carries.
+# ---------------------------------------------------------------------------
+
+
+def _seed_node(db, nid, title="topic"):
+    cid = db.conn.execute("SELECT id FROM courses LIMIT 1").fetchone()[0]
+    db.conn.execute(
+        "INSERT INTO content_nodes (id, course_id, brightspace_id, node_type, title) "
+        "VALUES (?, ?, ?, 'topic', ?)", (nid, cid, nid, title))
+    db.conn.commit()
+
+
+def _seed_dup_pair(db, bucket_path, canon_path, nodes=(1001, 1002), extra=5):
+    """Two copies of one document: sibling .pdf rows with the SAME sha, the
+    canonical copy on its own node, the duplicate on a node many files share."""
+    _seed_node(db, nodes[0], "Slides")
+    _seed_node(db, nodes[1], "Week 1")
+    for p, nid in ((bucket_path, nodes[0]), (canon_path, nodes[1])):
+        _seed_file(db, p)
+        db.conn.execute(
+            "UPDATE files SET content_node_id=?, sha256='sha-same' WHERE path=?",
+            (nid, p))
+        db.conn.execute(
+            "INSERT INTO files (path, kind, source, content_node_id, sha256) "
+            "VALUES (?, 'slide', 'manual', ?, 'sha-same')", (p[:-3] + ".pdf", nid))
+    # other files hanging off the bucket node, so its load exceeds the
+    # per-document node's (load 2: the .md and its .pdf)
+    for i in range(extra):
+        db.conn.execute(
+            "INSERT INTO files (path, kind, source, content_node_id) "
+            "VALUES (?, 'slide', 'manual', ?)",
+            (f"2026F/SE3316A/content/bucket{i}.md", nodes[0]))
+    db.conn.commit()
+
+
+def _two_copies(tmp_path):
+    """A deck plus a byte-identical copy under the duplicate folder."""
+    root, rel = _deck(tmp_path)
+    dup = "2026F/SE3316A/content/Notes-2025/deck.md"
+    (root / "2026F/SE3316A/content/Notes-2025").mkdir(parents=True)
+    (root / dup).write_text((root / rel).read_text())
+    return root, rel, dup
+
+
+def test_read_of_a_duplicate_path_serves_the_canonical_copy(
+        tmp_path, page_cfg, page_db):
+    from agent.tools import content_read_file
+
+    _root, rel, dup = _two_copies(tmp_path)
+    _seed_dup_pair(page_db, dup, rel)
+
+    r = content_read_file(page_db, page_cfg, {"path": dup, "pages": "57"})
+    assert r["path"] == rel                      # cited under the canonical path
+    assert r["requestedPath"] == dup
+    assert "canonical" in r["note"]
+    # page addressing still works through the redirect
+    assert r["pagesInFile"] == 74
+    assert r["pageStart"] == 57
+    assert "Slide 57" in r["content"]
+
+
+def test_read_of_the_canonical_path_is_untouched(tmp_path, page_cfg, page_db):
+    from agent.tools import content_read_file
+
+    _root, rel, dup = _two_copies(tmp_path)
+    _seed_dup_pair(page_db, dup, rel)
+
+    r = content_read_file(page_db, page_cfg, {"path": rel, "pages": "57"})
+    assert r["path"] == rel
+    assert "requestedPath" not in r
+    assert "canonical" not in r["note"]
+
+
+def test_read_of_a_duplicate_path_in_offset_mode_is_also_redirected(
+        tmp_path, page_cfg, page_db):
+    from agent.tools import content_read_file
+
+    _root, rel, dup = _two_copies(tmp_path)
+    _seed_dup_pair(page_db, dup, rel)
+
+    r = content_read_file(page_db, page_cfg, {"path": dup, "offset": 0, "limit": 5})
+    assert r["path"] == rel
+    assert r["requestedPath"] == dup
+
+
+def test_suggest_paths_returns_only_the_canonical_copy(page_db):
+    from pathlib import Path as P
+    from agent.tools import _suggest_paths
+
+    dup = "2026F/SE3316A/content/Notes-2025/webtech-2025-01-intro-html.md"
+    canon = "2026F/SE3316A/content/Units/webtech-2025-01-intro-html.md"
+    _seed_dup_pair(page_db, dup, canon)
+
+    got = _suggest_paths(page_db, P("2026F/SE 3316A/content/Slides/"
+                                    "webtech-2025-01-intro-html.md"))
+    assert got == [canon]
+
+
+def test_grep_collapses_a_duplicated_document(tmp_path, page_cfg, page_db):
+    from agent.tools import content_grep
+
+    _root, rel, dup = _two_copies(tmp_path)
+    _seed_dup_pair(page_db, dup, rel)
+
+    r = content_grep(page_db, page_cfg, {"query": "Slide 57"})
+    paths = [m["path"] for m in r["matches"] if m["path"].endswith("deck.md")]
+    assert paths == [rel]
+
+
+# ---------------------------------------------------------------------------
+# Model-supplied junk and malformed stored JSON must not cost a whole turn.
+# ---------------------------------------------------------------------------
+
+
+def test_junk_numeric_args_degrade_instead_of_erroring(page_cfg, page_db):
+    from agent.tools import (harness_get_announcements, harness_list_assignments,
+                             harness_sync_delta)
+
+    assert "error" not in harness_list_assignments(
+        page_db, page_cfg, {"due_within_days": "soon"})
+    assert "error" not in harness_sync_delta(page_db, page_cfg, {"limit": "lots"})
+    assert "error" not in harness_get_announcements(page_db, page_cfg, {"days": "many"})
+
+
+def test_junk_assignment_id_is_a_clear_error_not_a_crash(page_cfg, page_db):
+    from agent.tools import harness_list_assignments
+
+    r = harness_list_assignments(page_db, page_cfg, {"assignment_id": "abc"})
+    assert "must be a number" in (r.get("error") or "")
+
+
+def test_malformed_json_columns_do_not_break_a_listing(page_cfg, page_db):
+    from agent.tools import harness_list_assignments
+
+    cid = page_db.conn.execute("SELECT id FROM courses LIMIT 1").fetchone()[0]
+    page_db.conn.execute(
+        "INSERT INTO assignments (course_id, title, brightspace_folder_id, "
+        "rubrics_json, attachments_json, availability_json) VALUES (?,?,?,?,?,?)",
+        (cid, "Broken", 1, "{not json", "[also bad", "nope"))
+    page_db.conn.commit()
+
+    r = harness_list_assignments(page_db, page_cfg, {})
+    assert "error" not in r
+    assert any(a["title"] == "Broken" for a in r["assignments"])
+
+
 def test_missing_file_read_suggests_a_real_path(tmp_path, page_cfg, page_db):
     from agent.tools import content_read_file
 

@@ -114,19 +114,26 @@ def harness_list_assignments(db: DB, cfg: Config, args: dict) -> dict:
         q += " AND a.course_id=?"; params.append(course_id)
     if args.get("status"):
         q += " AND a.status=?"; params.append(args["status"])
-    if args.get("due_within_days"):
+    days = _coerce_int(args.get("due_within_days"), 0)
+    if days > 0:
         # lower bound too: only assignments due from now until now+N days
         q += " AND a.due_at IS NOT NULL AND a.due_at >= datetime('now') AND a.due_at <= datetime('now', ?)"
-        params.append(f"+{int(args['due_within_days'])} days")
+        params.append(f"+{days} days")
     detail = bool(args.get("assignment_id"))
     if detail:
-        q += " AND a.id=?"; params.append(int(args["assignment_id"]))
+        aid = _coerce_int(args.get("assignment_id"), -1)
+        if aid < 0:
+            return {"error": "assignment_id must be a number — get it from "
+                             "harness_list_assignments"}
+        q += " AND a.id=?"; params.append(aid)
     q += " ORDER BY a.due_at"
     rows = db.conn.execute(q, params).fetchall()
     out = []
     for r in rows:
         d = dict(r)
-        av = json.loads(d.pop("availability_json") or "{}") or {}
+        av = _loads(d.pop("availability_json"), {})
+        if not isinstance(av, dict):
+            av = {}
         end = (av or {}).get("EndDate")
         d["closed"] = False
         if end:
@@ -135,12 +142,17 @@ def harness_list_assignments(db: DB, cfg: Config, args: dict) -> dict:
             except ValueError:
                 pass
         d["state"] = _assignment_state(d)
-        rubrics = json.loads(d.pop("rubrics_json") or "[]")
+        rubrics = _loads(d.pop("rubrics_json"), [])
+        if not isinstance(rubrics, list):
+            rubrics = []
         d["rubrics"] = [rub.get("Name") for rub in rubrics]
         if detail:
             d["rubric_detail"] = _rubric_text(rubrics)
+        atts = _loads(d.pop("attachments_json"), [])
+        if not isinstance(atts, list):
+            atts = []
         d["attachments"] = [{"name": at.get("FileName"), "local": at.get("local")}
-                            for at in json.loads(d.pop("attachments_json") or "[]")]
+                            for at in atts if isinstance(at, dict)]
         if d.get("group_category"):
             g = db.conn.execute("SELECT group_name FROM course_groups WHERE course_id=? AND category_name=?",
                                 (d["course_id"], d["group_category"])).fetchone()
@@ -151,7 +163,7 @@ def harness_list_assignments(db: DB, cfg: Config, args: dict) -> dict:
 
 def harness_sync_delta(db: DB, cfg: Config, args: dict) -> dict:
     """What changed on the last N syncs: run stats + the latest digest log."""
-    limit = min(max(int(args.get("limit", 5)), 1), 20)
+    limit = min(max(_coerce_int(args.get("limit"), 5), 1), 20)
     rows = db.conn.execute(
         "SELECT id, started_at, finished_at, status, trigger, courses_processed, "
         "files_new, files_changed, announcements_new, facts_added, pdfs_extracted, error "
@@ -175,8 +187,9 @@ def harness_get_announcements(db: DB, cfg: Config, args: dict) -> dict:
     params = []
     if course_id:
         q += " AND a.course_id=?"; params.append(course_id)
-    if args.get("days"):
-        q += " AND a.posted_at >= datetime('now', ?)"; params.append(f"-{int(args['days'])} days")
+    days = _coerce_int(args.get("days"), 0)
+    if days > 0:
+        q += " AND a.posted_at >= datetime('now', ?)"; params.append(f"-{days} days")
     q += " ORDER BY a.posted_at DESC LIMIT 30"
     rows = db.conn.execute(q, params).fetchall()
     out = []
@@ -252,6 +265,23 @@ def _coerce_int(value: object, default: int) -> int:
     return default                    # None and every junk type
 
 
+def _loads(raw: object, default):
+    """json.loads over a stored column, without ever raising out of a read.
+
+    rubrics_json / attachments_json / availability_json are written by sync, but
+    one malformed value used to take down the whole assignment listing — the
+    model then saw an error instead of the other ninety rows.
+    """
+    if isinstance(raw, (bytes, bytearray)):
+        raw = raw.decode("utf-8", "replace")
+    if not isinstance(raw, str):
+        return default
+    try:
+        return json.loads(raw)
+    except ValueError:
+        return default
+
+
 _PAGES_SPEC_RE = re.compile(r"^\s*(\d+)\s*(?:-\s*(\d+))?\s*$")
 
 
@@ -273,6 +303,29 @@ def parse_pages(spec: object) -> tuple[int, int]:
     return start, end
 
 
+def _canonical_paths(db: DB, paths: list[str]) -> list[str]:
+    """Map each path to its canonical copy and drop duplicates, order preserved.
+
+    Same-source duplicates BOTH carry a `files` row (sync re-adds the duplicate
+    on every run), so any listing built from that table offers the model two
+    paths for one document. Resolving here keeps every surface pointing at the
+    copy the index actually carries. See sync/dedupe.py.
+    """
+    from sync.dedupe import canonical_map, resolve
+    mapping = canonical_map(db.conn)
+    if not mapping:
+        return paths
+    out: list[str] = []
+    seen: set[str] = set()
+    for p in paths:
+        c = resolve(p, mapping)
+        if c in seen:
+            continue
+        seen.add(c)
+        out.append(c)
+    return out
+
+
 def _suggest_paths(db: DB, requested: Path, limit: int = 3) -> list[str]:
     """Near-miss paths for a failed read, so the model can recover in one step
     instead of guessing again.
@@ -289,16 +342,18 @@ def _suggest_paths(db: DB, requested: Path, limit: int = 3) -> list[str]:
     """
     try:
         base = requested.name
+        # Over-fetch: collapsing duplicates below can shrink the list, and a
+        # suggestion that returns nothing is worse than useless after a miss.
         if base:
             rows = db.conn.execute(
                 "SELECT path FROM files WHERE path LIKE ? ORDER BY path LIMIT ?",
-                (f"%/{base}", limit)).fetchall()
+                (f"%/{base}", limit * 3)).fetchall()
             if rows:
-                return [r["path"] for r in rows]
+                return _canonical_paths(db, [r["path"] for r in rows])[:limit]
         rows = db.conn.execute(
             "SELECT path FROM files WHERE replace(path,' ','') = ? LIMIT ?",
             (str(requested).replace(" ", ""), limit)).fetchall()
-        return [r["path"] for r in rows]
+        return _canonical_paths(db, [r["path"] for r in rows])[:limit]
     except Exception:
         return []
 
@@ -345,6 +400,23 @@ def content_read_file(db: DB, cfg: Config, args: dict) -> dict:
         elif not full.exists():
             err: dict = {"error": f"file missing: {path}"}
             suggestions = _suggest_paths(db, path)
+            if suggestions:
+                err["did_you_mean"] = suggestions
+                err["note"] = "use one of did_you_mean verbatim"
+            return err
+    # Same-source duplicate: both copies sit on disk, but only the canonical one
+    # is indexed. Serve the canonical copy under its own path so the citation
+    # chip, the search index and the file listing all name one document.
+    requested: str | None = None
+    from sync.dedupe import canonical_map, resolve
+    _canon = resolve(str(path), canonical_map(db.conn))
+    if _canon != str(path):
+        requested = str(path)
+        path = Path(_canon)
+        full = (root / path).resolve()
+        if not full.exists():
+            err = {"error": f"file missing: {_canon}"}
+            suggestions = _suggest_paths(db, Path(_canon))
             if suggestions:
                 err["did_you_mean"] = suggestions
                 err["note"] = "use one of did_you_mean verbatim"
@@ -428,11 +500,16 @@ def content_read_file(db: DB, cfg: Config, args: dict) -> dict:
         # serialized result, so anything after `content` never reaches the next
         # turn. currentPage mirrors the offset path and stops a range read from
         # being cited as its LAST page.
-        return {"path": str(path), "pageStart": start, "pageEnd": delivered,
-                "pagesInFile": available, "currentPage": start,
-                "offset": first, "total_lines": total,
-                "truncated": not complete, "note": note,
-                "content": "\n".join(kept)}
+        out = {"path": str(path), "pageStart": start, "pageEnd": delivered,
+               "pagesInFile": available, "currentPage": start,
+               "offset": first, "total_lines": total,
+               "truncated": not complete, "note": note,
+               "content": "\n".join(kept)}
+        if requested:
+            out["requestedPath"] = requested
+            out["note"] = (f"served from the canonical copy of this document "
+                           f"(requested {requested}); {note}")
+        return out
     # Explicit null is not the same as absent, and model-supplied junk is neither:
     # `args.get("offset", 0)` returns None for `"offset": null`, and int("abc")
     # raises — both escaped as failed tool calls (findings.harness.md M8). Coerce
@@ -480,6 +557,10 @@ def content_read_file(db: DB, cfg: Config, args: dict) -> dict:
     else:
         result["note"] = (f"lines {offset}-{offset + len(window)} of {total}; "
                           f"use offset/limit to page further")
+    if requested:
+        result["requestedPath"] = requested
+        result["note"] = (f"served from the canonical copy of this document "
+                          f"(requested {requested}); {result['note']}")
     return result
 
 
@@ -595,6 +676,21 @@ def content_grep(db: DB, cfg: Config, args: dict) -> dict:
                 "path": f"overview/{r['id']}",
                 "snippet": f"{r['title']}: …{snip}…",
             })
+    # One document, one path: the duplicate's `files` row is still present, so a
+    # grep matching both copies would cite the same document twice.
+    from sync.dedupe import canonical_map, resolve as _resolve_path
+    _mapping = canonical_map(db.conn)
+    if _mapping:
+        _seen: set[str] = set()
+        _deduped: list[dict] = []
+        for _m in matches:
+            _p = _resolve_path(str(_m.get("path") or ""), _mapping)
+            if _p in _seen:
+                continue
+            _seen.add(_p)
+            _m["path"] = _p
+            _deduped.append(_m)
+        matches = _deduped
     return {"matches": matches[:20],
             "note": "paths relative to data_root; overview/<id> refs are module "
                     "descriptions (read them with content_read_file). "
