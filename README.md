@@ -135,7 +135,8 @@ python3 tools/ics_import.py seed/sample.ics
 ## Real deployment
 
 Everything environment-specific lives in `config.yaml` (gitignored) or
-`CAMPUS_*` env vars — the repo itself carries zero personal configuration.
+`CAMPUS_*` env vars (plus the panel-written `settings.yaml` — see the last
+row) — the repo itself carries zero personal configuration.
 
 | Config key | Env var | Purpose |
 | ----------- | --------- | --------- |
@@ -203,7 +204,7 @@ prerequisites so it doesn't guess.
 
 ## Configuration
 
-All personal values live in `config.yaml` (gitignored) or `CAMPUS_*` env vars. The repo ships with no secrets.
+All personal values live in `config.yaml` (gitignored) or `CAMPUS_*` env vars (plus the panel-written `settings.yaml` — see the last row). The repo ships with no secrets.
 
 | Key | Env var | Purpose |
 | --- | --- | --- |
