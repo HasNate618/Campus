@@ -383,6 +383,30 @@ def test_suggest_paths_returns_only_the_canonical_copy(page_db):
     assert got == [canon]
 
 
+def test_citation_from_a_redirected_read_carries_the_canonical_ref(
+        tmp_path, page_cfg, page_db):
+    """One document, one citation path.
+
+    This is why `search()` is deliberately NOT deduped by ref: retrieval may
+    legitimately return several chunks of the same document (different pages),
+    so collapsing hits there would silently drop real content. The duplicate
+    problem is solved at the index (only canonical refs are embedded) and at
+    the surfaces, which is what this test pins: the chip names the copy the
+    index carries, so a session cannot cite one document two ways.
+    """
+    from agent.citations import CitationRegistry
+    from agent.tools import content_read_file
+
+    _root, rel, dup = _two_copies(tmp_path)
+    _seed_dup_pair(page_db, dup, rel)
+
+    r = content_read_file(page_db, page_cfg, {"path": dup, "pages": "57"})
+    reg = CitationRegistry(page_db, page_cfg, None)
+    cites = reg.register_from_tool("content_read_file", r, {"path": dup})
+    assert cites, "a successful read must register a citation"
+    assert cites[0]["ref"] == rel
+
+
 def test_grep_collapses_a_duplicated_document(tmp_path, page_cfg, page_db):
     from agent.tools import content_grep
 
