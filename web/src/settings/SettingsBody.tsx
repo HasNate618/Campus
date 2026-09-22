@@ -137,6 +137,10 @@ function Field({
 	onReset: () => void;
 }) {
 	const meta = metaFor(field.key);
+	// The server sends a display mask (••••4f2a), never the key. It is a
+	// placeholder, not a value: an editable mask would let a Save persist
+	// "••••4f2ax" as the credential and silently break every chat turn.
+	const secretMask = field.kind === "secret" ? asText(field.value) || "not set" : "";
 	const shadowed =
 		field.source === "settings" && field.inherited_from
 			? `inherited: ${asText(field.inherited_value ?? null)} (${field.inherited_from})`
@@ -178,10 +182,20 @@ function Field({
 					value={value == null ? "" : String(value)}
 					onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
 				/>
+			) : field.kind === "secret" ? (
+				<input
+					id={`set-${field.key}`}
+					type="password"
+					// Empty until the user types, so the only values PUT are what
+					// they typed or "" (Clear, which deletes the override).
+					value={changed ? asText(value) : ""}
+					placeholder={secretMask}
+					onChange={(e) => onChange(e.target.value)}
+				/>
 			) : (
 				<input
 					id={`set-${field.key}`}
-					type={field.kind === "secret" ? "password" : "text"}
+					type="text"
 					value={asText(value)}
 					placeholder={meta.placeholder ?? shadowed ?? ""}
 					onChange={(e) => onChange(e.target.value)}
@@ -190,6 +204,15 @@ function Field({
 
 			{meta.help && <p className="settings-help">{meta.help}</p>}
 			{shadowed && !meta.placeholder && <p className="settings-help">{shadowed}</p>}
+			{field.kind === "secret" && (
+				<button
+					className="settings-reset settings-clear"
+					title="Remove the stored key; the env/config value applies again"
+					onClick={() => onChange("")}
+				>
+					Clear
+				</button>
+			)}
 			{field.source === "settings" && (
 				<button className="settings-reset" onClick={onReset}>
 					Reset to inherited
