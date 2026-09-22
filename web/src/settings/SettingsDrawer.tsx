@@ -1,5 +1,7 @@
 import { useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import { X } from "lucide-react";
+import { useKeyNav, zoneForPath } from "@/lib/keynav";
 import { SettingsBody } from "./SettingsBody";
 
 export function SettingsDrawer({
@@ -11,6 +13,18 @@ export function SettingsDrawer({
 	onClose: () => void;
 	onLogout: () => void;
 }) {
+	// The drawer owns a keynav zone: while it is open, sidebar j/k must not
+	// drive (and scroll) the list behind the backdrop while the drawer's own
+	// fields keep working. Closing hands the zone back to the route's zone —
+	// not a hardcoded 'sidebar', which would strand /courses or /chat.
+	const { setZone } = useKeyNav();
+	const { pathname } = useLocation();
+	useEffect(() => {
+		if (!open) return;
+		setZone("settings");
+		return () => setZone(zoneForPath(pathname));
+	}, [open, pathname, setZone]);
+
 	// Escape closes only when no field is focused: web/src/lib/keynav.tsx blurs
 	// a focused input on Escape without stopping propagation, so without this
 	// guard the first Escape would both blur the field and discard the drawer.

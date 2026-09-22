@@ -12,7 +12,10 @@ import { useLocation } from 'react-router-dom'
 /**
  * Keyboard navigation core (vim-style, normal mode only).
  *
- * Zones: 1 = sidebar, 2 = course/main, 3 = chat. Keys never fire while an
+ * Zones: 1 = sidebar, 2 = course/main, 3 = chat, plus 'settings' — owned by
+ * the open settings drawer so its fields keep keys while sidebar j/k cannot
+ * drive (and scroll) the list behind the backdrop (it has no 1/2/3 shortcut:
+ * the drawer closes on Escape or a backdrop click). Keys never fire while an
  * input/textarea is focused — Escape blurs it (returns to normal mode),
  * then 1/2/3 + hjkl work. Each pane registers a handler for its zone; the
  * provider routes keys to the ACTIVE zone's handlers in registration order
@@ -20,7 +23,23 @@ import { useLocation } from 'react-router-dom'
  * parents — e.g. ContentPage handles j/k, CourseLayout handles [ ]).
  */
 
-export type KeyZone = 'sidebar' | 'course' | 'chat'
+export type KeyZone = 'sidebar' | 'course' | 'chat' | 'settings'
+
+/** Pane roots declare their zone with data-kbd-zone; this is the ONE list of
+ *  ids the provider recognises, so a zone cannot be declared in markup and
+ *  end up silently inert here. */
+const ZONES = ['sidebar', 'course', 'chat', 'settings'] as const
+
+/**
+ * The zone a route implies. Single source of truth for the route effect below
+ * and for the settings drawer, which hands the zone back when it closes — a
+ * hardcoded 'sidebar' would strand /courses and /chat without their keys.
+ */
+export function zoneForPath(pathname: string): KeyZone {
+  if (pathname.startsWith('/courses')) return 'course'
+  if (pathname.startsWith('/chat')) return 'chat'
+  return 'sidebar'
+}
 
 type KeyHandler = (key: string, e: KeyboardEvent) => boolean
 
@@ -185,16 +204,19 @@ export function KeyNavProvider({ children }: { children: ReactNode }) {
   const [helpOpen, setHelpOpen] = useState(false)
   const zoneRef = useRef(zone)
   zoneRef.current = zone
-  const handlersRef = useRef<Record<KeyZone, KeyHandler[]>>({ sidebar: [], course: [], chat: [] })
+  const handlersRef = useRef<Record<KeyZone, KeyHandler[]>>({
+    sidebar: [],
+    course: [],
+    chat: [],
+    settings: [],
+  })
   const helpRef = useRef(helpOpen)
   helpRef.current = helpOpen
   const { pathname } = useLocation()
 
   // route default: course pages → course, chat tab → chat, else sidebar
   useEffect(() => {
-    if (pathname.startsWith('/courses')) setZone('course')
-    else if (pathname.startsWith('/chat')) setZone('chat')
-    else setZone('sidebar')
+    setZone(zoneForPath(pathname))
   }, [pathname])
 
   const register = useCallback((z: KeyZone, h: KeyHandler) => {
@@ -285,14 +307,15 @@ export function KeyNavProvider({ children }: { children: ReactNode }) {
   }, [])
 
   // Clicking a pane switches the active zone to it (the pane roots carry
-  // data-kbd-zone="sidebar|course|chat"; the closest ancestor wins).
+  // data-kbd-zone="sidebar|course|chat|settings"; the closest ancestor wins).
   useEffect(() => {
     const onMouseDown = (e: MouseEvent) => {
       const t = e.target as HTMLElement | null
       if (!t) return
       const pane = t.closest('[data-kbd-zone]') as HTMLElement | null
-      const z = pane?.dataset.kbdZone as KeyZone | undefined
-      if (z && (z === 'sidebar' || z === 'course' || z === 'chat')) setZone(z)
+      const z = pane?.dataset.kbdZone
+      const known = ZONES.find((k) => k === z)
+      if (known) setZone(known)
     }
     document.addEventListener('mousedown', onMouseDown)
     return () => document.removeEventListener('mousedown', onMouseDown)

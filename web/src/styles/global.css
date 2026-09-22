@@ -659,14 +659,14 @@
     gap: 12px;
   }
 
-  .page-logout {
+  .page-settings {
     margin-top: 2px;
     color: var(--text-3);
   }
 
-  .page-logout:hover,
-  .page-logout:active {
-    color: var(--red);
+  .page-settings:hover,
+  .page-settings:active {
+    color: var(--violet);
   }
 
   .card {

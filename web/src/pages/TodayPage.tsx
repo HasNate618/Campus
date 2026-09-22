@@ -54,7 +54,7 @@ export function TodayPage() {
 						</div>
 						<Link
 							to="/settings"
-							className="icon-btn mobile-only page-logout"
+							className="icon-btn mobile-only page-settings"
 							title="Settings"
 							aria-label="Settings"
 						>
