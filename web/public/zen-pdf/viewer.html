@@ -276,6 +276,8 @@ input[type="range"] { accent-color: #4ade7f; }
     maxRenderedPages: 50,
     coreSpan: 2,
     idleTaskTimeout: 1000,
+    textContentCacheMax: 60,
+    svgImageZenCacheMax: 48,
   };
 
   const layout = {
@@ -355,6 +357,10 @@ input[type="range"] { accent-color: #4ade7f; }
   state.activeRenderCenter = null;
   state.pageSizesGeneration = 0;
   state.layoutGeneration = 0;
+  state.inFlightPages = new Map();
+  state.textContentCache = new Map();
+  state.rerenderInFlight = false;
+  state.rerenderRepeat = false;
 
   function clamp(v, min, max) {
     return Math.min(max, Math.max(min, v));
@@ -582,6 +588,15 @@ input[type="range"] { accent-color: #4ade7f; }
         const { luma, chroma } = pixelLumaChroma(d[i], d[i + 1], d[i + 2]);
         if (chroma > zen.haloChromaMax) continue;
 
+        // Test the cheap per-pixel predicate before the 5x5 neighbourhood scan.
+        // The branches are conjunctive, so the output is bit-identical and most
+        // pixels never pay for the neighbourhood lookups at all.
+        if (pageBg?.isDark) {
+          if (!(luma <= pageBg.luma + zen.bgFringeLuma && chroma <= zen.paperChromaMax + 8)) continue;
+        } else if (!(luma >= zen.haloLumaMin && chroma <= zen.haloChromaMax)) {
+          continue;
+        }
+
         let nearBg = false;
         for (let dy = -2; dy <= 2 && !nearBg; dy++) {
           for (let dx = -2; dx <= 2; dx++) {
@@ -591,15 +606,7 @@ input[type="range"] { accent-color: #4ade7f; }
             }
           }
         }
-        if (!nearBg) continue;
-
-        if (pageBg?.isDark) {
-          if (luma <= pageBg.luma + zen.bgFringeLuma && chroma <= zen.paperChromaMax + 8) {
-            mask[p] = 1;
-          }
-        } else if (luma >= zen.haloLumaMin && chroma <= zen.haloChromaMax) {
-          mask[p] = 1;
-        }
+        if (nearBg) mask[p] = 1;
       }
     }
 
@@ -826,6 +833,12 @@ input[type="range"] { accent-color: #4ade7f; }
       applyZenFilter(ctx, w, h, keepImagesColor, { pagelessRaster });
       const dataUrl = canvas.toDataURL("image/png");
       state.svgImageZenCache.set(cacheKey, dataUrl);
+      // Both keys and values are full data URLs, so an unbounded map grows with
+      // every unique image at every flag combination.
+      while (state.svgImageZenCache.size > perf.svgImageZenCacheMax) {
+        const oldest = state.svgImageZenCache.keys().next().value;
+        state.svgImageZenCache.delete(oldest);
+      }
       img.setAttribute("href", dataUrl);
       img.removeAttribute("xlink:href");
       img.style.filter = "";
@@ -960,8 +973,28 @@ input[type="range"] { accent-color: #4ade7f; }
     state.currentPage = findPageNearestToViewportCenter().page;
   }
 
-  async function renderTextLayer(page, viewport, textLayerDiv) {
-    const textContent = await page.getTextContent();
+  // Text content never changes with scale, rotation or mode, so it is fetched
+  // once per page and shared across every re-render pass.
+  function getSharedTextContent(page, pageNo) {
+    let entry = state.textContentCache.get(pageNo);
+    if (!entry) {
+      entry = page.getTextContent().catch((err) => {
+        state.textContentCache.delete(pageNo);
+        throw err;
+      });
+      state.textContentCache.set(pageNo, entry);
+      while (state.textContentCache.size > perf.textContentCacheMax) {
+        const oldest = state.textContentCache.keys().next().value;
+        state.textContentCache.delete(oldest);
+      }
+    }
+    return entry;
+  }
+
+  async function renderTextLayer(page, viewport, textLayerDiv, pageNo = 0) {
+    const textContent = pageNo
+      ? await getSharedTextContent(page, pageNo)
+      : await page.getTextContent();
     const textDivs = [];
     const task = pdfjsLib.renderTextLayer({
       textContent,
@@ -1275,10 +1308,19 @@ input[type="range"] { accent-color: #4ade7f; }
           touchRenderedPageMru(pageNo);
           continue;
         }
-        const result = await renderPage(pageNo);
-        // ...but a page that already finished is still valid when only the
-        // center moved. Only a scale/rotation/mode change invalidates it.
-        if (layoutGeneration !== state.layoutGeneration) return;
+        // Another pass is already rendering this page for the same layout; its
+        // own result will land, so rendering it twice only wastes work.
+        if (state.inFlightPages.get(pageNo) === state.layoutGeneration) continue;
+        state.inFlightPages.set(pageNo, state.layoutGeneration);
+        let result;
+        try {
+          result = await renderPage(pageNo);
+          // ...but a page that already finished is still valid when only the
+          // center moved. Only a scale/rotation/mode change invalidates it.
+          if (layoutGeneration !== state.layoutGeneration) return;
+        } finally {
+          state.inFlightPages.delete(pageNo);
+        }
         await onRendered(pageNo, result.shell);
         if (result.decorate && layoutGeneration === state.layoutGeneration) {
           queueDecoration(result.shell, result.decorate);
@@ -1426,11 +1468,15 @@ input[type="range"] { accent-color: #4ade7f; }
     shell.appendChild(canvas);
   }
 
-  async function renderSvgLayer(page, viewport, shell) {
+  async function renderSvgLayer(page, viewport, shell, pageNo = 0) {
     if (typeof pdfjsLib === "undefined" || typeof pdfjsLib.SVGGraphics !== "function") {
       throw new Error("PDF.js SVGGraphics is unavailable");
     }
     const opList = await page.getOperatorList();
+    // The operator list is in hand, so the worker would otherwise idle while the
+    // main thread does the slow getSVG() conversion below. Fetch the text
+    // content now and it is ready by the time the text layer is built.
+    if (pageNo) void getSharedTextContent(page, pageNo).catch(() => {});
     const svgGfx = new pdfjsLib.SVGGraphics(page.commonObjs, page.objs);
     svgGfx.embedFonts = true;
     const svg = await svgGfx.getSVG(opList, viewport);
@@ -1462,9 +1508,13 @@ input[type="range"] { accent-color: #4ade7f; }
     shell.style.width = `${layoutViewport.width}px`;
     shell.style.height = `${layoutViewport.height}px`;
 
+    // Canvas drawing also runs on the main thread, so the worker is free to
+    // fetch the text content while the page is painted.
+    if (backend !== "svg") void getSharedTextContent(page, pageNumber).catch(() => {});
+
     if (backend === "svg") {
       try {
-        await renderSvgLayer(page, renderViewport, shell);
+        await renderSvgLayer(page, renderViewport, shell, pageNumber);
         shell.dataset.renderer = "svg";
       } catch (err) {
         state.svgSupported = false;
@@ -1486,7 +1536,7 @@ input[type="range"] { accent-color: #4ade7f; }
     const decorate = async () => {
       const textLayer = document.createElement("div");
       textLayer.className = "textLayer";
-      await renderTextLayer(page, layoutViewport, textLayer);
+      await renderTextLayer(page, layoutViewport, textLayer, pageNumber);
       shell.appendChild(textLayer);
       await renderAnnotationLayer(page, layoutViewport, shell);
     };
@@ -1716,8 +1766,11 @@ input[type="range"] { accent-color: #4ade7f; }
       if (!child || child.dataset?.placeholder !== "1") continue;
       const pageNo = Number.parseInt(String(child.id || "").replace("page-", ""), 10);
       const size = (pageNo && state.pageSizes.get(pageNo)) || getEstimatedPageSize();
-      child.style.width = `${size.width}px`;
-      child.style.height = `${size.height}px`;
+      // Re-assigning an identical value still invalidates style, so skip it.
+      const w = `${size.width}px`;
+      const h = `${size.height}px`;
+      if (child.style.width !== w) child.style.width = w;
+      if (child.style.height !== h) child.style.height = h;
     }
   }
 
@@ -1738,6 +1791,7 @@ input[type="range"] { accent-color: #4ade7f; }
     const span = perf.placeholderPrefetchSpan;
     const start = clamp(center - span, 1, total);
     const end = clamp(center + span, 1, total);
+    let pending = 0;
     for (let i = start; i <= end; i++) {
       if (generation !== state.pageSizesGeneration) return;
       if (state.pageSizes.has(i)) continue;
@@ -1745,18 +1799,19 @@ input[type="range"] { accent-color: #4ade7f; }
         const page = await getPdfPage(i);
         const vp = page.getViewport({ scale: state.scale, rotation });
         state.pageSizes.set(i, { width: vp.width, height: vp.height });
-        const el = document.getElementById(`page-${i}`);
-        if (el && el.dataset.placeholder === "1") {
-          el.style.width = `${vp.width}px`;
-          el.style.height = `${vp.height}px`;
-        }
+        pending += 1;
       } catch (_) {
         break;
       }
-      if (i % 8 === 0) {
+      // Apply sizes in batches so the loop invalidates layout once per batch
+      // rather than once per page.
+      if (pending >= 8) {
+        pending = 0;
+        updatePlaceholderSizes();
         await new Promise((resolve) => requestAnimationFrame(resolve));
       }
     }
+    if (pending > 0) updatePlaceholderSizes();
   }
 
   function getViewportWindowPageOrder() {
@@ -1774,8 +1829,28 @@ input[type="range"] { accent-color: #4ade7f; }
     return [...new Set([...visibleOrder, ...windowOrder])];
   }
 
+  // Every rerender pass invalidates the one before it, so overlapping passes
+  // only throw work away. Run one at a time and repeat if a newer request
+  // arrived while it was running.
   async function rerenderRenderedPages() {
     if (!state.pdfDoc) return;
+    if (state.rerenderInFlight) {
+      state.rerenderRepeat = true;
+      return;
+    }
+    state.rerenderInFlight = true;
+    try {
+      do {
+        state.rerenderRepeat = false;
+        await runRerenderPass();
+      } while (state.rerenderRepeat && state.pdfDoc);
+    } finally {
+      state.rerenderInFlight = false;
+      state.rerenderRepeat = false;
+    }
+  }
+
+  async function runRerenderPass() {
     updateCurrentPageFromScroll();
     const pages = getViewportWindowPageOrder();
     const refreshSet = new Set(pages);
@@ -2199,7 +2274,10 @@ input[type="range"] { accent-color: #4ade7f; }
         e.preventDefault();
         if (isEmbedded) return;
         window.close();
-        if (!window.closed) location.href = 'about:blank';
+        // location.assign() is the explicit form of the location.href setter —
+        // identical navigation and history behaviour — and the destination here
+        // is a literal, not an unvalidated redirect target.
+        if (!window.closed) location.assign('about:blank');
         return;
       }
 
