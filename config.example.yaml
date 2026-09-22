@@ -12,8 +12,9 @@
 # `settings.yaml` next to the DB — gitignored, and the TOP layer of the
 # precedence stack, so it overrides this file and any env var:
 #   defaults < config.yaml < env vars < settings.yaml
-# Settings that need a restart (`mcp_urls`), deploy-time values (paths,
-# `web_password`, LMS wiring), and `term_dates` are not in the panel.
+# `mcp_urls` is in the panel but needs an API restart to apply; deploy-time
+# values (paths, `web_password`, LMS wiring) and `term_dates` are not in the
+# panel.
 #
 # ── Not using Brightspace/D2L? ─────────────────────────────────────────────────
 # Campus's *automated sync* targets Brightspace/D2L (a common LMS).
