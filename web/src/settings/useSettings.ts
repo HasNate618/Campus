@@ -48,6 +48,11 @@ export function useSettings() {
 	const [error, setError] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
 	const [saveErrors, setSaveErrors] = useState<SettingsError[]>([]);
+	// Keys of restart-flagged fields this session saved successfully. Deliberately
+	// session-scoped and never cleared by load()/discard(): the panel cannot know
+	// when the API actually restarted, so the hint survives until the component
+	// remounts (a page reload), which is when the user would have restarted it.
+	const [savedRestartKeys, setSavedRestartKeys] = useState<string[]>([]);
 
 	const load = useCallback(async () => {
 		setLoading(true);
@@ -94,6 +99,17 @@ export function useSettings() {
 		setSaveErrors([]);
 	}, []);
 
+	/** Restart-flagged fields that are saved or currently dirty. The saved half
+	 * is what keeps the "Restart the API" hint visible after save() clears
+	 * edits — otherwise the hint disappears exactly when it becomes true. */
+	const restartKeys = useMemo(() => {
+		const keys = new Set(savedRestartKeys);
+		for (const key of Object.keys(edits)) {
+			if (byKey.get(key)?.restart) keys.add(key);
+		}
+		return [...keys];
+	}, [savedRestartKeys, edits, byKey]);
+
 	const save = useCallback(async () => {
 		if (!Object.keys(edits).length) return true;
 		setSaving(true);
@@ -115,6 +131,14 @@ export function useSettings() {
 				);
 				return false;
 			}
+			// Captured before the edits are cleared: a restart field only earns
+			// the hint once it has actually been accepted by the server. Union,
+			// not replace — an earlier save's restart field is still unapplied,
+			// and dropping it here would hide the hint on a later unrelated save.
+			const submitted = Object.keys(edits).filter(
+				(key) => byKey.get(key)?.restart === true,
+			);
+			setSavedRestartKeys((prev) => [...new Set([...prev, ...submitted])]);
 			setPayload((await res.json()) as SettingsPayload);
 			setEdits({});
 			return true;
@@ -124,7 +148,7 @@ export function useSettings() {
 		} finally {
 			setSaving(false);
 		}
-	}, [edits]);
+	}, [edits, byKey]);
 
 	return {
 		payload,
@@ -136,6 +160,7 @@ export function useSettings() {
 		error,
 		saving,
 		saveErrors,
+		restartKeys,
 		setValue,
 		resetField,
 		discard,

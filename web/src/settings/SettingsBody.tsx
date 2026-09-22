@@ -47,9 +47,11 @@ export function SettingsBody({
 			(GROUP_META.find((g) => g.id === b[0])?.order ?? 99),
 	);
 
-	const restartPending = s.payload.fields.some(
-		(f) => f.restart && f.key in s.edits,
-	);
+	// Saved ∪ pending restart-flagged keys, straight from the hook: a *saved*
+	// mcp_urls still needs a restart, so this cannot be recomputed from s.edits
+	// (save() clears them) without the hint vanishing on the save that made it
+	// true. Session-scoped by design — see useSettings.savedRestartKeys.
+	const restartPending = s.restartKeys.length > 0;
 	// Hoisted: `s.payload` is re-read rather than narrowed inside the map below.
 	const searchIndex = s.payload.search_index;
 
@@ -290,6 +292,10 @@ function RebuildIndexButton({
 		setMsg(null);
 		try {
 			const start = await fetch("/api/search/rebuild", { method: "POST" });
+			if (!start.ok) {
+				setMsg(`Request failed: ${start.status} ${start.statusText}`);
+				return;
+			}
 			const { status } = (await start.json()) as { status: string };
 			if (status === "sync_running") {
 				setMsg("A sync is running — try again when it finishes.");
@@ -298,6 +304,10 @@ function RebuildIndexButton({
 			for (let i = 0; i < 600; i++) {
 				await new Promise((r) => setTimeout(r, 1000));
 				const res = await fetch("/api/search/rebuild/status");
+				if (!res.ok) {
+					setMsg(`Request failed: ${res.status} ${res.statusText}`);
+					return;
+				}
 				const state = (await res.json()) as {
 					status: string;
 					result?: { chunks: number; embedded_items: number } | null;
@@ -313,6 +323,8 @@ function RebuildIndexButton({
 				return;
 			}
 			setMsg("Still running — check back later.");
+		} catch (e) {
+			setMsg(e instanceof Error ? e.message : String(e));
 		} finally {
 			setBusy(false);
 		}
