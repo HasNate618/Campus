@@ -260,9 +260,25 @@ input[type="range"] { accent-color: #4ade7f; }
 
   const urlSendCredentials = parseCredentialsParam();
 
-  function notifyParent(type) {
+  function notifyParent(type, payload) {
     if (!isEmbedded || window.parent === window) return;
-    window.parent.postMessage({ type }, window.location.origin);
+    const message = payload ? Object.assign({ type }, payload) : { type };
+    window.parent.postMessage(message, window.location.origin);
+  }
+
+  // Embed: report the page actually on screen so the parent can tell what the
+  // reader is looking at. Emitted only when it changes, so a scroll that stays
+  // on one page costs nothing.
+  let lastReportedPage = 0;
+  function reportPageToParent() {
+    if (!isEmbedded || window.parent === window) return;
+    const page = state.currentPage || 1;
+    if (page === lastReportedPage) return;
+    lastReportedPage = page;
+    notifyParent('zenpdf-page', {
+      page,
+      pageCount: state.pdfDoc ? state.pdfDoc.numPages : 0,
+    });
   }
 
   const perf = {
@@ -1701,6 +1717,7 @@ input[type="range"] { accent-color: #4ade7f; }
       recenterTimer = null;
       if (state.suspendObserverUpdates) return;
       updateCurrentPageFromScroll();
+      reportPageToParent();
       scheduleRenderWindow();
     }, perf.recenterDelay);
   }
@@ -1952,6 +1969,7 @@ input[type="range"] { accent-color: #4ade7f; }
       state.jumpForward = [];
     }
     state.currentPage = pageNo;
+    reportPageToParent();
     // A deliberate jump invalidates any in-flight anchor restore.
     state.navigationSeq += 1;
     window.scrollTo({ top: Math.max(0, el.offsetTop - 15), behavior: smooth ? "smooth" : "auto" });
@@ -2118,6 +2136,18 @@ input[type="range"] { accent-color: #4ade7f; }
       const p = parseInt(q, 10);
       if (!Number.isNaN(p)) goToPage(p);
     }
+
+    // Embed: parent-driven page jumps. Campus posts this when a citation is
+    // clicked, so the reader moves without the iframe reloading.
+    window.addEventListener('message', (e) => {
+      if (!isEmbedded) return;
+      if (e.origin !== window.location.origin) return;
+      const data = e.data;
+      if (!data || data.type !== 'zenpdf-goto-page') return;
+      const page = Number.parseInt(data.page, 10);
+      if (!Number.isFinite(page) || page < 1) return;
+      goToPage(page, false, true);
+    });
 
     document.addEventListener('keydown', async (e) => {
       const active = document.activeElement && document.activeElement.tagName && document.activeElement.tagName.toLowerCase();
@@ -2399,6 +2429,9 @@ input[type="range"] { accent-color: #4ade7f; }
 
       await resetAndRender({ skipAnchorRestore: initialPage > 1 });
       if (initialPage > 1) goToPage(initialPage, false, false);
+      // Tell the parent where we landed and how many pages exist, so it can
+      // validate a reported page against the document's real length.
+      reportPageToParent();
       alignFitWidthView();
     } catch (err) {
       showError(`Could not render PDF: ${err?.message || err}`);
