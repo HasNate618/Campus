@@ -20,6 +20,7 @@ from sync.db import DB
 
 from .citations import CitationRegistry
 from .context import build_system_prompt
+from .view import render_view_block
 from .tools import TOOL_SCHEMAS, execute_tool
 
 MAX_ITERATIONS = 10
@@ -462,7 +463,8 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
              model: str | None = None, history: list[dict] | None = None,
              verbose: bool = True, emit=None, attachments: list[dict] | None = None,
              conversation_id: str | None = None,
-             prior_context: str = "") -> tuple[str, list[dict]]:
+             prior_context: str = "",
+             view: dict | None = None) -> tuple[str, list[dict]]:
     """Run one user turn. Returns (final_answer, full_message_history).
 
     emit(event, data) is called for SSE streaming:
@@ -493,6 +495,10 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
     system_text = build_system_prompt(cfg, db, course_id)
     if prior_context:
         system_text += "\n\n" + prior_context
+    # Appended after everything else on purpose: the prompt's prefix is what an
+    # upstream gateway caches, and this block changes every turn. Returns ""
+    # when there is nothing honest to say about the current view.
+    system_text += render_view_block(cfg, db, view, course_id)
     # Annotated, not inferred: the initializer is all-strings, so Pyright
     # pinned this to list[dict[str, str]] and then rejected the multimodal user
     # message below, whose content is str | list[dict]. The function's own

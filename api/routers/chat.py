@@ -49,6 +49,23 @@ def _store_reasoning(history: list[dict], key: tuple) -> None:
             return
 
 
+class ViewContext(BaseModel):
+    """What the user has open in the app, as the client reports it.
+
+    Identity and position only — ids and a page number. The server resolves
+    the path, title, deadline and status from the database, so a stale or
+    wrong client cannot put invented values in front of the model, and an id
+    that does not resolve yields no block rather than a guess. See agent/view.py.
+    """
+
+    kind: str                            # "content" | "assignment"
+    course_id: int | None = None
+    file_id: int | None = None
+    assignment_id: int | None = None
+    page: int | None = None
+    page_count: int | None = None
+
+
 class ChatRequest(BaseModel):
     message: str
     course_id: int | None = None
@@ -60,6 +77,9 @@ class ChatRequest(BaseModel):
     model: str | None = None  # LLM model override (default = config)
     branch: str | None = None  # user-node id that starts this turn (fork key)
     attachments: list[str] = []
+    # What the user is looking at, so "explain this" can resolve. Per-turn
+    # context only: never persisted with the message.
+    view: ViewContext | None = None
 
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
@@ -437,7 +457,8 @@ def _do_turn(req: ChatRequest, emit) -> None:
                                         model=req.model, history=history,
                                         verbose=False, emit=emit, attachments=attachments,
                                         conversation_id=conversation_id,
-                                        prior_context=prior)
+                                        prior_context=prior,
+                                        view=req.view.model_dump() if req.view else None)
         _store_reasoning(full_history, key)
         if req.session_id:
             try:
