@@ -830,6 +830,21 @@ def test_truncate_result_small_result_untouched():
     assert json.loads(out) == small
 
 
+def test_run_with_unknown_course_code_exits_cleanly(cfg, db, monkeypatch):
+    """get_course_by_code returns None for an unknown code. Wrapping it in a
+    list produced [None] -- truthy -- so the "No course matched" guard was
+    skipped and the next course["code"] raised
+    TypeError: 'NoneType' object is not subscriptable, instead of reporting the
+    documented exit code 2."""
+    from unittest.mock import MagicMock
+
+    from sync.sync import SyncEngine
+
+    eng = SyncEngine(cfg, db, client=MagicMock())
+    monkeypatch.setattr(eng, "fetch_enrollments", lambda: [])
+    assert eng.run(code="NOPE 9999") == 2
+
+
 def test_truncate_result_last_resort_is_valid_json_with_cite_ids():
     """A payload made ONLY of protected fields hits the last-resort path.
 

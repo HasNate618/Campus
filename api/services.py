@@ -571,7 +571,7 @@ def trigger_sync(course_id: int | None = None) -> dict:
 
             def _do_auth():
                 from sync.auth import auth as _auth
-                _auth(cfg)
+                _auth(cfg, store)
 
             db = DB(cfg.db_path)
             client = D2LClient(cfg.base_url, store.load, on_auth_error=_do_auth)

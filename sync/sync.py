@@ -30,7 +30,7 @@ from sync.token_store import TokenStore
 try:
     from sync.convert import convert_office_to_pdf
 except Exception:  # pragma: no cover — import guard only
-    def convert_office_to_pdf(path, timeout_s=120):  # type: ignore
+    def convert_office_to_pdf(src: Path, timeout_s: int = 120) -> Path | None:
         return None
 
 from agent.chat import llm_headers
@@ -213,7 +213,11 @@ class SyncEngine:
 
     # ── content tree ────────────────────────────────────────────────────
     def sync_content(self, course_id: int, org_unit: int, course_dir: Path) -> None:
-        root = self.client.get(self.client.le(org_unit, "/content/root/"))
+        _root = self.client.get(self.client.le(org_unit, "/content/root/"))
+        # The root endpoint returns a JSON array of modules. Coerce rather than
+        # trust it: a non-list payload (an error object, say) must iterate as
+        # nothing instead of as dict keys.
+        root: list = _root if isinstance(_root, list) else []
         content_dir = course_dir / "content"
         content_dir.mkdir(parents=True, exist_ok=True)
 
@@ -240,10 +244,11 @@ class SyncEngine:
                     node["node_type"] = "module"
                     node["due_at"] = item.get("ModuleDueDate")
                     self.db.upsert_content_node(course_id, node)
-                    children = []
+                    children: list = []
                     try:
-                        children = self.client.get(
+                        _children = self.client.get(
                             self.client.le(org_unit, f"/content/modules/{bs_id}/structure/"))
+                        children = _children if isinstance(_children, list) else []
                     except D2LError:
                         pass
                     walk(children, bs_id, path_parts + [_safe_name(item.get("Title", ""))], 0)
@@ -907,7 +912,8 @@ class SyncEngine:
                     # marker format matches citations.PAGE_RE (plain N, no totals)
                     parts.append(f"<!-- page {page_no} -->\n{text.rstrip()}")
                     try:
-                        tables = [t for t in page.find_tables().tables
+                        found = page.find_tables()
+                        tables = [t for t in (found.tables if found else [])
                                   if _looks_like_data_table(t)]
                     except Exception:
                         tables = []
@@ -985,7 +991,7 @@ class SyncEngine:
             import pymupdf
             doc = pymupdf.open(path)
             pages = doc.page_count
-            text = "".join(pg.get_text() for pg in doc)
+            text = "".join(str(pg.get_text()) for pg in doc)
             doc.close()
             return pages if len(text.strip()) <= 200 else None
         except Exception:
@@ -1209,7 +1215,15 @@ class SyncEngine:
         run_id = self.db.start_sync()
         try:
             enrollments = self.fetch_enrollments()
-            courses = [self.db.get_course_by_code(code)] if code else self.db.get_active_courses()
+            # get_course_by_code returns None for an unknown code. Wrapping that
+            # in a list produced [None] -- truthy, so the "No course matched"
+            # guard below never fired and the very next `course["code"]` raised
+            # TypeError: 'NoneType' object is not subscriptable.
+            if code:
+                _course = self.db.get_course_by_code(code)
+                courses = [_course] if _course else []
+            else:
+                courses = self.db.get_active_courses()
             if not courses:
                 print("No course matched. Pass --code CS 1100A or mark a course is_pilot=1")
                 return 2
@@ -1382,7 +1396,7 @@ def main() -> int:
         print("Token expired — auto-reauthenticating (approve Duo push)...")
         try:
             from sync.auth import auth
-            auth(cfg)
+            auth(cfg, store)
             store = TokenStore(cfg.token_dir, ttl=cfg.token_ttl, refresh_buffer=cfg.refresh_buffer)
         except Exception as e:
             print(f"Auto-reauth failed: {e}")
@@ -1390,7 +1404,7 @@ def main() -> int:
 
     def _do_auth():
         from sync.auth import auth as _auth
-        _auth(cfg)
+        _auth(cfg, store)
 
     client = D2LClient(cfg.base_url, store.load, on_auth_error=_do_auth)
     client.initialize()
