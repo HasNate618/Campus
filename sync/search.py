@@ -419,6 +419,14 @@ def search(cfg, db, query: str, course_id: int | None = None,
                  and _unpack(r["embedding"])]
         if extra:
             scored = sorted(scored + extra, key=lambda t: t[0], reverse=True)[:RERANK_CANDIDATES]
+    # I2: `scored` above drops every row whose embedding is empty, so a corpus
+    # indexed in lexical mode (b"") leaves `scored` empty even though the
+    # endpoint answers /embeddings. Everything downstream — docs, scores,
+    # ranked, and the term-overlap rescue (which requires `ranked` truthy) —
+    # would then be empty and the user would see "no matches" for every query
+    # that is not a verbatim phrase. Degrade to the lexical ranker instead.
+    if not scored:
+        return _lexical_rank(db, q, query, course_id, top_k)
     docs = [r["text"] for _, r in scored]
     # Rerank best-effort; on 404/error keep cosine order.
     try:

@@ -219,3 +219,34 @@ def test_hit_page_resolves_before_window():
     hit = _hit({"ref": "f.md", "course_id": 1, "text": chunk}, "homograph", 1.0)
     assert hit["text"].startswith("…")  # window cut the marker
     assert hit["page"] == 11
+
+
+def test_search_falls_back_to_lexical_when_the_corpus_has_no_vectors(db_path, monkeypatch):
+    """I2 (HIGH): a corpus indexed in lexical mode stores empty embeddings. If
+    embed_model is set afterwards and the endpoint answers /embeddings, `scored`
+    is empty and every non-verbatim query used to return [] — reported to the
+    user as "no matches". It must degrade to the lexical ranker."""
+    from sync.config import Config
+    from sync.db import DB
+    from sync.search import search
+
+    db = DB(db_path)
+    db.conn.execute(
+        "CREATE TABLE IF NOT EXISTS chunks (id INTEGER PRIMARY KEY, course_id INTEGER,"
+        " ref TEXT, chunk_idx INTEGER, text TEXT, embedding BLOB, src_hash TEXT)")
+    db.conn.execute(
+        "INSERT INTO chunks (course_id, ref, chunk_idx, text, embedding, src_hash)"
+        " VALUES (1, 'a.md', 0, 'the late policy allows five grace days', ?, 'h1')",
+        (b"",))   # lexical-mode row: empty vector
+    db.conn.commit()
+
+    cfg = Config()
+    cfg.embed_model = "text-embedding-3-small"      # semantic mode enabled
+    # The endpoint answers /embeddings — so search() does NOT take the existing
+    # ModelUnavailable early return; that is what makes I2 reachable.
+    monkeypatch.setattr("sync.search._embed", lambda cfg, texts: [[0.1, 0.2]] * len(texts))
+
+    hits = search(cfg, db, "late policy grace days", course_id=1)
+    assert hits, "expected the lexical fallback, got no results (I2)"
+    assert hits[0]["ref"] == "a.md"
+    db.close()
