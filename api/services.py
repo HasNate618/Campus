@@ -317,13 +317,89 @@ def _parse_assignment(r: dict) -> dict:
     return r
 
 
+def _local_tz():
+    """Configured timezone for calendar-day comparisons (None => naive)."""
+    try:
+        from zoneinfo import ZoneInfo
+        from sync.config import Config
+        return ZoneInfo(Config.load().timezone or "UTC")
+    except Exception:
+        return None
+
+
+def _local_day(ts, tz) -> str:
+    """Calendar day of a deadline in the user's timezone.
+
+    Deadlines arrive in mixed forms: Brightspace sends UTC ISO ('...Z', which
+    for a 23:59 local due time spills into the NEXT UTC day) while the miner
+    writes naive local strings. Comparing raw string prefixes therefore misses
+    duplicates that straddle midnight, so normalise first. Naive timestamps
+    are already local wall-clock and pass through unchanged.
+    """
+    s = str(ts or "").strip()
+    if not s:
+        return ""
+    try:
+        if s.endswith("Z"):
+            dt = datetime.datetime.fromisoformat(s[:-1]).replace(
+                tzinfo=datetime.timezone.utc)
+        else:
+            dt = datetime.datetime.fromisoformat(s)
+            if dt.tzinfo is None:
+                return s[:10]
+    except ValueError:
+        return s[:10]
+    if tz is not None:
+        dt = dt.astimezone(tz)
+    return dt.strftime("%Y-%m-%d")
+
+
+def _dedupe_deadlines(rows: list[dict], title_key: str = "title",
+                      date_key: str = "starts_at") -> list[dict]:
+    """Collapse the same deadline that arrived from more than one store.
+
+    `events_next_days` UNION ALLs assignments, exams and events, and one
+    deadline is routinely present in two of them (the Brightspace sync writes
+    `assignments`; the AI miner writes BOTH `assignments` and `events`).
+    UNION ALL does not deduplicate, so the dashboard rendered each deadline
+    twice. The miner also re-inserts with different punctuation, so an exact
+    match is not enough — reuse the token/stem comparison the miner uses, and
+    require the same course and the same LOCAL day so genuinely distinct
+    deadlines (Lab 1 vs Lab 2, different dates) are never merged.
+
+    Keeps the FIRST of each group; the UNION orders assignments before exams
+    before events, so the canonical source wins.
+    """
+    from sync.mine import _fact_dupes
+    tz = _local_tz()
+    out: list[dict] = []
+    days: list[str] = []
+    for r in rows:
+        day = _local_day(r.get(date_key), tz)
+        title = str(r.get(title_key) or "")
+        dup = any(
+            out[i].get("course_id") == r.get("course_id")
+            and days[i] == day
+            and _fact_dupes(title, str(out[i].get(title_key) or ""), 0.6)
+            for i in range(len(out))
+        )
+        if not dup:
+            out.append(r)
+            days.append(day)
+    return out
+
+
 def list_assignments(course_id: int, upcoming_only: bool = False) -> list[dict]:
     q = "SELECT * FROM assignments WHERE course_id=?"
     args: tuple = (course_id,)
     if upcoming_only:
         q += " AND due_at IS NOT NULL AND due_at >= datetime('now')"
     q += " ORDER BY due_at"
-    return [_parse_assignment(r) for r in _rows(q, args)]
+    rows = [_parse_assignment(r) for r in _rows(q, args)]
+    # The miner can insert the same assignment twice with different
+    # punctuation ("Assignment 2 - Relational model/normalization" vs
+    # "Assignment 2 — Relational Model / Normalization"), so collapse those.
+    return _dedupe_deadlines(rows, date_key="due_at")
 
 
 # ── workspace (course file tree + audited text editor) ─────────────────
@@ -497,7 +573,7 @@ def events_next_days(days: int, course_id: int | None = None) -> list[dict]:
            WHERE ev.starts_at BETWEEN ? AND ? AND (? IS NULL OR ev.course_id=?)
            ORDER BY starts_at"""
     args = (now, later, course_id, course_id) * 3
-    return _rows(q, args)
+    return _dedupe_deadlines(_rows(q, args))
 
 
 def list_events(course_id: int | None = None,

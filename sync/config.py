@@ -208,6 +208,11 @@ class Config:
     llm_url: str = ""  # e.g. "https://api.openai.com/v1" or "http://localhost:11434/v1"
     llm_urls: list = field(default_factory=list)  # failover list; empty => [llm_url]
     llm_model: str = ""  # pick from: python -m sync models  (required for chat/digest)
+    # Output cap per model call. Thinking models (deepseek-*, o-series) bill
+    # their chain-of-thought against this same budget — a long reasoning run
+    # can consume half of it and truncate the visible answer mid-sentence.
+    # Campus ignores finish_reason, so a too-low cap fails SILENTLY.
+    llm_max_tokens: int = 8000
     llm_api_key: str = ""  # env OPENAI_API_KEY; Bearer auth when set
     # Optional OpenAI-style `tool_choice` sent to the model. `None` (default) =
     # omit it, so the provider defaults to "auto" (model may call tools). Some

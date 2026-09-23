@@ -104,7 +104,7 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
                     "model": model or cfg.llm_model,
                     "messages": messages,
                     "tools": TOOL_SCHEMAS,
-                    "max_tokens": 2000,
+                    "max_tokens": cfg.llm_max_tokens,
                     "stream": True,
                     **({"tool_choice": cfg.llm_tool_choice}
                        if cfg.llm_tool_choice is not None else {}),
@@ -116,6 +116,7 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
                 reasoning = ""
                 tool_calls: dict[int, dict] = {}
                 usage: dict | None = None
+                finish_reason: str | None = None
                 for line in r.iter_lines():
                     if not line or not line.startswith("data:"):
                         continue
@@ -125,7 +126,10 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
                     chunk = json.loads(data)
                     if chunk.get("usage"):
                         usage = chunk["usage"]
-                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    choice = chunk.get("choices", [{}])[0]
+                    if choice.get("finish_reason"):
+                        finish_reason = choice["finish_reason"]
+                    delta = choice.get("delta", {})
                     if delta.get("content"):
                         content += delta["content"]
                         if on_token:
@@ -158,6 +162,11 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
                     {"id": e["id"], "type": "function",
                      "function": {"name": e["name"], "arguments": e["arguments"]}}
                     for e in tool_calls.values()]
+            # Carry the stop reason out on `usage` (the caller only sums the
+            # token keys, so an extra field is inert) — run_turn uses it to
+            # tell a finished answer from one guillotined at max_tokens.
+            if finish_reason:
+                usage = {**(usage or {}), "finish_reason": finish_reason}
             return msg, usage
         # pi-lens-ignore: no-boolean-in-except
         except (httpx.TransportError, httpx.TimeoutException, httpx.HTTPStatusError) as e:
@@ -562,11 +571,22 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
             for k in total_usage:
                 total_usage[k] += usage.get(k, 0)
         if not msg.get("tool_calls"):
-            final: dict = {"role": "assistant", "content": msg.get("content") or ""}
+            text = msg.get("content") or ""
+            # finish_reason == "length" means the provider cut the answer off at
+            # max_tokens. Thinking models spend part of that same budget on
+            # chain-of-thought, so this hits long answers routinely. Say so —
+            # a silent cut-off is indistinguishable from a finished answer.
+            if (usage or {}).get("finish_reason") == "length":
+                cap = cfg.llm_max_tokens
+                print(f"  [model_call] answer truncated at max_tokens={cap} "
+                      f"(finish_reason=length)", flush=True)
+                text += (f"\n\n---\n_⚠ Cut off at the {cap}-token output cap "
+                         f"(`llm_max_tokens` in config.yaml). Ask me to continue._")
+            final: dict = {"role": "assistant", "content": text}
             if msg.get("reasoning"):
                 final["reasoning"] = msg["reasoning"]
             messages.append(final)
-            answer = msg.get("content", "")
+            answer = text
             if emit:
                 emit("done", {
                     "answer": answer,

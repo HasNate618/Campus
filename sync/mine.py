@@ -511,6 +511,21 @@ def _insert_event(db, course_id: int, code: str, title: str, starts_at: str,
             (course_id, starts)).fetchall():
         if _fact_dupes(title, er["title"], 0.6):
             return None
+    if kind == "assignment":
+        # The Brightspace sync writes `assignments`; the miner writes events
+        # (and sometimes a second assignments row) for the SAME deadline —
+        # which is how the dashboard ended up listing everything twice. Skip
+        # when an assignment with a matching title already exists for this
+        # course on that day. A dated assignment on a different day is a
+        # different deadline and must still get through.
+        for ar in db.conn.execute(
+                "SELECT title, due_at FROM assignments WHERE course_id=?",
+                (course_id,)).fetchall():
+            adue = (ar["due_at"] or "")[:10]
+            if adue and adue != starts[:10]:
+                continue
+            if _fact_dupes(title, ar["title"], 0.6):
+                return None
     if kind == "exam":
         for xr in db.conn.execute(
                 "SELECT title FROM exams WHERE course_id=?"
