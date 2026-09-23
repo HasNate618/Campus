@@ -450,11 +450,27 @@ _MONTH_TOKS = {"jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "s
                 "june", "july", "august", "september", "october", "november", "december"}
 
 
+def _norm_tokens(text: str) -> set:
+    """Stemmed token set with numbers canonicalised by VALUE.
+
+    "Assignment 01" (a Brightspace dropbox name) and "Assignment 1: Packet
+    Analysis and an Email Client" (the miner's descriptive title) are the SAME
+    deadline. Left as strings, '01' != '1', so BOTH the numeric-subset guard
+    and the overlap ratio rejected the pair and the deadline rendered twice.
+    Canonicalising here fixes the guard and the ratio in one place.
+    """
+    out: set = set()
+    for t in _TOKEN_RE.findall((text or "").casefold()):
+        s = _stem(t)
+        out.add(str(int(s)) if s.isdigit() else s)
+    return out
+
+
 def _fact_dupes(new_text: str, existing_text: str, threshold: float = 0.8) -> bool:
     """True when new_text restates existing_text. Different specifics
     (dates, weights, counts) always survive; pure rewordings don't."""
-    nt = set(_stem(t) for t in _TOKEN_RE.findall((new_text or "").casefold()))
-    et = set(_stem(t) for t in _TOKEN_RE.findall((existing_text or "").casefold()))
+    nt = _norm_tokens(new_text)
+    et = _norm_tokens(existing_text)
     if not nt or not et:
         return False
     short, long = (nt, et) if len(nt) <= len(et) else (et, nt)
