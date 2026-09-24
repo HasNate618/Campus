@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   Bot, ChevronRight, FileText, FileCode2, FileType,
-  Folder, FolderLock, FolderPlus, Lock, Pencil, Plus, RefreshCw, Save, Trash2,
+  Folder, FolderLock, FolderPlus, Lock, Pencil, Plus, RefreshCw, Trash2,
 } from 'lucide-react'
 import { api } from '@/api/client'
 import { listKeys, useListCursor, useZoneKeys } from '@/lib/keynav'
@@ -11,6 +11,9 @@ import { sanitizeHtml } from '@/lib/sanitize'
 import type { WorkspaceNode, WorkspaceTree } from '@/types'
 
 const TEXT_KINDS = new Set(['md', 'txt', 'html', 'htm', 'json', 'yaml', 'yml', 'csv', 'py', 'ts', 'tsx', 'js', 'css', 'nix', 'sh'])
+// Kinds where the rendered view is markdown; the rest get a plain read-only
+// view (running a .py file through a markdown renderer mangles it).
+const PROSE_KINDS = new Set(['md', 'txt', 'html', 'htm'])
 
 function kindIcon(kind?: string) {
   if (kind === 'md' || kind === 'txt') return <FileText size={13} />
@@ -31,11 +34,14 @@ export function WorkspacePage() {
   const [current, setCurrent] = useState<WorkspaceNode | null>(null)
   const [text, setText] = useState('')
   const [savedText, setSavedText] = useState('')
-  const [preview, setPreview] = useState(false)
+  // Editable text files open in the RENDERED view; clicking the body switches
+  // to the editor and Escape goes back — there is no Edit/Preview toggle.
+  const [preview, setPreview] = useState(true)
   const [assetUrl, setAssetUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [savedAt, setSavedAt] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [newFileDir, setNewFileDir] = useState<string>('notes')
   const [externalChange, setExternalChange] = useState(false)
@@ -44,6 +50,16 @@ export function WorkspacePage() {
   textRef.current = text
   const savedRef = useRef(savedText)
   savedRef.current = savedText
+  // Autosave plumbing. The pending write lives in a REF paired with the path it
+  // was queued for, so a debounced save can never fire against whatever file
+  // the user has since switched to.
+  const pendingRef = useRef<{ path: string; text: string } | null>(null)
+  const saveTimer = useRef<number | null>(null)
+  const taRef = useRef<HTMLTextAreaElement | null>(null)
+  const openPathRef = useRef<string | null>(null)
+  openPathRef.current = openPath
+  // set on a click-to-edit; the focus effect below consumes it
+  const focusOnEdit = useRef(false)
 
   const findNode = (nodes: WorkspaceNode[], path: string): WorkspaceNode | null => {
     for (const n of nodes) {
@@ -62,12 +78,96 @@ export function WorkspacePage() {
 
   useEffect(() => { loadTree() }, [loadTree])
 
-  const dirty = current != null && text !== savedText && !preview
+  /**
+   * Autosave. Writes whatever is pending FOR THE FILE IT WAS QUEUED FOR, so a
+   * debounce landing after a file switch can never cross the streams. Called by
+   * the typing debounce, by Escape, before a file switch, and on unmount —
+   * this is what replaces the old Save button.
+   */
+  const flushSave = useCallback(async () => {
+    if (saveTimer.current) {
+      window.clearTimeout(saveTimer.current)
+      saveTimer.current = null
+    }
+    const p = pendingRef.current
+    if (!p) return
+    pendingRef.current = null
+    setSaving(true)
+    try {
+      await api.workspaceWrite(cid, p.path, p.text)
+      // a flush can outlive a file switch: only adopt the text while that file
+      // is still the open one
+      if (p.path === openPathRef.current) {
+        setSavedText(p.text)
+        setSavedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+        setNotice(null)
+        setExternalChange(false)
+      }
+      const t = await api.workspaceTree(cid)
+      setTree(t)
+      const node = findNode(t.nodes, p.path)
+      if (p.path === openPathRef.current) mtimeRef.current = node?.mtime ?? null
+    } catch {
+      // keep the write queued: the next keystroke (or the switch/unmount flush)
+      // retries it instead of silently dropping the edit
+      pendingRef.current = p
+      setNotice('Save failed.')
+    } finally {
+      setSaving(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cid])
+
+  const onEdit = (v: string) => {
+    setText(v)
+    const cur = current
+    if (!cur || cur.type !== 'file' || !cur.writable) return
+    pendingRef.current = { path: cur.path, text: v }
+    if (saveTimer.current) window.clearTimeout(saveTimer.current)
+    saveTimer.current = window.setTimeout(() => { void flushSave() }, 800)
+  }
+
+  const startEdit = () => {
+    if (!current || current.type !== 'file' || !current.writable || !isText) return
+    focusOnEdit.current = true
+    setPreview(false)
+  }
+
+  const exitEdit = () => {
+    void flushSave() // leaving edit mode persists immediately
+    setPreview(true)
+  }
+
+  const onEditorKeyDown = (e: ReactKeyboardEvent) => {
+    if (e.key !== 'Escape' || preview) return
+    // Claim the key: keynav would otherwise blur the field first, making the
+    // user press Escape twice to get back to the rendered view.
+    e.preventDefault()
+    e.stopPropagation()
+    exitEdit()
+  }
+
+  // click-to-edit focuses the box, caret at the end
+  useEffect(() => {
+    if (preview || !focusOnEdit.current) return
+    focusOnEdit.current = false
+    const ta = taRef.current
+    if (!ta) return
+    ta.focus()
+    const end = ta.value.length
+    ta.setSelectionRange(end, end)
+  }, [preview])
+
+  // unmount / course switch must not drop the last edit
+  useEffect(() => () => { void flushSave() }, [flushSave])
 
   const openNode = async (n: WorkspaceNode) => {
+    // persist anything still pending for the file we're leaving BEFORE `current`
+    // is swapped out from under the debounce
+    await flushSave()
     setCurrent(n)
     setOpenPath(n.path)
-    setPreview(false)
+    setPreview(true)
     setAssetUrl(null)
     setNotice(null)
     setExternalChange(false)
@@ -120,26 +220,6 @@ export function WorkspacePage() {
     return () => clearInterval(iv)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cid, current])
-
-  const save = async () => {
-    if (!current || current.type !== 'file' || !current.writable) return
-    setBusy(true)
-    try {
-      await api.workspaceWrite(cid, current.path, text)
-      setSavedText(text)
-      setSavedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
-      setNotice(null)
-      setExternalChange(false)
-      const t = await api.workspaceTree(cid)
-      setTree(t)
-      const node = findNode(t.nodes, current.path)
-      mtimeRef.current = node?.mtime ?? null
-    } catch {
-      setNotice('Save failed.')
-    } finally {
-      setBusy(false)
-    }
-  }
 
   const remove = async () => {
     if (!current || current.type !== 'file' || !current.writable) return
@@ -225,6 +305,9 @@ export function WorkspacePage() {
   }
 
   const isText = current?.kind ? TEXT_KINDS.has(current.kind) : false
+  const canEdit = !!current && current.type === 'file' && !!current.writable && isText
+  // prose renders as markdown; other text kinds get a plain read-only view
+  const prosePreview = !!current?.kind && PROSE_KINDS.has(current.kind)
 
   // Flat visible rows for j/k navigation (children of collapsed dirs are
   // hidden, matching the recursive render).
@@ -333,7 +416,9 @@ export function WorkspacePage() {
         </div>
       </div>
 
-      <div className="card ws-editor">
+      {/* Escape anywhere in the editor returns to the rendered view — the
+          handler sits on the card so it still works once focus has left the box */}
+      <div className="card ws-editor" onKeyDown={onEditorKeyDown}>
         {!current && <div className="empty compact" style={{ margin: 'auto' }}>Select a file from the tree — notes/ and work/ are editable.</div>}
         {current && (
           <>
@@ -345,16 +430,10 @@ export function WorkspacePage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 {current.writable && isText && (
                   <>
-                    <button className="btn btn-outline btn-sm" onClick={() => setPreview(!preview)}>
-                      {preview ? 'Edit' : 'Preview'}
-                    </button>
                     <button className="btn btn-outline btn-sm" onClick={askAi} title="Ask the AI about this file — it can also edit it">
                       <Bot size={12} /> Ask AI
                     </button>
-                    <button className="btn btn-primary btn-sm" onClick={save} disabled={busy || !dirty}>
-                      <Save size={12} /> {dirty ? 'Save*' : 'Saved'}
-                    </button>
-                    <button className="icon-btn" onClick={remove} title="Delete"><Trash2 size={12} /></button>
+                    <button className="icon-btn" onClick={remove} disabled={busy} title="Delete"><Trash2 size={12} /></button>
                   </>
                 )}
                 {(!current.writable || !isText) && current.kind && (
@@ -369,23 +448,33 @@ export function WorkspacePage() {
                 <button className="btn btn-outline btn-sm" onClick={reloadExternal}>Reload</button>
               </p>
             )}
-            {savedAt && <p className="ws-saved">saved {savedAt}</p>}
+            {(saving || savedAt) && (
+              <p className="ws-saved">{saving ? 'saving…' : `saved ${savedAt}`}</p>
+            )}
             {assetUrl ? (
               <a className="empty compact" style={{ margin: 'auto', textDecoration: 'none' }} href={assetUrl} target="_blank" rel="noreferrer noopener">
                 Open in viewer (read-only) →
               </a>
             ) : preview ? (
-              <div className="ws-preview">
-                <ZenMarkdown content={sanitizeHtml(text)} />
+              <div
+                className={`ws-preview${canEdit ? ' editable' : ''}`}
+                onClick={canEdit ? startEdit : undefined}
+                title={canEdit ? 'Click to edit' : undefined}
+              >
+                {prosePreview ? (
+                  <ZenMarkdown content={sanitizeHtml(text)} />
+                ) : (
+                  <pre className="ws-plain">{text}</pre>
+                )}
               </div>
             ) : (
               <textarea
+                ref={taRef}
                 className="ws-textarea"
                 value={text}
-                onChange={(e) => setText(e.target.value)}
+                onChange={(e) => onEdit(e.target.value)}
                 spellCheck={false}
-                placeholder={isText ? 'Start typing…' : 'This file type is read-only here.'}
-                readOnly={!current.writable || !isText}
+                placeholder="Start typing…"
               />
             )}
           </>
