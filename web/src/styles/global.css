@@ -1911,19 +1911,41 @@
 
   .ws-new {
     display: flex;
+    flex-wrap: wrap;
     gap: 6px;
     padding: 8px;
     border-top: 1px solid var(--glass-border);
   }
 
+  /* "New in" label and the directory select each claim a full row; the two
+     buttons then share the row below at flex:1 so the group spans the tree's
+     inner width instead of overflowing the 250px card. */
+  .ws-new-label {
+    flex: 0 0 100%;
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-3);
+  }
+
   .ws-new select {
-    flex: 1;
+    flex: 0 0 100%;
+    min-width: 0;
     background: var(--glass-bg-strong);
     border: 1px solid var(--glass-border);
     border-radius: 6px;
     color: var(--text-1);
+    font: inherit;
     font-size: 12px;
-    padding: 3px 6px;
+    padding: 4px 6px;
+  }
+
+  .ws-new .btn {
+    flex: 1;
+    justify-content: center;
+    padding-left: 6px;
+    padding-right: 6px;
   }
 
   .ws-editor {
@@ -1962,8 +1984,8 @@
     outline: none;
     background: transparent;
     color: var(--text-1);
-    font-family: ui-monospace, 'JetBrains Mono', monospace;
-    font-size: 13px;
+    font-family: var(--font-sans);
+    font-size: 13.5px;
     line-height: 1.6;
     padding: 12px;
   }
@@ -2407,6 +2429,21 @@
     height: 100%;
     grid-template-rows: minmax(0, 1fr);
     align-items: stretch;
+  }
+
+  /* the workspace is an app-like two-pane view (tree + editor), not a reading
+     column — give it the whole course pane instead of .page-col's 980px cap.
+     Same scoping trick as the full-width PDF rules above: only the column
+     that actually contains a workspace is lifted. */
+  .course-scroll:has(.ws-wrap) {
+    overflow: hidden;
+    padding: 0;
+  }
+
+  .course-scroll:has(.ws-wrap) > .page-col {
+    height: 100%;
+    max-width: none;
+    gap: 0;
   }
 
   /* keep wide Brightspace HTML inside the pane, never the viewport */

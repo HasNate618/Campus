@@ -315,9 +315,18 @@ export function WorkspacePage() {
           {!loading && tree && tree.nodes.length === 0 && <div className="empty compact">No files yet.</div>}
         </div>
         <div className="ws-new">
-          <select value={newFileDir} onChange={(e) => setNewFileDir(e.target.value)}>
-            <option value="notes">notes/</option>
-            <option value="work">work/</option>
+          {/* Picks which of the two WRITABLE roots a new file/folder lands in:
+              notes/ and work/ are editable, everything else in the tree
+              (content/, Assignments/, memory-card.md) is read-only. */}
+          <label className="ws-new-label" htmlFor="ws-new-dir">New in</label>
+          <select
+            id="ws-new-dir"
+            value={newFileDir}
+            onChange={(e) => setNewFileDir(e.target.value)}
+            title="Where the New file / Folder buttons create things"
+          >
+            <option value="notes">notes/ — editable notes</option>
+            <option value="work">work/ — scratch files</option>
           </select>
           <button className="btn btn-outline btn-sm" onClick={newDir} title="New folder"><FolderPlus size={12} /> Folder</button>
           <button className="btn btn-outline btn-sm" onClick={newFile}><Plus size={12} /> New file</button>
