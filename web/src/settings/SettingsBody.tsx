@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LogOut, PlugZap, RefreshCw, ShieldAlert } from "lucide-react";
 import { metaFor, GROUP_META } from "./fieldMeta";
 import { useSettings, type FieldValue, type SettingsField } from "./useSettings";
@@ -22,6 +22,11 @@ export function SettingsBody({
 	onLogout?: () => void;
 	onDirtyChange?: (dirty: boolean) => void;
 }) {
+	// Section rail state: `active` is the rail highlight (null = first section),
+	// paneRef is the scrolling column the rail drives.
+	const [active, setActive] = useState<string | null>(null);
+	const paneRef = useRef<HTMLDivElement | null>(null);
+	const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
 	const s = useSettings();
 
 	// Report unsaved-edit state so a shell can refuse to discard it by accident.
@@ -55,6 +60,32 @@ export function SettingsBody({
 	// Hoisted: `s.payload` is re-read rather than narrowed inside the map below.
 	const searchIndex = s.payload.search_index;
 
+	const firstGroupId = groups[0]?.[0] ?? null;
+	const railActive = active ?? firstGroupId;
+
+	const goTo = (groupId: string) => {
+		setActive(groupId);
+		const pane = paneRef.current;
+		const el = sectionRefs.current[groupId];
+		if (!pane || !el) return;
+		// rect maths, not offsetTop: the pane is the offset parent here
+		const delta = el.getBoundingClientRect().top - pane.getBoundingClientRect().top;
+		pane.scrollTo({ top: pane.scrollTop + delta - 4, behavior: "smooth" });
+	};
+
+	// Scroll-spy so the rail always shows the section actually in view.
+	const onPaneScroll = () => {
+		const pane = paneRef.current;
+		if (!pane) return;
+		const line = pane.getBoundingClientRect().top + 14;
+		let current = firstGroupId;
+		for (const [groupId] of groups) {
+			const el = sectionRefs.current[groupId];
+			if (el && el.getBoundingClientRect().top <= line) current = groupId;
+		}
+		if (current && current !== railActive) setActive(current);
+	};
+
 	return (
 		<div className={`settings-body ${variant}`}>
 			{!s.payload.auth_enabled && (
@@ -74,29 +105,54 @@ export function SettingsBody({
 				</p>
 			)}
 
-			{groups.map(([groupId, fields]) => (
-				<section key={groupId} className="settings-group">
-					<h2 className="settings-group-title">
-						{GROUP_META.find((g) => g.id === groupId)?.label ?? groupId}
-					</h2>
-					{fields
-						.sort((a, b) => metaFor(a.key).order - metaFor(b.key).order)
-						.map((f) => (
-							<Field
-								key={f.key}
-								field={f}
-								value={s.valueOf(f.key)}
-								changed={f.key in s.edits}
-								onChange={(v) => s.setValue(f.key, v)}
-								onReset={() => s.resetField(f.key)}
-							/>
-						))}
-					{groupId === "ai" && <TestConnectionButton />}
-					{groupId === "search" && searchIndex && (
-						<RebuildIndexButton index={searchIndex} onDone={s.reload} />
-					)}
-				</section>
-			))}
+			{/* side panel + content: the rail lists the subsections, the pane
+			    holds them stacked in one column (no dual-column field grid). */}
+			<div className="settings-main">
+				<nav className="settings-nav" aria-label="Settings sections">
+					{groups.map(([groupId]) => (
+						<button
+							key={groupId}
+							type="button"
+							className={`settings-nav-item${railActive === groupId ? " active" : ""}`}
+							onClick={() => goTo(groupId)}
+						>
+							{GROUP_META.find((g) => g.id === groupId)?.label ?? groupId}
+						</button>
+					))}
+				</nav>
+
+				<div className="settings-pane" ref={paneRef} onScroll={onPaneScroll}>
+					{groups.map(([groupId, fields]) => (
+						<section
+							key={groupId}
+							className="settings-group"
+							ref={(el) => {
+								sectionRefs.current[groupId] = el;
+							}}
+						>
+							<h2 className="settings-group-title">
+								{GROUP_META.find((g) => g.id === groupId)?.label ?? groupId}
+							</h2>
+							{fields
+								.sort((a, b) => metaFor(a.key).order - metaFor(b.key).order)
+								.map((f) => (
+									<Field
+										key={f.key}
+										field={f}
+										value={s.valueOf(f.key)}
+										changed={f.key in s.edits}
+										onChange={(v) => s.setValue(f.key, v)}
+										onReset={() => s.resetField(f.key)}
+									/>
+								))}
+							{groupId === "ai" && <TestConnectionButton />}
+							{groupId === "search" && searchIndex && (
+								<RebuildIndexButton index={searchIndex} onDone={s.reload} />
+							)}
+						</section>
+					))}
+				</div>
+			</div>
 
 			{restartPending && <p className="settings-note">{RESTART_HINT}</p>}
 			{s.saveErrors.length > 0 && (
@@ -110,20 +166,22 @@ export function SettingsBody({
 				</ul>
 			)}
 
-			<div className="settings-actions">
-				<button
-					className="settings-save"
-					disabled={!s.dirty || s.saving || !s.payload.settings_writable}
-					onClick={() => void s.save()}
-				>
-					{s.saving ? "Saving…" : "Save"}
-				</button>
-				<button className="settings-discard" disabled={!s.dirty} onClick={s.discard}>
-					Discard
-				</button>
-			</div>
-			<div className="settings-footer">
+			{/* action bar pinned under the pane: always reachable while the
+			    sections scroll above it */}
+			<div className="settings-foot">
 				<p className="settings-path">{s.payload.settings_file}</p>
+				<div className="settings-actions">
+					<button className="settings-discard" disabled={!s.dirty} onClick={s.discard}>
+						Discard
+					</button>
+					<button
+						className="settings-save"
+						disabled={!s.dirty || s.saving || !s.payload.settings_writable}
+						onClick={() => void s.save()}
+					>
+						{s.saving ? "Saving…" : "Save"}
+					</button>
+				</div>
 				{onLogout && (
 					<button className="settings-logout" onClick={onLogout}>
 						<LogOut size={15} /> Log out

@@ -3831,17 +3831,17 @@ pre code.hljs {
   background: rgba(0, 0, 0, 0.6);
 }
 
-/* Opaque DARK GREY panel: no backdrop blur and no translucent glass. A
-   settings form is dense text, and sampling/blurring the page behind it made
-   the whole surface read soft. The dimmed backdrop alone separates it.
-   Desktop width is generous (two subsection columns fit side by side). */
+/* Dark GREY but translucent panel: no backdrop blur (a dense settings form
+   reads better sharp), tinted darker than the app's raised grey so the page
+   dimly shows through without washing the form out. Desktop width is
+   generous — the rail + content column need the room. */
 .settings-modal {
   width: min(1000px, 100%);
   max-height: 84vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--bg-raised);
+  background: rgba(14, 14, 16, 0.82);
   border: 1px solid var(--glass-border-strong);
   border-radius: var(--radius-panel);
   box-shadow: var(--glass-edge), var(--glass-shadow);
@@ -3863,30 +3863,77 @@ pre code.hljs {
   letter-spacing: -0.01em;
 }
 
-/* the only scroller in the panel: head stays pinned, body scrolls */
+/* head pinned; this element only FRAMES the rail + content column. The
+   scrolling happens in .settings-pane, which keeps the action bar under the
+   pane in place while sections move. */
 .settings-modal-body {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  padding: 18px 20px 20px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 18px 20px 18px;
 }
-/* subsections: every settings group is its own card — two per row on desktop
-   (the modal's width allows it), one per row on phones. */
+/* side-panel layout: a section rail on the left, ONE scrolling content
+   column on the right (the dual-column field grid was rejected). */
 .settings-body {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  align-content: start;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-/* full-width rows: banner notices + the save/logout furniture belong to the
-   panel, not to either column */
-.settings-body > .settings-notice,
-.settings-body > .settings-note,
-.settings-body > .settings-errors,
-.settings-body > .settings-actions,
-.settings-body > .settings-footer {
-  grid-column: 1 / -1;
+.settings-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 20px;
+}
+
+/* section rail */
+.settings-nav {
+  flex: 0 0 172px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: 16px;
+  border-right: 1px solid var(--glass-border);
+  overflow-y: auto;
+}
+
+.settings-nav-item {
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+  color: var(--text-2);
+  background: none;
+  border: none;
+  border-radius: 9px;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.settings-nav-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-1);
+}
+
+.settings-nav-item.active {
+  background: var(--violet-soft);
+  color: var(--violet);
+}
+
+/* the ONLY scroller in the panel — the rail and the action bar stay put */
+.settings-pane {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-right: 4px;
 }
 
 .settings-group {
@@ -3998,7 +4045,7 @@ pre code.hljs {
   padding-left: 18px;
   margin: 10px 0;
 }
-.settings-actions { display: flex; gap: 10px; margin: 20px 0 12px; }
+.settings-actions { display: flex; gap: 8px; }
 .settings-save,
 .settings-discard,
 .settings-reset,
@@ -4048,14 +4095,16 @@ pre code.hljs {
   background: rgba(248, 113, 113, 0.1);
   border-color: rgba(248, 113, 113, 0.45);
 }
-.settings-footer {
+/* action bar: file path left, Discard/Save centre-right, logout right */
+.settings-foot {
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   border-top: 1px solid var(--glass-border);
   padding-top: 14px;
-  margin-top: 10px;
+  margin-top: 14px;
 }
 .settings-path {
   font-size: 11px;
@@ -4076,12 +4125,29 @@ pre code.hljs {
   background: rgba(248, 113, 113, 0.08);
 }
 
-/* phones: keep the popup floating and centered, just tighter — and the
-   subsections go back to a single column */
+/* phones: popup stays centered, and the section rail becomes a horizontal
+   chip strip above the content column */
 @media (max-width: 860px) {
   .settings-backdrop { padding: 14px; }
   .settings-modal { width: 100%; max-height: 88dvh; }
   .settings-modal-head { padding: 14px 16px 12px; }
-  .settings-modal-body { padding: 16px; }
-  .settings-body { grid-template-columns: minmax(0, 1fr); }
+  .settings-modal-body { padding: 14px 16px; }
+  .settings-main { flex-direction: column; gap: 12px; }
+  .settings-nav {
+    flex: none;
+    flex-direction: row;
+    gap: 6px;
+    padding: 0 0 12px;
+    border-right: none;
+    border-bottom: 1px solid var(--glass-border);
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  .settings-nav-item {
+    flex: none;
+    white-space: nowrap;
+    border: 1px solid var(--glass-border);
+  }
+  .settings-nav-item.active { border-color: transparent; }
+  .settings-foot { flex-wrap: wrap; }
 }
