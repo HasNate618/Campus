@@ -26,8 +26,10 @@ I built Campus because I was tired of hunting through Brightspace. Files four cl
 - **Course-scoped AI chat** — an agent with 19 built-in tools (+ any MCP-discovered tools) over your data:
   assignments/announcements/facts, paginated file reads, grep, corpus
   search, audited mutations (extend a due date, add a note, write a fact),
-  free-recall quizzes, and web search for outside questions. Every mutation
-  is written to an `audit_log` with before/after JSON.
+  free-recall quizzes, and web search for outside questions. The web app
+  also tells the agent what the user currently has open (an assignment, file,
+  or PDF page), so “Explain this” resolves against the actual view. Every
+  mutation is written to an `audit_log` with before/after JSON.
 - **Lexical + semantic search** — lexical by default (no extra model) with an
   exact-phrase `instr()` boost and snippet windowing so "where does it say X"
   finds the verbatim answer; upgrade to embeddings + rerank by setting
@@ -77,10 +79,13 @@ What shaped the design:
 No benchmark is claimed. Accuracy comes from auditable mechanics you can check:
 
 - **Tool-only reads.** The model never receives a course dump — every fact comes from a harness tool (`harness_*` for dates/deadlines, `content_read_file`/`content_grep`/`search_corpus` for prose). If the data isn't in the synced store, the system prompt tells it to say so (`agent/context.py`, rule 1).
+- **Current-view context.** The web client sends only the IDs and position of the open file or assignment; the server resolves the path, title, deadline, status, and valid PDF page from SQLite before adding context to the prompt. This keeps deictic questions grounded without trusting arbitrary client-provided source details.
 - **Citations you can open.** `search_corpus`/`content_read_file`/`content_grep` register sources in `agent/citations.py` → `[cite:N]` chips in the UI. Each chip resolves to a file or `overview/<nodeId>` with a page number from `<!-- page N -->` markers; clicking jumps to the PDF page. Chips stream live via `cite_register` (`api/routers/chat.py`, `web/src/chat/ChatView.tsx`).
 - **Lexical boost over embeddings.** `sync/search.py` keeps an exact-substring pre-filter (`instr()`) and windows snippets around the match before reranking. That is why "where does it say X" finds the verbatim line even when semantic cosine is low, and lexical mode works with zero extra models.
 - **Change detection, not re-guessing.** `sync/db.py` upserts by `brightspace_id` / `brightspace_folder_id`; `files.sha256` skips unchanged downloads and only resets `processed` when the hash actually changes.
 - **Every mutation is auditable.** `mutate_update_assignment`, `add_fact`, `file_write`/`file_edit`, `terminal_run`, and quiz all write before/after JSON to `audit_log` (`schema.sql`). Facts are superseded (`is_active=0` + new row), never silently overwritten; the per-course `memory-card.md` is regenerated deterministically from structured rows > facts.
+- **Duplicate-safe schedule reads.** Assignment, exam, and event feeds are deduplicated by course, local calendar day, and normalized title tokens, so the same Brightspace/miner deadline is shown once without merging distinct items such as Lab 1 and Lab 2.
+- **Safe markdown rendering.** Markdown from chat, digests, workspace files, and synced content is sanitized before rendering; Mermaid uses strict security mode, and unsafe URLs and active HTML are removed. Treat the UI as a viewer for trusted course data, not as a sandbox for untrusted HTML.
 - **What is NOT guaranteed.** The LLM can still misread a correct tool result, and search ranking is heuristic (no graded eval set). Treat citations + `audit_log`/`sync_runs` as the verification step — open the source, not just the answer.
 
 More detail lives in `docs/DESIGN.md` and `docs/DATA_MODEL.md`.
@@ -90,12 +95,12 @@ More detail lives in `docs/DESIGN.md` and `docs/DATA_MODEL.md`.
 | Path | Contains |
 | --- | --- |
 | `sync/` | LMS sync. Config (defaults < yaml < env), token store, Playwright/MFA auth, D2L REST client, pipeline + `file_topics` dedupe, PDF → markdown (local + optional remote parser), search index (`chunks`/`chunk_meta`) |
-| `agent/` | Harness. Context builder, 19 tool definitions with blocklist (`tools.py`), streaming tool loop over SSE (`chat.py`), citation registry (`citations.py`), memory card (`memory.py`), blind-graded quiz (`quiz.py`), pluggable MCP client (`mcp.py`) |
+| `agent/` | Harness. Context builder, current-view context (`view.py`), 19 tool definitions with blocklist (`tools.py`), streaming tool loop over SSE (`chat.py`), citation registry (`citations.py`), memory card (`memory.py`), blind-graded quiz (`quiz.py`), pluggable MCP client (`mcp.py`) |
 | `api/` | FastAPI. Routers for courses, data, sync, digest, and chat, plus services and SPA serving |
-| `web/` | React and TypeScript PWA. Today, Course hub, Timetable, Calendar, Chat, Workspace, zen markdown, vendored PDF viewer |
+| `web/` | React and TypeScript PWA. Today, Course hub, Timetable, Calendar, Chat, Workspace, sanitized zen markdown, page-aware vendored PDF viewer |
 | `seed/` | `courses.example.json` ships sample data, `courses.local.json` is gitignored for real enrollments, `sample.ics` for timetable |
 | `tools/` | One off scripts like `ics_import.py` and `digest_backfill.py` |
-| `tests/` | 44 tests across 8 files. Config portability, seed + ICS round trips, schedule contract, search (chunking/cosine/snippet windowing/lexical hits), citations (page markers/dedupe), terminal blocklist, web auth |
+| `tests/` | 285 tests across 21 files. Config portability, seed + ICS round trips, schedule contract, search (chunking/cosine/snippet windowing/lexical hits), citations (page markers/dedupe), current-view context, settings overrides, sync correctness, deadline deduplication, CLI dispatch, terminal blocklist, and web auth |
 | `docs/` | DESIGN, DATA_MODEL, HANDOFF |
 
 ## What I learned
@@ -143,6 +148,7 @@ settings*) — the repo itself carries zero personal configuration.
 | `base_url` | `CAMPUS_BASE_URL` | LMS instance (any Brightspace/D2L) |
 | `username` | `CAMPUS_USERNAME` | LMS username; password via `CAMPUS_BRIGHTSPACE_PASSWORD` |
 | `llm_url` / `llm_urls` / `llm_model` / `llm_api_key` | `OPENAI_ENDPOINT` / `OPENAI_ENDPOINTS` / `OPENAI_API_KEY` / `OPENAI_MODEL` | Any OpenAI-compatible `/v1` endpoint (tool-calling required for chat); Bearer key optional (yours is keyless — set `llm_api_key`/`OPENAI_API_KEY` for endpoints that need one). `llm_urls` (or `OPENAI_ENDPOINTS`, comma-separated) is a failover list tried in order. Empty = no chat/digest (sync + browse + search still work). |
+| `llm_max_tokens` | — | Maximum model output tokens per chat call; default `8000`. Increase it for long or reasoning-heavy answers. If the provider returns `finish_reason=length`, Campus labels the answer as truncated. |
 | `embed_model` / `rerank_model` | `CAMPUS_EMBED/RERANK_MODEL` | Optional OpenAI-compatible `/embeddings` + `/rerank` models. Empty = lexical corpus search (no embeddings needed). A 404 on either degrades to lexical |
 | `pdf_extractor_url` | `CAMPUS_PDF_EXTRACTOR_URL` | Optional parser endpoint (Cohere Parse, Docling, …) for ALL PDFs; empty = local PyMuPDF (digital PDFs instant) |
 | `ntfy_url` | `CAMPUS_NTFY_URL` | Optional ntfy topic for sync pings; empty = disabled |
@@ -212,12 +218,25 @@ All personal values live in `config.yaml` (gitignored) or `CAMPUS_*` env vars (p
 | `username` | `CAMPUS_USERNAME` | LMS username; password via `CAMPUS_BRIGHTSPACE_PASSWORD` |
 | `institution` | — | Label in the system prompt, e.g. `"Your University"` |
 | `llm_url`, `llm_model`, `llm_api_key` | `OPENAI_*` | Any OpenAI-compatible endpoint; key optional for local gateways. Empty = no chat/digest (browse + search still work). `llm_tool_choice` optional — leave empty (Cohere Command rejects `tool_choice`) |
+| `llm_max_tokens` | — | Maximum model output tokens per chat call; default `8000`. If the provider returns `finish_reason=length`, Campus labels the answer as truncated. |
 | `data_root` | `CAMPUS_DATA_ROOT` | Where course files live as `{term}/{code}/...`; if you're not syncing, drop your own materials here |
 | `token_dir` | `CAMPUS_TOKEN_DIR` | MFA token + browser profile (used only for Brightspace sync) |
 | `web_password` | `CAMPUS_WEB_PASSWORD` | Single password for `/api/*` routes; empty = open demo |
 | `timezone` | `CAMPUS_TIMEZONE` | Dates you see and the clock in the prompt; empty = host local time |
 | `term_dates` | n/a | Start/end dates that anchor class events |
 | In-app settings | `CAMPUS_SETTINGS_PATH` | `settings.yaml` beside the DB; written by the Settings panel; overrides env vars |
+
+### In-app settings
+
+Campus has a Settings panel in the web app. On desktop, open it from the settings button in the sidebar footer; on mobile, use the settings action on the Home screen or visit `/settings`. The panel is also the source of truth for the effective value and where that value came from (default, `config.yaml`, environment, or `settings.yaml`).
+
+Saving changes writes an allowlisted, gitignored `settings.yaml` next to the configured database. The precedence is:
+
+```text
+defaults < config.yaml < environment variables < settings.yaml
+```
+
+The panel covers runtime values such as LLM endpoints/models, search models, PDF extraction, Office-to-PDF conversion, sync scope, institution/timezone, notifications, and MCP servers. Deployment-only values such as paths, web password, LMS credentials, and term dates stay in `config.yaml` or the environment. Changing `mcp_urls` requires an API restart (`docker compose restart campus`); changing the embeddings or reranker model requires rebuilding the search index. The panel also provides an LLM connection test and a search-index rebuild action.
 
 ### Not using Brightspace/D2L?
 
@@ -243,6 +262,7 @@ Common commands once configured for a real term:
 python3 -m sync auth        # MFA push, stores token with 1h TTL
 python3 -m sync sync        # full sync, AI digest, notification
 python3 -m sync extract --code "CS 1100A"
+python3 -m sync models      # list models served by the LLM endpoint
 python3 -m agent            # REPL chat
 ```
 
@@ -252,10 +272,10 @@ Your real enrollments go in `seed/courses.local.json`. Course content and secret
 
 ```bash
 pip install -r requirements-dev.txt
-pytest    # 44 tests across 8 files
+pytest    # 285 tests across 21 files
 ```
 
-Covers config portability with env overrides, seed and ICS import round trips, the schedule contract the frontend relies on, search behavior with lexical hits and snippet windowing and chunking (the historically buggiest surface), citation page markers and dedupe, and the agent terminal blocklist + web auth.
+Covers config portability with env and settings overrides, seed and ICS import round trips, the schedule contract the frontend relies on, search behavior with lexical hits and snippet windowing and chunking (the historically buggiest surface), citation page markers and dedupe, current-view context, settings writes and validation, sync correctness, deadline deduplication, CLI dispatch, and the agent terminal blocklist + web auth.
 
 GitHub Actions runs backend tests on Python 3.12 and the web typecheck plus production build on Node 22 for every push to main.
 
