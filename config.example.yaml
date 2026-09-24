@@ -140,5 +140,5 @@ digest_pdf_excerpt_chars: 2000
 #     start: "2027-01-01"
 #     end: "2027-04-30"
 
-# sync scope — pilot only by default; flip to false for all courses
-pilot_only: true
+# sync scope: a run covers every active course. Narrow it with
+# `python -m sync sync --code "SE 2250B"`.

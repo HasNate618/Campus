@@ -35,8 +35,8 @@ def test_bool_validator_rejects_int():
     from api.settings_fields import REGISTRY, ValidationError, normalize
 
     with pytest.raises(ValidationError):
-        normalize(REGISTRY["pilot_only"], 1)
-    assert normalize(REGISTRY["pilot_only"], False) is False
+        normalize(REGISTRY["office_to_pdf"], 1)
+    assert normalize(REGISTRY["office_to_pdf"], False) is False
 
 
 def test_url_validation():
@@ -108,7 +108,7 @@ def test_registry_shape():
         "embed_model", "rerank_model",
         "auto_extract_pdfs", "office_to_pdf", "pdf_extractor_url",
         "long_scan_skip_pages", "digest_pdf_excerpt_chars",
-        "pilot_only", "institution", "timezone",
+        "institution", "timezone",
         "ntfy_url", "mcp_urls",
         "max_file_size", "max_extract_size", "office_convert_timeout_s",
         "digest_announcement_days",
@@ -143,7 +143,7 @@ def _setup(tmp_path, monkeypatch, settings_body: str = "", env: dict | None = No
 
 def test_get_reports_values_and_sources(tmp_path, monkeypatch):
     _setup(tmp_path, monkeypatch,
-           settings_body="pilot_only: false\n",
+           settings_body="office_to_pdf: false\n",
            env={"OPENAI_MODEL": "env-model"})
     from fastapi.testclient import TestClient
     from api.main import app
@@ -151,9 +151,9 @@ def test_get_reports_values_and_sources(tmp_path, monkeypatch):
     body = TestClient(app).get("/api/settings").json()
     by_key = {f["key"]: f for f in body["fields"]}
 
-    assert by_key["pilot_only"]["value"] is False
-    assert by_key["pilot_only"]["source"] == "settings"
-    assert by_key["pilot_only"]["inherited_value"] is True
+    assert by_key["office_to_pdf"]["value"] is False
+    assert by_key["office_to_pdf"]["source"] == "settings"
+    assert by_key["office_to_pdf"]["inherited_value"] is True
 
     assert by_key["llm_model"]["value"] == "env-model"
     assert by_key["llm_model"]["source"] == "env"
@@ -224,13 +224,13 @@ def _client(tmp_path, monkeypatch, settings_body: str = "", env: dict | None = N
 
 def test_put_writes_the_layer_and_reports_new_sources(tmp_path, monkeypatch):
     c = _client(tmp_path, monkeypatch)
-    res = c.put("/api/settings", json={"values": {"pilot_only": False,
+    res = c.put("/api/settings", json={"values": {"office_to_pdf": False,
                                                  "long_scan_skip_pages": 42}})
     assert res.status_code == 200
     assert (tmp_path / "settings.yaml").exists()
     by_key = {f["key"]: f for f in res.json()["fields"]}
-    assert by_key["pilot_only"]["value"] is False
-    assert by_key["pilot_only"]["source"] == "settings"
+    assert by_key["office_to_pdf"]["value"] is False
+    assert by_key["office_to_pdf"]["source"] == "settings"
     from sync.config import Config
     assert Config.load().long_scan_skip_pages == 42
 
@@ -244,7 +244,7 @@ def test_put_rejects_unknown_key(tmp_path, monkeypatch):
 
 def test_put_rejects_bad_value_and_leaves_the_file_untouched(tmp_path, monkeypatch):
     path = tmp_path / "settings.yaml"
-    c = _client(tmp_path, monkeypatch, settings_body="pilot_only: false\n")
+    c = _client(tmp_path, monkeypatch, settings_body="office_to_pdf: false\n")
     before = path.read_bytes()
     res = c.put("/api/settings", json={"values": {"ntfy_url": "ftp://x"}})
     assert res.status_code == 400
@@ -331,7 +331,7 @@ def test_put_applies_nothing_when_one_value_is_invalid(tmp_path, monkeypatch):
     leave the file holding a change the user never got told about, because the
     request failed."""
     path = tmp_path / "settings.yaml"
-    c = _client(tmp_path, monkeypatch, settings_body="pilot_only: false\n")
+    c = _client(tmp_path, monkeypatch, settings_body="office_to_pdf: false\n")
     before = path.read_bytes()
     res = c.put("/api/settings", json={"values": {
         "long_scan_skip_pages": 99,     # legal — must NOT be applied
@@ -349,7 +349,7 @@ def test_put_applies_nothing_when_one_value_is_invalid(tmp_path, monkeypatch):
 def test_put_file_is_0600_and_parent_mode_is_untouched(tmp_path, monkeypatch):
     c = _client(tmp_path, monkeypatch)
     before = tmp_path.stat().st_mode & 0o777
-    c.put("/api/settings", json={"values": {"pilot_only": False}})
+    c.put("/api/settings", json={"values": {"office_to_pdf": False}})
     mode = (tmp_path / "settings.yaml").stat().st_mode & 0o777
     assert mode == 0o600
     assert (tmp_path.stat().st_mode & 0o777) == before   # not tightened by us
@@ -361,10 +361,10 @@ def test_put_concurrent_writes_keep_both_fields(tmp_path, monkeypatch):
     c = _client(tmp_path, monkeypatch)
     with cf.ThreadPoolExecutor(max_workers=2) as pool:
         list(pool.map(lambda kv: c.put("/api/settings", json={"values": {kv[0]: kv[1]}}),
-                      [("pilot_only", False), ("long_scan_skip_pages", 7)]))
+                      [("office_to_pdf", False), ("long_scan_skip_pages", 7)]))
     from sync.config import Config
     cfg = Config.load()
-    assert cfg.pilot_only is False and cfg.long_scan_skip_pages == 7
+    assert cfg.office_to_pdf is False and cfg.long_scan_skip_pages == 7
 
 
 def test_put_secret_is_never_echoed(tmp_path, monkeypatch):

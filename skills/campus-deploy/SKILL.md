@@ -170,7 +170,7 @@ host first (`make build-web`).
 - **`web/dist` missing = 404 shell.** If you get `{"detail":"Frontend not built"}`, the UI was never built (bare-metal / repo-mount). Run `make build-web` or `docker compose build` (demo).
 - **Chat "no endpoint" is not a crash.** Without `OPENAI_*`, chat returns a friendly notice; browse/search/sync keep working. Don't tell the user the app is broken.
 - **Tool-calling required.** A plain completions endpoint won't drive the agent; it must serve `/chat/completions` with `tools`. The harness omits `tool_choice` by default (provider default = "auto"); Cohere Command REJECTS `tool_choice` ("tool_choice is not supported for this model") — if you hit that, leave `llm_tool_choice` empty. Set `llm_tool_choice: "auto"` only for endpoints that require it.
-- **`pilot_only: true` by default.** Sync only pulls `is_pilot` courses; set `pilot_only: false` (config) for all courses.
+- **Sync scope.** A run covers every ACTIVE course (`is_active=1`); narrow it with `sync --code "SE 2250B"`. There is no pilot-only filter any more — the old `pilot_only` setting was exposed in the panel but never read, so it was removed. `courses.is_pilot` still exists as an informational flag (the AI's course listing returns it).
 - **ntfy/trawl/MCP are generic.** Refer to them as "an MCP server you provide" / "your OpenAI-compatible endpoint" — don't assume a specific homelab service.
 
 ## Verify (after deploy)

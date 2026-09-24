@@ -2,7 +2,7 @@
 
 Commands:
   auth [--status]      Brightspace login (Duo push) or token status check
-  sync [--code X]      deterministic Brightspace sync (pilot courses by default)
+  sync [--code X]      deterministic Brightspace sync (all active courses by default)
                        [--model M] override the digest model
                        [--dry-run] enrollments + match only
   extract [--code X]   PDF → markdown via pdf-extractor (keeps originals)

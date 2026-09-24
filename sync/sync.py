@@ -1225,7 +1225,7 @@ class SyncEngine:
             else:
                 courses = self.db.get_active_courses()
             if not courses:
-                print("No course matched. Pass --code CS 1100A or mark a course is_pilot=1")
+                print("No course matched. Pass --code CS 1100A (or seed the course first)")
                 return 2
 
             if not dry_run:
@@ -1385,7 +1385,7 @@ class SyncEngine:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Campus Brightspace sync (H1 pilot)")
-    ap.add_argument("--code", help="course code to sync (default: all is_pilot)")
+    ap.add_argument("--code", help="course code to sync (default: every active course)")
     ap.add_argument("--dry-run", action="store_true", help="enrollments + match only")
     ap.add_argument("--model", help="LLM model for the digest (default: config)")
     args = ap.parse_args()

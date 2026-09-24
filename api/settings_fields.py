@@ -163,7 +163,6 @@ REGISTRY: dict[str, Field] = {
     "digest_pdf_excerpt_chars": Field("digest_pdf_excerpt_chars", "int",
                                       v_int(0, 1_000_000), group="content"),
     # sync
-    "pilot_only": Field("pilot_only", "bool", v_bool, group="sync"),
     "institution": Field("institution", "text", v_text(True), group="sync"),
     "timezone": Field("timezone", "text", v_timezone, group="sync", empty="store"),
     # notifications

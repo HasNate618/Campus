@@ -69,11 +69,6 @@ export const FIELD_META: Record<string, FieldMeta> = {
 		group: "content",
 		order: 4,
 	},
-	pilot_only: {
-		label: "Sync pilot courses only",
-		group: "sync",
-		order: 1,
-	},
 	institution: {
 		label: "Institution",
 		help: "Shown to the AI as who it works for.",

@@ -366,7 +366,7 @@ def test_yaml_error_reports_position_without_echoing_content(tmp_path):
     # An unterminated flow sequence reports the PROBLEM at end-of-stream; the
     # context mark is where the construct actually opened — the line to fix.
     flow = tmp_path / "flow.yaml"
-    flow.write_text("pilot_only: true\nllm_model: [oops\n")
+    flow.write_text("office_to_pdf: true\nllm_model: [oops\n")
     data2, err2 = read_settings_layer(flow)
     assert data2 == {}
     assert err2

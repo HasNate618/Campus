@@ -70,11 +70,6 @@ class DB:
             "SELECT * FROM courses WHERE code = ?", (code,)
         ).fetchone()
 
-    def get_pilot_courses(self) -> list[sqlite3.Row]:
-        return self.conn.execute(
-            "SELECT * FROM courses WHERE is_pilot = 1 AND is_active = 1"
-        ).fetchall()
-
     def get_active_courses(self) -> list[sqlite3.Row]:
         return self.conn.execute(
             "SELECT * FROM courses WHERE is_active = 1 ORDER BY code"

@@ -245,7 +245,6 @@ class Config:
     timezone: str = ""
 
     # sync scope
-    pilot_only: bool = True  # H1: only sync is_pilot courses
     max_file_size: int = 200 * 1024 * 1024  # skip downloads above this
     max_extract_size: int = 20 * 1024 * 1024  # PDFs above this are never extracted
     auto_extract_pdfs: bool = True  # extract after sync (cloud engine by default)
