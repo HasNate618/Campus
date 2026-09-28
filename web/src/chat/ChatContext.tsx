@@ -496,17 +496,22 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			// node still flagged streaming after the turn flag drops.)
 			if (local.nodes.some((n) => n.streaming)) return local;
 			const refreshed = toLocalSession(srv);
-			// Newer-wins: a device whose saves failed (stale bundle, offline
-			// gap, killed app) holds a NEWER local tree than the server. The
-			// mount load and focus-refetch would otherwise adopt the older
-			// server tree, destroying local progress in-memory — and the next
-			// debounced save would then persist the destruction. Adopt the
-			// server tree only when it is strictly longer; otherwise keep
-			// local and let the next save push it up. Equal lengths keep
-			// local (same-exchange regeneration intent; the cross-device-
-			// regen race, where the other device's regen is dropped, is
-			// accepted and noted).
-			if (refreshed.nodes.length <= local.nodes.length) return local;
+			// Newer-wins by TIME. This used to compare node COUNTS, which is
+			// not a recency signal: for a branching tree an abandoned branch
+			// inflates the count, so the device holding the most (often
+			// oldest) nodes won forever and never adopted the other device's
+			// newer turns — one device would keep showing a conversation the
+			// other had long moved past. Fall back to the old count heuristic
+			// only when a timestamp is missing, so untimestamped rows keep the
+			// previous behaviour.
+			const srvTime = refreshed.updatedAt;
+			const localTime = local.updatedAt;
+			const serverIsNewer = srvTime && localTime ? srvTime > localTime : false;
+			if (!srvTime || !localTime) {
+				if (refreshed.nodes.length <= local.nodes.length) return local;
+			} else if (!serverIsNewer && refreshed.nodes.length <= local.nodes.length) {
+				return local;
+			}
 			// Keep a real client uuid stable (activeMap + in-flight streams
 			// target it); reconcile numeric-id leftovers from the old
 			// uuid→server-id promotion to a fresh uuid + serverId.
@@ -514,9 +519,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			return {
 				...refreshed,
 				id,
-				// Keeping the local time is what keeps per-session times
-				// individual in the sidebar.
-				updatedAt: local.updatedAt ?? refreshed.updatedAt,
+				// The adopted tree is the server's, so carry its (newer)
+				// time; Math.max keeps the sidebar order monotonic either way.
+				updatedAt: Math.max(local.updatedAt ?? 0, refreshed.updatedAt ?? 0),
 			};
 		});
 		for (const srv of byId.values()) merged.push(toLocalSession(srv));
@@ -636,9 +641,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 						throw e;
 					}
 				} else {
-					const created = await api.chatSessionCreate(s.courseId, s.title);
-					// only set serverId — the client id stays put so in-flight streams
-					// keep targeting the right session
+					// Create ONCE, then remember it immediately — including on
+					// the loop's own object and on sessionsRef, which is what
+					// the NEXT save tick reads. Relying on setSessions alone
+					// left a window where the id existed in React state but not
+					// in the ref, so a later tick saw no serverId and created
+					// ANOTHER server session; one chat accumulated ten identical
+					// rows that way. `courseId || null` also stops a no-course
+					// chat sending 0, which is not a valid course foreign key.
+					const created = await api.chatSessionCreate(s.courseId || null, s.title);
+					s.serverId = created.id;
+					sessionsRef.current = sessionsRef.current.map((x) =>
+						x.id === s.id ? { ...x, serverId: created.id } : x,
+					);
 					setSessions((ss) =>
 						ss.map((x) => (x.id === s.id ? { ...x, serverId: created.id } : x)),
 					);

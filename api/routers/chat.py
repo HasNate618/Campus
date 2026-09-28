@@ -200,6 +200,7 @@ def list_sessions(course_id: int | None = None):
     """Session list with full trees (the client restores chats from this)."""
     from sync.db import DB
     from sync.config import Config
+    import hashlib
     import json
     cfg = Config.load()
     db = DB(cfg.db_path)
@@ -212,6 +213,7 @@ def list_sessions(course_id: int | None = None):
             rows = db.conn.execute(
                 "SELECT id, course_id, title, nodes_json, model, updated_at FROM chat_sessions ORDER BY updated_at DESC").fetchall()
         out = []
+        seen: dict = {}
         for r in rows:
             tree = {}
             if r["nodes_json"]:
@@ -219,6 +221,18 @@ def list_sessions(course_id: int | None = None):
                     tree = json.loads(r["nodes_json"])
                 except json.JSONDecodeError:
                     tree = {}
+            # Collapse BYTE-IDENTICAL duplicates. An older client re-created the
+            # same chat on every load whenever its local session had lost its
+            # serverId, so one conversation accumulated ten identical rows and
+            # every device listed all ten. Rows arrive updated_at DESC, so the
+            # first of each group is the newest and wins. The duplicate ROWS are
+            # left in place — this only stops them being listed; nothing is
+            # deleted, and PUT/GET by id still work for a client holding one.
+            digest = hashlib.md5((r["nodes_json"] or "").encode()).hexdigest()
+            key = (r["course_id"], r["title"], digest)
+            if key in seen:
+                continue
+            seen[key] = len(out)
             out.append({
                 "id": r["id"], "courseId": r["course_id"], "title": r["title"],
                 "model": r["model"],
@@ -253,9 +267,27 @@ def create_session(body: SessionCreate):
     cfg = Config.load()
     db = DB(cfg.db_path)
     try:
+        # `course_id` is a REAL foreign key (PRAGMA foreign_keys = ON), so an
+        # unknown id raises IntegrityError and the client gets a 500 — and a
+        # chat that cannot create its server session stays local-only forever
+        # and never syncs to another device. Two cases to handle:
+        #   0    — the client's sentinel for "no course" (it maps a NULL
+        #          course_id to 0), which must become NULL, the schema's
+        #          documented general marker.
+        #   junk — a course the client still has cached but that no longer
+        #          exists (a deleted course). Reject it clearly rather than
+        #          crashing, so the client can clear its stale state.
+        course_id = body.course_id
+        if course_id == 0:
+            course_id = None
+        if course_id is not None:
+            if not db.conn.execute("SELECT 1 FROM courses WHERE id=?",
+                                   (course_id,)).fetchone():
+                raise HTTPException(
+                    400, f"unknown course_id {course_id} — refresh the course list")
         cur = db.conn.execute(
             "INSERT INTO chat_sessions (course_id, title, nodes_json) VALUES (?,?,?)",
-            (body.course_id, body.title, "{}"))
+            (course_id, body.title, "{}"))
         db.conn.commit()
         sid = cur.lastrowid
         row = db.conn.execute(

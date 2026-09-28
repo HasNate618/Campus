@@ -10,15 +10,21 @@ import tailwindcss from "@tailwindcss/vite";
  *  identifiable — a stale index.html would show a build hash that doesn't
  *  match the server's dist, making the old-bundle failure mode visible. */
 function buildMeta(): Plugin {
-	let hash = "unknown";
-	try {
-		hash = execSync("git rev-parse --short HEAD", {
-			stdio: ["ignore", "pipe", "ignore"],
-		})
-			.toString()
-			.trim();
-	} catch {
-		/* not a git checkout — fall back to 'unknown' */
+	// BUILD_SHA wins: the web build runs in a node container that mounts only
+	// web/, so `git rev-parse` inside it fails and every deploy stamped
+	// "unknown" — losing the one signal that tells a stale bundle from a fresh
+	// one. build-web.sh passes the host's SHA through the environment.
+	let hash = process.env.BUILD_SHA?.trim() || "unknown";
+	if (hash === "unknown") {
+		try {
+			hash = execSync("git rev-parse --short HEAD", {
+				stdio: ["ignore", "pipe", "ignore"],
+			})
+				.toString()
+				.trim();
+		} catch {
+			/* not a git checkout — fall back to 'unknown' */
+		}
 	}
 	return {
 		name: "inject-build-meta",

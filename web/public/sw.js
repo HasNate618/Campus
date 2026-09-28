@@ -4,7 +4,7 @@
  * - navigations are network-first with an offline fallback to the shell
  * Bump VERSION to invalidate the cache on a new deploy.
  */
-const VERSION = "campus-v4";
+const VERSION = "campus-v5";
 
 self.addEventListener("install", (e) => {
 	e.waitUntil(

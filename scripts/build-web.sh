@@ -12,8 +12,11 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT/web"
 
 echo ">> building web UI (npm ci + vite build)"
-docker run --rm -v "$ROOT/web":/app/web -w /app/web node:22-alpine \
+# Pass the host's commit through: the container mounts only web/, so git is not
+# visible inside it and the build stamp would otherwise always be "unknown".
+BUILD_SHA="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+docker run --rm -e BUILD_SHA="$BUILD_SHA" -v "$ROOT/web":/app/web -w /app/web node:22-alpine \
   sh -c "npm ci && npm run build"
 
-echo ">> web/dist rebuilt at $ROOT/web/dist"
+echo ">> web/dist rebuilt at $ROOT/web/dist (build stamp: $BUILD_SHA)"
 echo "   The running campus container picks it up on next request (no restart needed)."
