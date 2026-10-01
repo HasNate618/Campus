@@ -47,7 +47,11 @@ const COPY_ICON = iconSvg(
 )
 const CHECK_ICON = iconSvg('<path d="M20 6 9 17l-5-5"/>')
 
-export function useZenPostProcess(ref: RefObject<HTMLElement | null>, _deps: unknown[]): void {
+export function useZenPostProcess(
+  ref: RefObject<HTMLElement | null>,
+  _deps: unknown[],
+  frozen = true,
+): void {
   // Runs after EVERY render (no deps array): any re-render that resets the
   // message DOM (e.g. reload, context updates) gets re-decorated within the
   // debounce window — without this, a reset left the raw markdown stuck
@@ -55,6 +59,17 @@ export function useZenPostProcess(ref: RefObject<HTMLElement | null>, _deps: unk
   useEffect(() => {
     const root = ref.current
     if (!root) return
+
+    // `frozen === false` means this content can still change (a chat turn in
+    // flight). Decorating now is wasted work AND visibly wrong: the next token
+    // re-renders the markdown HTML — `dangerouslySetInnerHTML` replaces the
+    // children wholesale — which wipes the injected <svg>/header, and the
+    // following scan puts it back. That cycle is exactly the "mermaid keeps
+    // flipping between raw source and the rendered diagram" report. The old
+    // guard tested `.streaming` on the DOM, which a multi-step turn toggles
+    // off between narration and tool calls, so the scan kept slipping through.
+    // Decorate once, when the content is final.
+    if (!frozen) return
 
     // The heavy DOM scanning below is trailing-debounced (~250ms): during
     // token streaming the text renders at frame rate and the decorations

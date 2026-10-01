@@ -64,9 +64,12 @@ function formatDetail(v: unknown): string {
 const ChatMd = memo(function ChatMd({
 	content,
 	citations,
+	frozen,
 }: {
 	content: string;
 	citations?: CitationMeta[];
+	/** False while the turn is still running — see ZenMarkdown. */
+	frozen?: boolean;
 }) {
 	const [rendered, setRendered] = useState(content);
 	const citeMap = useMemo(() => {
@@ -79,7 +82,7 @@ const ChatMd = memo(function ChatMd({
 		const raf = requestAnimationFrame(() => setRendered(content));
 		return () => cancelAnimationFrame(raf);
 	}, [content]);
-	return <ZenMarkdown content={rendered} citations={citeMap} />;
+	return <ZenMarkdown content={rendered} citations={citeMap} frozen={frozen} />;
 });
 
 function shortModel(id: string): string {
@@ -885,6 +888,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 							<ChatMd
 								content={node.content}
 								citations={mergedCitesByNode.get(node.id) ?? node.citations}
+								frozen={!busy}
 							/>
 							{node.streaming && <span className="stream-cursor" />}
 						</div>
@@ -1236,9 +1240,12 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 						// conversation appear a second later as a jump.
 						!session && !serverReady ? (
 							<div className="chat-empty">
-								<p className="page-sub" style={{ margin: 0 }}>
-									Opening conversation…
-								</p>
+								<Loader2
+									size={26}
+									className="animate-spin"
+									style={{ color: "var(--violet)" }}
+									aria-label="Opening conversation"
+								/>
 							</div>
 						) : (
 						<div className="chat-empty">

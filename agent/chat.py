@@ -104,17 +104,21 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
                 json={
                     "model": model or cfg.llm_model,
                     "messages": messages,
-                    **({"tools": TOOL_SCHEMAS,
-                        "max_tokens": cfg.llm_max_tokens,
-                        "stream": True,
-                        **( {"tool_choice": cfg.llm_tool_choice}
-                           if cfg.llm_tool_choice is not None else {})}
-                       if allow_tools else
-                       {"max_tokens": cfg.llm_max_tokens,
-                        "stream": True,
-                        "tool_choice": "none"}),
+                    **({"tools": TOOL_SCHEMAS} if allow_tools else {}),
+                    **(({"tool_choice": cfg.llm_tool_choice}
+                        if cfg.llm_tool_choice is not None else {})
+                       if allow_tools else {"tool_choice": "none"}),
+                    # llm_max_tokens <= 0 means UNCAPPED: omit the field entirely
+                    # so the provider applies its own ceiling for the model.
+                    # (Every provider still HAS a ceiling — read the body on a
+                    # rejection to see whether it came from the provider or the
+                    # gateway.) A cap only makes sense alongside a request
+                    # timeout long enough to actually deliver it.
+                    **({"max_tokens": cfg.llm_max_tokens}
+                       if cfg.llm_max_tokens and cfg.llm_max_tokens > 0 else {}),
+                    "stream": True,
                 },
-                timeout=300,
+                timeout=cfg.llm_request_timeout_s,
             ) as r:
                 r.raise_for_status()
                 content = ""
@@ -614,10 +618,18 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
             # a silent cut-off is indistinguishable from a finished answer.
             if (usage or {}).get("finish_reason") == "length" and text.strip():
                 cap = cfg.llm_max_tokens
-                print(f"  [model_call] answer truncated at max_tokens={cap} "
-                      f"(finish_reason=length)", flush=True)
-                text += (f"\n\n---\n_⚠ Cut off at the {cap}-token output cap "
-                         f"(`llm_max_tokens` in config.yaml). Ask me to continue._")
+                if cap and cap > 0:
+                    print(f"  [model_call] answer truncated at max_tokens={cap} "
+                          f"(finish_reason=length)", flush=True)
+                    text += (f"\n\n---\n_⚠ Cut off at the {cap}-token output cap "
+                             f"(`llm_max_tokens` in config.yaml). Ask me to continue._")
+                else:
+                    # Uncapped: the provider's own ceiling ended this, not us.
+                    print("  [model_call] answer ended at the provider's ceiling "
+                          "(finish_reason=length, no client cap set)", flush=True)
+                    text += ("\n\n---\n_⚠ The provider stopped this answer at its own "
+                             "output ceiling — the model itself has a limit even with "
+                             "no client cap set. Ask me to continue._")
             final: dict = {"role": "assistant", "content": text}
             if msg.get("reasoning"):
                 final["reasoning"] = msg["reasoning"]

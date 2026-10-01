@@ -15,14 +15,19 @@ export function ZenMarkdown({
   content,
   className,
   citations,
+  frozen = true,
 }: {
   content: string
   className?: string
   citations?: Record<number, CitationMeta>
+  /** False while the content can still change (a live chat turn) — the
+   *  post-process is skipped so injected diagrams/copy headers can't be wiped
+   *  by the next token re-render and re-added, which flickers. */
+  frozen?: boolean
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const html = useMemo(() => parseMarkdown(content ?? '', citations), [content, citations])
-  useZenPostProcess(ref, [html])
+  useZenPostProcess(ref, [html], frozen)
   return (
     <div
       ref={ref}

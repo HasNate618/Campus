@@ -208,12 +208,21 @@ class Config:
     llm_url: str = ""  # e.g. "https://api.openai.com/v1" or "http://localhost:11434/v1"
     llm_urls: list = field(default_factory=list)  # failover list; empty => [llm_url]
     llm_model: str = ""  # pick from: python -m sync models  (required for chat/digest)
-    # Output cap per model call. Thinking models (deepseek-*, o-series) bill
-    # their chain-of-thought against this same budget — a long reasoning run
-    # can consume it entirely and emit NO visible text. run_turn now detects
-    # both truncation (finish_reason) and an empty answer, but the real fix is
-    # headroom: this is a self-imposed cap, not a model limit.
+    # Output cap per model call. 0 or negative = UNCAPPED: `max_tokens` is
+    # omitted from the request entirely and the provider applies its own ceiling
+    # for the model. This is NOT "no limits" — every provider still has one, and
+    # an uncapped request is only useful together with llm_request_timeout_s long
+    # enough to deliver it. Reasoning tokens are billed against this budget, so a
+    # low cap truncates answers mid-sentence or — worse — lets the model spend
+    # everything thinking and emit no text at all. Measured distribution over 10
+    # days: p50 208, p90 1253, p99 5134 output tokens, which is why the shipped
+    # default is generous rather than tight.
     llm_max_tokens: int = 16384
+    # Seconds to wait for a single model call. Must be chosen WITH the cap: at
+    # the observed ~68 output tokens/sec a 300s timeout could only ever deliver
+    # ~20k tokens, so a larger cap just converted a truncation into a timeout,
+    # which loses the whole turn. 900s covers ~60k tokens at that rate.
+    llm_request_timeout_s: int = 900
     llm_api_key: str = ""  # env OPENAI_API_KEY; Bearer auth when set
     # Optional OpenAI-style `tool_choice` sent to the model. `None` (default) =
     # omit it, so the provider defaults to "auto" (model may call tools). Some
