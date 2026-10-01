@@ -114,6 +114,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		busy,
 		sessionsFor,
 		activeFor,
+		serverReady,
 		openSession,
 		newChat,
 		renameSession,
@@ -1229,6 +1230,17 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 			<div className="chat-scroll" ref={scrollRef}>
 				<div className="chat-col">
 					{!session || path.length === 0 ? (
+						// Until the server list lands, `sessions` holds only this
+						// device's local cache — painting the new-chat hero (or a
+						// guessed recent chat) here is what made the correct
+						// conversation appear a second later as a jump.
+						!session && !serverReady ? (
+							<div className="chat-empty">
+								<p className="page-sub" style={{ margin: 0 }}>
+									Opening conversation…
+								</p>
+							</div>
+						) : (
 						<div className="chat-empty">
 							<div className="logo-mark campus-logo-mark">
 								<CampusLogo size={32} />
@@ -1250,6 +1262,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 								))}
 							</div>
 						</div>
+						)
 					) : (
 						<>
 							{renderMessages()}

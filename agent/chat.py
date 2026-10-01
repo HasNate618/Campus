@@ -78,7 +78,8 @@ def llm_headers(cfg: Config) -> dict:
 
 def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
                 on_token=None, on_reasoning=None,
-                session_id: str | None = None) -> tuple[dict, dict | None]:
+                session_id: str | None = None,
+                allow_tools: bool = True) -> tuple[dict, dict | None]:
     """Streaming chat completion with LLM failover.
 
     Tries each URL in ``cfg.llm_endpoints()`` (llm_urls / OPENAI_ENDPOINTS,
@@ -103,11 +104,15 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
                 json={
                     "model": model or cfg.llm_model,
                     "messages": messages,
-                    "tools": TOOL_SCHEMAS,
-                    "max_tokens": cfg.llm_max_tokens,
-                    "stream": True,
-                    **({"tool_choice": cfg.llm_tool_choice}
-                       if cfg.llm_tool_choice is not None else {}),
+                    **({"tools": TOOL_SCHEMAS,
+                        "max_tokens": cfg.llm_max_tokens,
+                        "stream": True,
+                        **( {"tool_choice": cfg.llm_tool_choice}
+                           if cfg.llm_tool_choice is not None else {})}
+                       if allow_tools else
+                       {"max_tokens": cfg.llm_max_tokens,
+                        "stream": True,
+                        "tool_choice": "none"}),
                 },
                 timeout=300,
             ) as r:
@@ -572,11 +577,42 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
                 total_usage[k] += usage.get(k, 0)
         if not msg.get("tool_calls"):
             text = msg.get("content") or ""
+            # A reasoning model can spend the WHOLE output budget on
+            # chain-of-thought and emit no visible text at all — seen live:
+            # completion_tokens 8000 with reasoning_tokens 8005 over 118s. The
+            # turn then renders tool calls and thinking with no answer. Ask once
+            # more WITH TOOLS DISABLED, which stops it re-entering the tool loop
+            # and forces plain prose.
+            if not text.strip():
+                print("  [model_call] empty answer (budget spent on reasoning) — "
+                      "retrying with tools disabled", flush=True)
+                try:
+                    retry_msgs = messages + [{"role": "user", "content": (
+                        "Your last reply contained no visible text at all. Answer the "
+                        "question now in plain prose using what you have already "
+                        "gathered. Do not call any tools.")}]
+                    msg2, usage2 = _model_call(
+                        cfg, retry_msgs, model,
+                        on_token=on_token, on_reasoning=on_reasoning,
+                        session_id=session_id, allow_tools=False)
+                    got = (msg2.get("content") or "")
+                    if got.strip():
+                        text = got
+                        if msg2.get("reasoning"):
+                            msg["reasoning"] = msg2["reasoning"]
+                        usage = usage2 or usage
+                except Exception as e:
+                    print(f"  [model_call] forced-answer retry failed: "
+                          f"{type(e).__name__}: {str(e)[:200]}", flush=True)
+            if not text.strip():
+                text = ("⚠ The model ended its turn without writing an answer — it "
+                        "spent the entire output budget on reasoning first. Try "
+                        "again, or ask a narrower question.")
             # finish_reason == "length" means the provider cut the answer off at
             # max_tokens. Thinking models spend part of that same budget on
             # chain-of-thought, so this hits long answers routinely. Say so —
             # a silent cut-off is indistinguishable from a finished answer.
-            if (usage or {}).get("finish_reason") == "length":
+            if (usage or {}).get("finish_reason") == "length" and text.strip():
                 cap = cfg.llm_max_tokens
                 print(f"  [model_call] answer truncated at max_tokens={cap} "
                       f"(finish_reason=length)", flush=True)

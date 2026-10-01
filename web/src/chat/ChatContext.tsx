@@ -149,6 +149,9 @@ interface ChatContextValue {
 	publishView: (view: ViewContext) => void;
 	sessionsFor: (courseId: number) => ChatSession[];
 	activeFor: (courseId: number) => ChatSession | null;
+	/** True once the server session list has loaded (or failed). Until then the
+	 *  local cache is incomplete and callers should not guess. */
+	serverReady: boolean;
 	openSession: (courseId: number, sessionId: string) => void;
 	setSessionModel: (sessionId: string, model: string | null) => void;
 	newChat: (courseId: number) => void;
@@ -471,6 +474,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 	// abort handle for the in-flight turn — stop() trips it
 	const turnAbortRef = useRef<AbortController | null>(null);
 	const serverReadyRef = useRef(false);
+	// State twin of the ref: activeFor must RE-RENDER once the server list has
+	// landed, so it can stop withholding the fallback.
+	const [serverReady, setServerReady] = useState(false);
 	const savingRef = useRef(false);
 	const saveTimer = useRef<number | null>(null);
 	const sessionsRef = useRef(sessions);
@@ -604,7 +610,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				});
 			})
 			.finally(() => {
-				if (!cancelled) serverReadyRef.current = true;
+				if (!cancelled) {
+					serverReadyRef.current = true;
+					setServerReady(true);
+				}
 			});
 		return () => {
 			cancelled = true;
@@ -805,6 +814,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			if (id === "") return null;
 			const found = id ? sessions.find((s) => s.id === id) : undefined;
 			if (found) return found;
+			// Before the server list lands, `sessions` is only this device's
+			// localStorage cache — a fallback guess here picked the wrong chat,
+			// painted it, and then jumped to the right one when the server
+			// replied. Wait instead of guessing.
+			if (!serverReady) return null;
 			// stale/missing active (e.g. after an id promotion) — fall back to the
 			// most recently updated session for the course instead of a blank chat
 			return (
@@ -813,7 +827,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 					.sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null
 			);
 		},
-		[sessions, activeMap],
+		[sessions, activeMap, serverReady],
 	);
 
 	const openSession = useCallback((courseId: number, sessionId: string) => {
@@ -1568,6 +1582,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			publishView,
 			sessionsFor,
 			activeFor,
+			serverReady,
 			openSession,
 			setSessionModel,
 			newChat,
@@ -1595,6 +1610,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			publishView,
 			sessionsFor,
 			activeFor,
+			serverReady,
 			openSession,
 			setSessionModel,
 			newChat,
