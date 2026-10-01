@@ -213,7 +213,7 @@ class Config:
     # can consume it entirely and emit NO visible text. run_turn now detects
     # both truncation (finish_reason) and an empty answer, but the real fix is
     # headroom: this is a self-imposed cap, not a model limit.
-    llm_max_tokens: int = 32768
+    llm_max_tokens: int = 16384
     llm_api_key: str = ""  # env OPENAI_API_KEY; Bearer auth when set
     # Optional OpenAI-style `tool_choice` sent to the model. `None` (default) =
     # omit it, so the provider defaults to "auto" (model may call tools). Some
