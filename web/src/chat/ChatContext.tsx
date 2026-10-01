@@ -288,26 +288,45 @@ function migrateV2(raw: ChatSessionV2[]): ChatSession[] {
 
 /** Zombie nodes are assistant messages whose stream died mid-turn (page
  *  reload/close before done) — they were persisted as 'Thinking…' forever.
- *  Normalize them so a reloaded chat never shows a spinner that never ends. */
+ *  Normalize them so a reloaded chat never shows a spinner that never ends.
+ *  A PARTIAL answer is flagged too: previously only an empty one got the
+ *  warning, so a half-streamed reply was silently presented as complete. */
 function normalizeZombies(s: ChatSession): ChatSession {
 	let changed = false;
 	const nodes = s.nodes.map((n) => {
 		if (n.role !== "assistant") return n;
 		if (n.streaming || (n.thinking && !n.thinkingDone)) {
 			changed = true;
+			const mark =
+				"⚠ The response was interrupted before it finished — the page was " +
+				"reloaded or closed mid-turn, so the stream never completed.";
 			return {
 				...n,
 				streaming: false,
 				thinkingDone: true,
 				intermediate: false,
-				content:
-					n.content ||
-					"⚠ The response was cut short (the page reloaded mid-turn). Try again.",
+				content: n.content
+					? `${n.content}\n\n---\n_${mark} The answer above is incomplete._`
+					: `${mark} Try again.`,
 			};
 		}
 		return n;
 	});
 	return changed ? { ...s, nodes } : s;
+}
+
+/** Clamp timestamps that were inflated into the future while the UTC-parse bug
+ *  compounded (+one UTC offset per load/save round trip). Without this, cached
+ *  sessions keep reading as "just now" on every load; the next save then writes
+ *  the corrected value back to the server. */
+function clampTimes(s: ChatSession): ChatSession {
+	const now = Date.now();
+	if (s.updatedAt <= now && s.createdAt <= now) return s;
+	return {
+		...s,
+		updatedAt: Math.min(s.updatedAt, now),
+		createdAt: Math.min(s.createdAt, now),
+	};
 }
 
 function loadSessions(): ChatSession[] {
@@ -316,6 +335,7 @@ function loadSessions(): ChatSession[] {
 		if (raw) {
 			return (JSON.parse(raw) as ChatSession[])
 				.filter((s) => s.nodes.some((n) => n.role !== "tool"))
+				.map(clampTimes)
 				.map(normalizeZombies);
 		}
 		const v2 = localStorage.getItem(V2_KEY);
@@ -456,10 +476,43 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 	const sessionsRef = useRef(sessions);
 	sessionsRef.current = sessions;
 
+	/** Parse a server datetime.
+	 *
+	 * The server stores `datetime('now')` — UTC with NO timezone suffix, e.g.
+	 * "2026-09-24 22:39:42". `new Date("2026-09-24T22:39:42")` is read as
+	 * LOCAL time, so this added a whole UTC offset (4h in Toronto) of error.
+	 * Worse, the client sends the same value back in the next save and the
+	 * server stores it verbatim, so the error COMPOUNDED on every load/save
+	 * cycle — timestamps marched into the future until every session read as
+	 * "just now" (and sidebar ordering by time became meaningless). Treat a
+	 * suffix-less value as UTC, and clamp anything still in the future so
+	 * already-inflated values heal instead of persisting. */
+	function parseServerTime(s: string | null | undefined): number {
+		if (!s) return NaN;
+		const iso = String(s).replace(" ", "T");
+		const zoned = /(?:Z|[+-]\d{2}:?\d{2})$/.test(iso) ? iso : `${iso}Z`;
+		const t = Date.parse(zoned);
+		if (!Number.isFinite(t)) return NaN;
+		return Math.min(t, Date.now());
+	}
+
+	/** Stable client id for a server-backed session.
+	 *
+	 * Must be DERIVED from the server id, not minted fresh. The active-session
+	 * map (`activeMap`, persisted per course in localStorage) stores these ids,
+	 * and a fresh uuid on every load never matched what was saved — so a reload
+	 * lost your place and fell through to "most recently updated", which is how
+	 * it reopened a DIFFERENT chat than the one you were reading. Deterministic
+	 * here means a reload resolves to the same session.
+	 *
+	 * Deliberately not all-digits: mergeServerSessions treats a purely numeric
+	 * client id as a legacy uuid→server-id leftover and replaces it. */
+	const serverClientId = (serverId: number) => `server-${serverId}`;
+
 	function toLocalSession(srv: ChatServerSession): ChatSession {
-		const ts = new Date(srv.updatedAt.replace(" ", "T")).getTime();
+		const ts = parseServerTime(srv.updatedAt);
 		return normalizeZombies({
-			id: makeUuid(), // fresh client id — server id lives in serverId
+			id: serverClientId(srv.id),
 			serverId: srv.id,
 			courseId: srv.courseId ?? 0,
 			title: srv.title,
@@ -519,9 +572,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			return {
 				...refreshed,
 				id,
-				// The adopted tree is the server's, so carry its (newer)
-				// time; Math.max keeps the sidebar order monotonic either way.
-				updatedAt: Math.max(local.updatedAt ?? 0, refreshed.updatedAt ?? 0),
+				// Adopting the server's tree means adopting its time too — the
+				// server value is authoritative once the clock skew is fixed,
+				// whereas keeping the local one would preserve an already
+				// inflated timestamp forever.
+				updatedAt: refreshed.updatedAt || local.updatedAt,
 			};
 		});
 		for (const srv of byId.values()) merged.push(toLocalSession(srv));
@@ -619,8 +674,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 					model: s.model ?? null,
 					// the true per-session activity time — the server adopts it as
 					// updated_at instead of stamping its own (bulk re-saves used to
-					// clobber every session's time with the same value)
-					updatedAt: s.updatedAt,
+					// clobber every session's time with the same value). Clamped:
+					// a future value would be written verbatim and feed the drift
+					// that made everything read as "just now".
+					updatedAt: Math.min(s.updatedAt || Date.now(), Date.now()),
 				};
 				if (s.serverId != null) {
 					try {
