@@ -204,7 +204,12 @@ export function WorkspacePage() {
         mtimeRef.current = node.mtime
         if (textRef.current === savedRef.current) {
           const r = await api.workspaceRead(cid, cur.path)
-          if (r.viewable && r.text !== null) {
+          // Only reload when the TEXT actually changed. The AI rewrites a file
+          // in place (same bytes, new mtime) often enough that mtime alone is
+          // not a real change — and every needless setText re-renders the
+          // preview, which wipes the injected diagram/code decorations and
+          // re-adds them, i.e. a visible flash for no reason.
+          if (r.viewable && r.text !== null && r.text !== textRef.current) {
             setText(r.text)
             setSavedText(r.text)
             setSavedAt('updated')

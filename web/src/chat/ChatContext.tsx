@@ -812,7 +812,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			// '' = explicit empty-chat state (New chat pressed) — show the blank
 			// screen instead of falling back to the most recent session
 			if (id === "") return null;
-			const found = id ? sessions.find((s) => s.id === id) : undefined;
+			// Match the stored id against the client id AND the server id.
+			// activeMap is persisted per course in localStorage, so it can hold an
+			// id written by an older build: a bare uuid (which matches no session,
+			// ever) or a legacy all-digits server id. Matching only `s.id` made
+			// those fall through to the "most recently updated" guess below — the
+			// exact path that reopened a DIFFERENT chat on reload and then
+			// corrected itself a moment later.
+			const found = id
+				? (sessions.find((s) => s.id === id) ??
+					sessions.find((s) => String(s.serverId) === id))
+				: undefined;
 			if (found) return found;
 			// Before the server list lands, `sessions` is only this device's
 			// localStorage cache — a fallback guess here picked the wrong chat,

@@ -85,6 +85,14 @@ export function useZenPostProcess(
     // (copy buttons, mermaid) settle right after the message stops growing.
     // Blocks inside a still-streaming message (.streaming) are skipped so
     // the header doesn't flicker on every token.
+    // Delay is deliberately short now. This used to be 250ms to coalesce the
+    // per-token re-renders of a streaming message — but post-processing is
+    // gated on `frozen`, so it only ever runs on FINAL content. Against final
+    // content the only reason to wait is that a re-render (a file reload, a
+    // context update) has just replaced the DOM and wiped the injected
+    // diagram/code decorations: every millisecond of delay is a millisecond the
+    // user sees raw source where a rendered block should be. The cleanup still
+    // coalesces same-tick re-renders.
     const scanTimer = window.setTimeout(() => {
     if (!root.isConnected) return
     const streaming = !!root.closest('.streaming')
@@ -210,7 +218,7 @@ export function useZenPostProcess(
       img.addEventListener('error', fallback, { once: true })
     })
     // 4. Mermaid zoom-on-click: click a rendered diagram → fullscreen overlay
-    }, 250)
+    }, 0)
     const onClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement
       const wrap = target.closest('.mermaid-wrap')
