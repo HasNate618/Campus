@@ -740,10 +740,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
 	useEffect(() => {
 		// localStorage is a cache now; don't hammer it on every token while a
-		// stream is running (the server gets the live tree instead)
-		if (busyRef.current) return;
+		// stream is running (the server gets the live tree instead).
+		//
+		// `busy` is a DEPENDENCY, not just a guard. A turn's final state change
+		// lands while busy is still true, so it was skipped by the ref check and
+		// never re-persisted — `sessions` doesn't change again afterwards. The
+		// cache was therefore systematically one turn behind, so a reload
+		// rendered a chat that stopped partway and then filled in the rest.
+		if (busy) return;
 		persist(sessions);
-	}, [sessions]);
+	}, [sessions, busy]);
 
 	// Persist the active session per course so a reload reopens the same chat
 	// instead of starting a fresh one.
