@@ -467,7 +467,22 @@ export function WorkspacePage() {
                 title={canEdit ? 'Click to edit' : undefined}
               >
                 {prosePreview ? (
-                  <ZenMarkdown content={sanitizeHtml(text)} />
+                  // HTML (semi-trusted Brightspace output) goes through the
+                  // sanitizer. Markdown/text must NOT: sanitizeHtml rebuilds the
+                  // document and returns innerHTML, and re-serializing escapes
+                  // TEXT nodes — so every `-->`, `<`, `>` and `&` in a diagram or
+                  // code block came back as `--&gt;` / `&lt;` / `&amp;`. Mermaid
+                  // then failed to parse a diagram that is perfectly valid on
+                  // disk ("this diagram could not be parsed"), and code blocks
+                  // displayed entities. The chat renderer already passes markdown
+                  // unsanitized, so this is consistent rather than a new risk.
+                  <ZenMarkdown
+                    content={
+                      current?.kind === 'html' || current?.kind === 'htm'
+                        ? sanitizeHtml(text)
+                        : text
+                    }
+                  />
                 ) : (
                   <pre className="ws-plain">{text}</pre>
                 )}
