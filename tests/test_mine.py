@@ -321,6 +321,44 @@ def test_card_clips_at_word_boundary(db, cfg):
     db.close()
 
 
+def test_card_drops_nothing_silently(db, cfg):
+    """The card is read by BOTH the model and the user, so a capped bullet list
+    is data loss in two places at once. Every qualifying fact must render."""
+    from agent.memory import build_card
+    course = db.get_course_by_code("CS 1100A")
+    n = 30  # comfortably past the old 24-bullet ceiling
+    for i in range(n):
+        db.conn.execute(
+            "INSERT INTO memory_facts (course_id, fact, category, confidence, source)"
+            " VALUES (?,?,?,?,?)",
+            (course["id"], f"Policy item number {i} must survive intact.",
+             "course-policy", 0.9, "t"))
+    db.conn.commit()
+    card = build_card(cfg, db, course["id"])
+    missing = [i for i in range(n) if f"Policy item number {i} must survive" not in card]
+    assert not missing, f"facts silently dropped from the card: {missing}"
+    assert "…" not in card, "facts must not be clipped — the full text is the point"
+    db.close()
+
+
+def test_card_overflow_is_labeled_not_silent(db, cfg):
+    """When the token bound DOES bite, the footer must name what went. An
+    unlabeled omission reads as a complete card, which is the actual bug."""
+    from agent.memory import build_card
+    course = db.get_course_by_code("CS 1100A")
+    for i in range(40):
+        db.conn.execute(
+            "INSERT INTO memory_facts (course_id, fact, category, confidence, source)"
+            " VALUES (?,?,?,?,?)",
+            (course["id"], f"Assignment rule {i}: " + "detail " * 60,
+             "assignment", 0.9, "t"))
+    db.conn.commit()
+    card = build_card(cfg, db, course["id"], max_tokens=200)  # force the bound
+    assert "omitted" in card, "an over-budget card must say so"
+    assert "Assignments:" in card, "the footer must name the dropped section"
+    db.close()
+
+
 def test_retire_noise_facts(db):
     from sync.mine import retire_noise_facts
     course = db.get_course_by_code("CS 1100A")

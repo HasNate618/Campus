@@ -288,6 +288,18 @@ pre > .code-header + code {
   height: auto;
 }
 
+/* A diagram whose source could not be parsed. We show the source instead of
+   mermaid's own full-size "Syntax error" graphic — see zenMd.tsx. */
+.mermaid-failed {
+  margin: 0.5em 0 1em;
+}
+
+.mermaid-failed-note {
+  font-size: 0.82em;
+  opacity: 0.75;
+  margin-bottom: 0.4em;
+}
+
 .mermaid-overlay {
   position: fixed;
   inset: 0;

@@ -602,7 +602,11 @@ def get_memory_card(course_id: int) -> str:
         return ""
     p = SCHOOL_ROOT / course["term"] / course["code"].replace(" ", "") / "memory-card.md"
     if p.exists():
-        return p.read_text()[:20_000]
+        # No silent truncation here. The card is bounded upstream by
+        # agent.memory.MAX_CARD_TOKENS (~24k chars worst case) and reports its own
+        # overflow in a footer, so this is only a guard against a pathological
+        # file — set well above what the generator can produce.
+        return p.read_text()[:200_000]
     return ""
 
 

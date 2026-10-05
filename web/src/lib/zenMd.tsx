@@ -22,7 +22,16 @@ function loadMermaid() {
       // rendered diagram). Labelled nodes still render — the only losses are
       // click interactivity and inline HTML formatting inside labels
       // (a <br/> shows literally).
-      m.default.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' })
+      m.default.initialize({
+        startOnLoad: false,
+        theme: 'dark',
+        securityLevel: 'strict',
+        // Without this, an unparseable diagram is drawn as mermaid's OWN
+        // full-size "Syntax error in text" graphic instead of throwing — so a
+        // failure looked like a rendering bug in the app rather than a bad
+        // diagram, and the caller could never take the fallback path.
+        suppressErrorRendering: true,
+      })
       return m.default
     })
   }
@@ -90,20 +99,39 @@ export function useZenPostProcess(
           code.setAttribute('data-zen-processed', '1')
           const pre = code.parentElement
           if (!pre) return
-          const source = code.textContent ?? ''
+          const source = (code.textContent ?? '').trim()
           const wrap = document.createElement('div')
           wrap.className = 'mermaid-wrap'
           wrap.innerHTML = '<div class="mermaid"></div>'
           pre.replaceWith(wrap)
           const slot = wrap.querySelector('.mermaid') as HTMLElement
           const id = 'mmd' + Math.random().toString(36).slice(2, 10)
-          void mm
-            .render(id, source)
+          mm.render(id, source)
             .then((res) => {
               slot.innerHTML = res.svg
             })
-            .catch(() => {
-              wrap.outerHTML = `<pre><code class="language-mermaid">${escapeHtml(source)}</code></pre>`
+            .catch((err) => {
+              // Genuinely unparseable source: show it verbatim with a short note
+              // (see the zen.css rules). Better to show the diagram's source and
+              // say so than to leave a broken-looking graphic, since the fix is
+              // usually "ask the model to correct the diagram".
+              console.warn('[mermaid] failed to parse diagram:', err)
+              wrap.outerHTML =
+                '<div class="mermaid-failed">' +
+                '<div class="mermaid-failed-note">⚠ this diagram could not be parsed — showing its source</div>' +
+                `<pre><code class="language-mermaid">${escapeHtml(source)}</code></pre>` +
+                '</div>'
+            })
+            .finally(() => {
+              // mermaid renders through a TEMPORARY element it appends to <body>
+              // and removes afterwards. A parse error throws BEFORE that
+              // cleanup, so the node survives — and it contains a full-size
+              // diagram, so leftovers stack up BELOW the whole app shell. Sweep
+              // this render's ids unconditionally (only OUR ids, so a concurrent
+              // render for a neighbouring block is never disturbed).
+              for (const cand of [id, 'd' + id]) {
+                document.getElementById(cand)?.remove()
+              }
             })
         })
       })
