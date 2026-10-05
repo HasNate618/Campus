@@ -376,6 +376,29 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		el.scrollTop = el.scrollHeight;
 	}, [session?.nodes, session?.activeNodeId]);
 
+	// The two effects above run on MOUNT, but the content keeps growing after
+	// that: mermaid diagrams render asynchronously, code headers are injected,
+	// images finish loading. Each of those adds height below the viewport, so a
+	// scroll that WAS at the bottom ends up parked mid-history — which is why a
+	// reload showed "some other part of the chat" instead of the newest message
+	// (it looked like a different chat; it was the same one, mis-anchored).
+	// Re-anchor on every content resize while the user is still pinned, and only
+	// while pinned, so scrolling up to read is never yanked away.
+	useEffect(() => {
+		const el = scrollRef.current;
+		if (!el) return;
+		const anchor = () => {
+			if (pinnedRef.current) el.scrollTop = el.scrollHeight;
+		};
+		const ro = new ResizeObserver(anchor);
+		ro.observe(el);
+		// Observe the scrollable CONTENT too: growth of the inner block is what
+		// actually moves the bottom (the viewport itself may not resize at all).
+		const content = el.firstElementChild;
+		if (content) ro.observe(content);
+		return () => ro.disconnect();
+	}, []);
+
 	/** Tool children of an assistant node (fallback + tree semantics). */
 	const toolChildren = (assistantId: string): MsgNode[] =>
 		session?.nodes.filter(

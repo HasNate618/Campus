@@ -131,15 +131,17 @@ export function useZenPostProcess(
                 '</div>'
             })
             .finally(() => {
-              // mermaid renders through a TEMPORARY element it appends to <body>
-              // and removes afterwards. A parse error throws BEFORE that
-              // cleanup, so the node survives — and it contains a full-size
-              // diagram, so leftovers stack up BELOW the whole app shell. Sweep
-              // this render's ids unconditionally (only OUR ids, so a concurrent
-              // render for a neighbouring block is never disturbed).
-              for (const cand of [id, 'd' + id]) {
-                document.getElementById(cand)?.remove()
-              }
+              // mermaid renders through a TEMPORARY container it appends to
+              // <body> with id `d<id>`, and removes it afterwards; a throw skips
+              // that cleanup, which is how error diagrams stacked below the app.
+              //
+              // Sweep ONLY that temp container. The svg mermaid RETURNS carries
+              // the BARE id (verified: slot svg id === our id), so also removing
+              // getElementById(id) deletes the diagram we just inserted — the
+              // "nothing shows where the diagram was" bug. The `wrap.contains`
+              // guard keeps a successful render safe regardless of id scheme.
+              const stray = document.getElementById('d' + id)
+              if (stray && !wrap.contains(stray)) stray.remove()
             })
         })
       })
