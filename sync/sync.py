@@ -164,6 +164,11 @@ class SyncEngine:
         # digested_at when fetched — so whatever this run failed to mine is
         # effectively lost. Surfaced via sync_runs.error, never swallowed.
         self.mining_failures: list[str] = []
+        # Courses whose LMS sync raised this run. One transient error used to
+        # propagate to the outer handler, mark the WHOLE run failed and skip
+        # every remaining course (discarding their extraction and mining too).
+        # Recorded per course so the run can finish 'partial' instead.
+        self.course_failures: list[tuple[str, str]] = []
 
     # ── enrollments ─────────────────────────────────────────────────────
     def fetch_enrollments(self, active_only: bool = False) -> list[dict]:
@@ -1221,12 +1226,26 @@ class SyncEngine:
                     continue
                 # snapshot stats before this course to compute per-course deltas
                 _snap = {k: v for k, v in self.stats.items()}
-                self.sync_content(course["id"], org_unit, course_dir)
-                self.sync_embedded(course["id"], org_unit, course_dir)
-                self.sync_module_media(course["id"], org_unit, course_dir)
-                self.sync_dropbox(course["id"], org_unit)
-                self.sync_news(course["id"], org_unit)
-                self.sync_syllabus(course["id"], org_unit, course_dir)
+                # ISOLATED per course. Previously these six calls were unguarded:
+                # one transient LMS error — or a single bad row, e.g. a UNIQUE
+                # collision in sync_news — propagated to the outer handler, marked
+                # the whole run 'failed' and skipped every remaining course,
+                # discarding their extraction and mining as well. A course that
+                # still fails after the client's retry is recorded and skipped.
+                try:
+                    self.sync_content(course["id"], org_unit, course_dir)
+                    self.sync_embedded(course["id"], org_unit, course_dir)
+                    self.sync_module_media(course["id"], org_unit, course_dir)
+                    self.sync_dropbox(course["id"], org_unit)
+                    self.sync_news(course["id"], org_unit)
+                    self.sync_syllabus(course["id"], org_unit, course_dir)
+                except Exception as e:
+                    self.course_failures.append(
+                        (course["code"], f"{type(e).__name__}: {str(e)[:200]}"))
+                    print(f"    [warn] LMS sync failed for {course['code']}: "
+                          f"{type(e).__name__}: {str(e)[:200]} — skipping this "
+                          f"course, continuing with the rest", file=sys.stderr)
+                    continue
                 # foreground extraction + mining, per course (full context same run;
                 # idle courses skip both via the mining gate)
                 try:
@@ -1287,15 +1306,24 @@ class SyncEngine:
                     f"{self.stats['announcements_new']} announcements, "
                     f"{self.stats['facts_added']} facts",
                     "green")
-            # Mining is best-effort, but a mining failure is permanent (that
-            # content is not re-mined later), so record it on the run instead of
-            # reporting a clean 'ok' with no signal.
-            note = (f"fact mining failed for: {', '.join(self.mining_failures)} — "
-                    f"facts were NOT extracted and will not be re-mined unless "
-                    f"the content changes") if self.mining_failures else None
-            self.db.finish_sync(run_id, "ok", **self.stats,
+            # Status + a real error note. 'partial' was allowed by the schema but
+            # nothing ever wrote it, so a run that skipped courses looked exactly
+            # like a clean one. Mining failures are not recoverable either (the
+            # delta gate will not revisit that content), so both go on the run.
+            problems: list[str] = []
+            if self.course_failures:
+                problems.append("course sync failed for: " + "; ".join(
+                    f"{code} ({err})" for code, err in self.course_failures))
+            if self.mining_failures:
+                problems.append(
+                    "fact mining failed for: " + ", ".join(self.mining_failures)
+                    + " — those facts were NOT extracted and will not be re-mined "
+                      "unless the content changes")
+            status = "partial" if self.course_failures else "ok"
+            note = " | ".join(problems) if problems else None
+            self.db.finish_sync(run_id, status, **self.stats,
                                 **({"error": note} if note else {}))
-            print(f"\nSync OK: {json.dumps(self.stats)}")
+            print(f"\nSync {status.upper()}: {json.dumps(self.stats)}")
             if note:
                 print(f"[warn] {note}", file=sys.stderr)
             # post-sync verification: count files/nodes/announcements per course

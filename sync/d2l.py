@@ -121,6 +121,15 @@ class D2LClient:
         try:
             r = self._client.request(method, url, headers=self._auth_headers(token))
         except httpx.HTTPError as e:
+            # Transport blips (connection reset, timeout, DNS) are transient far
+            # more often than not. One bounded retry — the single retry budget is
+            # shared with the 401/429 paths via is_retry, so a request can never
+            # retry more than once overall.
+            if not is_retry:
+                print(f"  [d2l] network error on {path} "
+                      f"({e.__class__.__name__}) — retrying once...", flush=True)
+                time.sleep(2)
+                return self._request(method, path, token, raw=raw, is_retry=True)
             raise D2LError(f"Network error on {path}: {e}") from e
 
         if r.status_code == 401:
@@ -153,6 +162,16 @@ class D2LClient:
             raise D2LError(f"403 on {path} (past-semester course or no access)")
         if r.status_code == 404:
             raise D2LError(f"404 on {path}")
+        if r.status_code >= 500:
+            # D2L 5xx are usually momentary. Without this, one blip raised
+            # straight through and aborted the whole multi-course run (the loop
+            # now isolates per course as well, but recovering beats skipping).
+            if not is_retry:
+                print(f"  [d2l] {r.status_code} on {path} — retrying once in 2s...",
+                      flush=True)
+                time.sleep(2)
+                return self._request(method, path, token, raw=raw, is_retry=True)
+            raise D2LError(f"{r.status_code} on {path} after one retry")
         if r.status_code >= 400:
             print(f"  [d2l] {r.status_code} {method} {path}", flush=True)
         r.raise_for_status()
