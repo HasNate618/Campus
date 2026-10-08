@@ -3,6 +3,8 @@ import DOMPurify from 'dompurify'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 
+import { escapeHtml, renderFileRefs } from './fileRefs.ts'
+
 /**
  * Shared markdown → HTML for the chat (and content) renderers.
  *
@@ -106,14 +108,6 @@ export interface CitationMeta {
   kind?: string
 }
 
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
-
 function chipTitle(c: CitationMeta): string {
   const base = c.label || c.ref
   return c.page != null && c.page > 0 ? `${base} · p.${c.page}` : base
@@ -167,14 +161,14 @@ function balanceFences(md: string): string {
  * can reach the session cookie and every API route.
  *
  * ADD_TAGS/ADD_ATTR keep our own generated markup: renderCitations() emits
- * <button data-cite-id>, and DOMPurify drops all data-* once
- * ALLOW_DATA_ATTR is off. KaTeX's inline styles, MathML, footnote anchors
- * (id/href) and highlight.js classes survive the defaults — verified against
- * real KaTeX/marked output.
+ * <button data-cite-id>, renderFileRefs() emits <button data-file-path>, and
+ * DOMPurify drops all data-* once ALLOW_DATA_ATTR is off. KaTeX's inline
+ * styles, MathML, footnote anchors (id/href) and highlight.js classes survive
+ * the defaults — verified against real KaTeX/marked output.
  */
 const SANITIZE_CONFIG = {
   ADD_TAGS: ['button'],
-  ADD_ATTR: ['data-cite-id'],
+  ADD_ATTR: ['data-cite-id', 'data-file-path'],
   ALLOW_DATA_ATTR: false,
   // No markdown construct needs form controls, and a model-authored <form> is
   // a credential-phishing surface rather than content.
@@ -182,7 +176,7 @@ const SANITIZE_CONFIG = {
 }
 
 export function parseMarkdown(content: string, citations?: Record<number, CitationMeta>): string {
-  const body = renderCitations(content ?? '', citations)
+  const body = renderFileRefs(renderCitations(content ?? '', citations))
   const html = (marked.parse(balanceFences(renderFootnotes(body))) as string) || ''
   return DOMPurify.sanitize(html, SANITIZE_CONFIG)
 }
