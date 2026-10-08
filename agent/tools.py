@@ -1016,7 +1016,8 @@ def file_edit(db: DB, cfg: Config, args: dict) -> dict:
 
 def file_write(db: DB, cfg: Config, args: dict) -> dict:
     """Audited file write. path is relative to data_root; content/ is read-only.
-    Notes convention: {TERM}/{CODE}/notes/YYYY-MM-DD-title.md; work files go in work/."""
+    Notes convention: {TERM}/{CODE}/notes/YYYY-MM-DD-title.md; work files go in work/.
+    Uploaded files live in uploads/ (read them with extract_file or shell tools)."""
     rel = Path(args.get("path", ""))
     root = Path(cfg.data_root).resolve()
     full = (root / rel).resolve()
@@ -1305,13 +1306,13 @@ TOOLS = {
         "SCOPED edit of a file: replace ONE unique snippet (old_text must appear exactly once — include surrounding context to make it unique). Everything outside the snippet is untouched, so long docs can't drift. Prefer this over file_write for edits; use file_write to create or fully rewrite a file. Audited.",
         file_edit,
         required=["path", "old_text", "new_text"],
-        path={"type": "string", "description": "path relative to data_root, e.g. '2026F/CS1100A/notes/2026-09-04-study.md'"},
+        path={"type": "string", "description": "path relative to data_root, e.g. '2026F/CS1100A/notes/2026-09-04-study.md' or an uploads/ path"},
         old_text={"type": "string", "description": "the exact existing text to replace (quote it verbatim, include neighbors if needed)"},
         new_text={"type": "string", "description": "the replacement text"},
     ),
     "file_write": _tool(
         "file_write",
-        "Write a text file into the workspace (notes/ or work/ per course — path relative to data_root, e.g. '2026F/CS1100A/notes/2026-09-01-project.md'). Audited. content/ is read-only.",
+        "Write a text file into the workspace (notes/, work/ or uploads/ per course — path relative to data_root, e.g. '2026F/CS1100A/notes/2026-09-01-project.md'). Audited. content/ is read-only. For binary uploads the user should use the Upload button, not this tool.",
         file_write,
         required=["path", "content"],
         path={"type": "string"},
@@ -1331,7 +1332,7 @@ TOOLS = {
     ),
     "terminal_run": _tool(
         "terminal_run",
-        "Run a shell command ONLY for file/workspace operations the user explicitly requested (create, edit, move files, run a script in work/, git in work/). NEVER use this to read or search course content — use content_read_file / content_grep for that. cwd defaults to data_root; blocklist + audit enforced; content/ is read-only; 30s default, max 120s.",
+        "Run a shell command ONLY for file/workspace operations the user explicitly requested (create, edit, move files, run a script in work/, git in work/; uploaded files live in uploads/). NEVER use this to read or search course content — use content_read_file / content_grep for that. cwd defaults to data_root; blocklist + audit enforced; content/ is read-only; 30s default, max 120s.",
         terminal_run,
         required=["command"],
         command={"type": "string"},

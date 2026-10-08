@@ -95,15 +95,24 @@ AI edits.
 
 ```
 {root}/{term}/{code}/
-  content/          # LMS files (mirror tree or flat with nodes in DB)
+  content/          # LMS files (mirror tree or flat with nodes in DB) — read-only
   lectures/
   recordings/
-  notes/
+  notes/            # user + AI prose; semantically indexed
+  uploads/          # raw uploads (chat + workspace tab): any format, stored
+                    # as-is, NOT corpus-indexed
+  work/             # AI/shell scratch space
   sync_logs/        # AI sync logs (markdown)
   syllabus.md       # optional
 ```
 
 Plus optional `{root}/cloud/` mirror (later phase).
+
+`notes/`, `work/` and `uploads/` are the only writable directories. Files in
+`uploads/` keep their original bytes — nothing is extracted at upload time — so
+the agent either reads the original with shell/file tools or calls
+`extract_file(path)` for text (bounded at read time). Uploads are not
+corpus-indexed; content becomes searchable once it is copied into `notes/`.
 
 ## Write rules
 

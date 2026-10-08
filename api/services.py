@@ -415,6 +415,9 @@ def list_assignments(course_id: int, upcoming_only: bool = False) -> list[dict]:
 
 # ── workspace (course file tree + audited text editor) ─────────────────
 WRITABLE_WORKSPACE_DIRS = ("notes", "work", "uploads")
+# One message for every writable-dir rejection: it is shown to the user and
+# echoed to the agent, so it must not drift per call site.
+READONLY_WORKSPACE_MSG = "read-only — only notes/, work/ and uploads/ are editable"
 WORKSPACE_TEXT_SUFFIXES = {".md", ".txt", ".html", ".htm", ".json", ".yaml", ".yml",
                            ".csv", ".py", ".ts", ".tsx", ".js", ".css", ".nix", ".sh"}
 WORKSPACE_READ_CAP = 200_000
@@ -499,7 +502,7 @@ def workspace_write(course_id: int, rel: str, content: str) -> dict:
     if not course.get("term"):
         raise ValueError("course not found")
     if not _writable_rel(rel):
-        raise PermissionError("read-only — only notes/ and work/ are editable")
+        raise PermissionError(READONLY_WORKSPACE_MSG)
     if len(content) > WORKSPACE_WRITE_CAP:
         raise ValueError("file too large to save")
     full = _resolve_workspace(course, rel)
@@ -515,7 +518,7 @@ def workspace_delete(course_id: int, rel: str) -> dict:
     if not course.get("term"):
         raise ValueError("course not found")
     if not _writable_rel(rel):
-        raise PermissionError("read-only — only notes/ and work/ are editable")
+        raise PermissionError(READONLY_WORKSPACE_MSG)
     full = _resolve_workspace(course, rel)
     if not full.exists() or not full.is_file():
         raise FileNotFoundError(rel)
@@ -529,7 +532,7 @@ def workspace_mkdir(course_id: int, rel: str) -> dict:
     if not course.get("term"):
         raise ValueError("course not found")
     if not _writable_rel(rel):
-        raise PermissionError("read-only — only notes/ and work/ are editable")
+        raise PermissionError(READONLY_WORKSPACE_MSG)
     full = _resolve_workspace(course, rel)
     if full.exists():
         raise ValueError("already exists")
@@ -549,7 +552,7 @@ def workspace_upload(course_id: int, rel: str, reader) -> dict:
     if not course.get("term"):
         raise ValueError("course not found")
     if not _writable_rel(rel):
-        raise PermissionError("read-only — only notes/, work/ and uploads/ are editable")
+        raise PermissionError(READONLY_WORKSPACE_MSG)
     full = _resolve_workspace(course, rel)
     full.parent.mkdir(parents=True, exist_ok=True)
     tmp = full.with_name(full.name + ".part")
