@@ -158,6 +158,12 @@ class SyncEngine:
                       "facts_added": 0, "pdfs_extracted": 0}
         self.deltas: list[dict] = []  # for the AI digest
         self._last_miner_raw: str | None = None  # raw miner output for audit provenance
+        # Courses whose fact mining failed this run. Mining is best-effort, but a
+        # failure is NOT retried by a later sync: the delta gate keys on this
+        # run's deltas plus undigested announcements, and news is stamped
+        # digested_at when fetched — so whatever this run failed to mine is
+        # effectively lost. Surfaced via sync_runs.error, never swallowed.
+        self.mining_failures: list[str] = []
 
     # ── enrollments ─────────────────────────────────────────────────────
     def fetch_enrollments(self, active_only: bool = False) -> list[dict]:
@@ -285,7 +291,7 @@ class SyncEngine:
         node = self.db.conn.execute(
             "SELECT id FROM content_nodes WHERE course_id=? AND brightspace_id=?",
             (course_id, topic_id)).fetchone()
-        file_id, is_new = self.db.upsert_file(
+        file_id, is_new, changed = self.db.upsert_file(
             course_id, rel, "slide" if filename.lower().endswith((".pdf", ".ppt", ".pptx")) else "other",
             "brightspace", sha, len(body), node["id"] if node else None)
         wrote = False
@@ -294,14 +300,11 @@ class SyncEngine:
             wrote = True
             self.stats["files_new"] += 1
             self.deltas.append({"kind": "file_new", "path": rel})
-        else:
-            existing = self.db.conn.execute(
-                "SELECT sha256 FROM files WHERE id=?", (file_id,)).fetchone()
-            if existing and existing["sha256"] != sha:
-                (subdir / filename).write_bytes(body)
-                wrote = True
-                self.stats["files_changed"] += 1
-                self.deltas.append({"kind": "file_changed", "path": rel})
+        elif changed:
+            (subdir / filename).write_bytes(body)
+            wrote = True
+            self.stats["files_changed"] += 1
+            self.deltas.append({"kind": "file_changed", "path": rel})
         if wrote:
             self._maybe_convert_office(subdir / filename)
 
@@ -362,7 +365,7 @@ class SyncEngine:
                     continue
                 sha = hashlib.sha256(body).hexdigest()
                 kind = "slide" if filename.lower().endswith((".pdf", ".ppt", ".pptx")) else "other"
-                file_id, is_new = self.db.upsert_file(
+                file_id, is_new, changed = self.db.upsert_file(
                     course_id, rel, kind, "brightspace", sha, len(body), node_id)
                 wrote = False
                 if is_new:
@@ -370,14 +373,11 @@ class SyncEngine:
                     wrote = True
                     self.stats["files_new"] += 1
                     self.deltas.append({"kind": "file_new", "path": rel})
-                else:
-                    existing = self.db.conn.execute(
-                        "SELECT sha256 FROM files WHERE id=?", (file_id,)).fetchone()
-                    if existing and existing["sha256"] != sha:
-                        dest.write_bytes(body)
-                        wrote = True
-                        self.stats["files_changed"] += 1
-                        self.deltas.append({"kind": "file_changed", "path": rel})
+                elif changed:
+                    dest.write_bytes(body)
+                    wrote = True
+                    self.stats["files_changed"] += 1
+                    self.deltas.append({"kind": "file_changed", "path": rel})
                 if wrote:
                     self._maybe_convert_office(dest)
                 if node_id is not None:
@@ -579,19 +579,16 @@ class SyncEngine:
                 topics.append(node["id"])
             if not topics:
                 continue
-            file_id, is_new = self.db.upsert_file(
+            file_id, is_new, changed = self.db.upsert_file(
                 course_id, rel, kind, "brightspace", sha, len(body), topics[0])
             for tid in topics:
                 self.db.link_file_topic(file_id, tid)
             if is_new:
                 self.stats["files_new"] += 1
                 self.deltas.append({"kind": "file_new", "path": rel})
-            else:
-                existing = self.db.conn.execute(
-                    "SELECT sha256 FROM files WHERE id=?", (file_id,)).fetchone()
-                if existing and existing["sha256"] != sha:
-                    self.stats["files_changed"] += 1
-                    self.deltas.append({"kind": "file_changed", "path": rel})
+            elif changed:
+                self.stats["files_changed"] += 1
+                self.deltas.append({"kind": "file_changed", "path": rel})
             asset = f"{asset_base}/{fname}"
             for row_id, raws in refs.items():
                 for raw in raws:
@@ -642,18 +639,15 @@ class SyncEngine:
                 # treat it like content (kind='assignment', source='brightspace')
                 try:
                     sha = hashlib.sha256(dest.read_bytes()).hexdigest()
-                    file_id, is_new = self.db.upsert_file(
+                    file_id, is_new, changed = self.db.upsert_file(
                         course_id, at["local"], "assignment", "brightspace",
                         sha, dest.stat().st_size)
                     if is_new:
                         self.stats["files_new"] += 1
                         self.deltas.append({"kind": "file_new", "path": at["local"]})
-                    else:
-                        existing = self.db.conn.execute(
-                            "SELECT sha256 FROM files WHERE id=?", (file_id,)).fetchone()
-                        if existing and existing["sha256"] != sha:
-                            self.stats["files_changed"] += 1
-                            self.deltas.append({"kind": "file_changed", "path": at["local"]})
+                    elif changed:
+                        self.stats["files_changed"] += 1
+                        self.deltas.append({"kind": "file_changed", "path": at["local"]})
                 except Exception:
                     pass
 
@@ -829,7 +823,7 @@ class SyncEngine:
         import hashlib
         rel = str(md.relative_to(Path(self.cfg.data_root)))
         data = md.read_bytes()
-        fid, _ = self.db.upsert_file(
+        fid, _is_new, _changed = self.db.upsert_file(
             course_id, rel, "other", "manual",
             hashlib.sha256(data).hexdigest(), len(data),
             src_row["content_node_id"] if "content_node_id" in src_row.keys() else None)
@@ -1078,7 +1072,11 @@ class SyncEngine:
         return False
 
     def _call_miner(self, corpus: dict) -> dict:
-        """One LLM call per course; never raises (returns empty mining on failure)."""
+        """One LLM call per course (with one retry). Never raises — returns empty
+        mining on failure, but RECORDS it in self.mining_failures: a later sync
+        does not retry this content (the delta gate keys on this run's deltas and
+        on undigested announcements, and news is stamped digested when fetched),
+        so a swallow here silently loses facts for good."""
         import json as _json
         from sync.mine import MINER_SYSTEM, _truncate_blocks, parse_miner_output
         ordered = sorted(corpus["blocks"], key=lambda b: 0 if b["kind"] == "outline" else 1)
@@ -1091,24 +1089,39 @@ class SyncEngine:
             print(f"  mining truncated for {corpus['code']}: {len(ordered[:30]) - len(kept)} block(s) dropped")
         prompt = (MINER_SYSTEM + f"\n\nTODAY: {corpus['today']}\nCOURSE: {corpus['code']} ({corpus['term']})\n"
                   f"CORPUS:\n{_json.dumps(kept, indent=1)}")
-        try:
-            endpoints = self.cfg.llm_endpoints()
-            if not endpoints:
-                raise RuntimeError("no LLM endpoint configured")
-            r = httpx.post(f"{endpoints[0]}/chat/completions",
-                           headers=llm_headers(self.cfg),
-                           json={"model": self.model,
-                                 "messages": [{"role": "user", "content": prompt}],
-                                 "temperature": 0.2},
-                           timeout=180)
-            r.raise_for_status()
-            content = r.json()["choices"][0]["message"]["content"]
-            self._last_miner_raw = content
-            return parse_miner_output(content)
-        except Exception as e:
-            self._last_miner_raw = None
-            print(f"  mining failed for {corpus['code']}: {e}")
-            return {"facts": [], "events": [], "exams": [], "assignment_updates": []}
+        last_err: Exception | None = None
+        for attempt in (1, 2):
+            try:
+                endpoints = self.cfg.llm_endpoints()
+                if not endpoints:
+                    raise RuntimeError("no LLM endpoint configured")
+                r = httpx.post(f"{endpoints[0]}/chat/completions",
+                               headers=llm_headers(self.cfg),
+                               json={"model": self.model,
+                                     "messages": [{"role": "user", "content": prompt}],
+                                     "temperature": 0.2},
+                               # Honour the configured timeout. This was hardcoded
+                               # to 180s while config asked for 900s, so a slow
+                               # model hit the client deadline and produced zero
+                               # facts that nobody ever noticed.
+                               timeout=self.cfg.llm_request_timeout_s)
+                r.raise_for_status()
+                content = r.json()["choices"][0]["message"]["content"]
+                self._last_miner_raw = content
+                return parse_miner_output(content)
+            except Exception as e:
+                last_err = e
+                if attempt == 1:
+                    import time as _t
+                    print(f"  mining attempt 1 failed for {corpus['code']} "
+                          f"({type(e).__name__}: {str(e)[:200]}), retrying once…")
+                    _t.sleep(2)
+        self._last_miner_raw = None
+        self.mining_failures.append(corpus["code"])
+        print(f"  [warn] mining FAILED for {corpus['code']}: "
+              f"{type(last_err).__name__}: {str(last_err)[:200]} — no facts "
+              f"extracted, and this content will NOT be re-mined unless it changes")
+        return {"facts": [], "events": [], "exams": [], "assignment_updates": []}
 
     def mine_course(self, course_id: int, force: bool = False) -> dict:
         """Mine one course corpus and apply results (per-course => correct attribution)."""
@@ -1274,8 +1287,17 @@ class SyncEngine:
                     f"{self.stats['announcements_new']} announcements, "
                     f"{self.stats['facts_added']} facts",
                     "green")
-            self.db.finish_sync(run_id, "ok", **self.stats)
+            # Mining is best-effort, but a mining failure is permanent (that
+            # content is not re-mined later), so record it on the run instead of
+            # reporting a clean 'ok' with no signal.
+            note = (f"fact mining failed for: {', '.join(self.mining_failures)} — "
+                    f"facts were NOT extracted and will not be re-mined unless "
+                    f"the content changes") if self.mining_failures else None
+            self.db.finish_sync(run_id, "ok", **self.stats,
+                                **({"error": note} if note else {}))
             print(f"\nSync OK: {json.dumps(self.stats)}")
+            if note:
+                print(f"[warn] {note}", file=sys.stderr)
             # post-sync verification: count files/nodes/announcements per course
             print("\n── verification ──")
             for course in courses:

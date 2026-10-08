@@ -558,9 +558,14 @@ def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int
     assigns = db.conn.execute(
         "SELECT id, title, due_at, weight FROM assignments WHERE course_id=?",
         (course_id,)).fetchall()
-    existing_facts = db.conn.execute(
-        "SELECT fact FROM memory_facts WHERE course_id=? AND is_active=1",
-        (course_id,)).fetchall()
+    # Plain strings, and appended to as we insert: the snapshot is taken once
+    # BEFORE this loop, so without appending, two rewordings of the same fact
+    # inside ONE model response both land (the same-batch blind spot).
+    existing_facts = [
+        r["fact"] for r in db.conn.execute(
+            "SELECT fact FROM memory_facts WHERE course_id=? AND is_active=1",
+            (course_id,)).fetchall()
+    ]
 
     for f in mined.get("facts", []):
         fact = str(f.get("fact", "")).strip()
@@ -571,7 +576,7 @@ def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int
             (course_id, fact)).fetchone()
         if dup:
             continue
-        if any(_fact_dupes(fact, er["fact"]) for er in existing_facts):
+        if any(_fact_dupes(fact, ex) for ex in existing_facts):
             continue
         try:
             conf = min(1.0, max(0.0, float(f.get("confidence", 0.5))))
@@ -583,6 +588,7 @@ def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int
         res["facts"] += 1
         db.audit("sync", "memory_facts", cur.lastrowid, "mine-insert",
                  {"course_id": course_id, "fact": fact})
+        existing_facts.append(fact)  # so the NEXT fact in this batch sees it
 
     for e in mined.get("events", []):
         if (e.get("kind") or "assignment") in ("class", "personal"):

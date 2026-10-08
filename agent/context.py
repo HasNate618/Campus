@@ -145,7 +145,15 @@ Open assignments: {open_asgn} · announcements (14d): {ann}
 """
             card_path = Path(cfg.data_root) / c["term"] / c["code"].replace(" ", "") / "memory-card.md"
             if card_path.exists():
-                card_text = f"\nCOURSE MEMORY CARD ({c['code']}):\n{card_path.read_text()[:3000]}\n"
+                # NO 3000-char clip here. It silently discarded 55-77% of the card
+                # (real cards run 6.6k-12.7k chars), and the tail is where the
+                # policy/assignment facts sit — so the model never saw most of
+                # what the user reads. The card is already bounded by
+                # agent.memory.MAX_CARD_TOKENS and reports its own overflow in a
+                # footer, so read it whole; this guard only stops a pathological
+                # file, matching the API's read in api/services.get_memory_card.
+                card_text = (f"\nCOURSE MEMORY CARD ({c['code']}):\n"
+                             f"{card_path.read_text()[:200_000]}\n")
 
     events = upcoming_events(cfg, db, course_id)
     events_str = "\n".join(

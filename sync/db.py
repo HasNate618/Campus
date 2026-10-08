@@ -121,8 +121,14 @@ class DB:
     # ── files ───────────────────────────────────────────────────────────
     def upsert_file(self, course_id: int | None, path: str, kind: str,
                     source: str, sha256: str | None, size: int | None,
-                    content_node_id: int | None = None) -> tuple[int, bool]:
-        """Returns (file_id, is_new). path unique — sha256 changes = update."""
+                    content_node_id: int | None = None) -> tuple[int, bool, bool]:
+        """Returns (file_id, is_new, changed). path unique — sha256 changes = update.
+
+        These two flags used to be conflated: the update branch returned
+        `changed` while every caller unpacked it as `is_new`, so a CHANGED file
+        was written, counted and logged as NEW, and `files_changed` was never
+        recorded once (0 of 150 runs ever had one). Callers now get both.
+        """
         existing = self.conn.execute(
             "SELECT id, sha256 FROM files WHERE path = ?", (path,)
         ).fetchone()
@@ -139,14 +145,15 @@ class DB:
                 (sha256, size, int(changed), content_node_id, existing["id"]),
             )
             self.conn.commit()
-            return existing["id"], changed
+            return existing["id"], False, changed
         cur = self.conn.execute(
             """INSERT INTO files (course_id, path, kind, source, sha256, size, content_node_id, synced_at)
                VALUES (?,?,?,?,?,?,?,datetime('now'))""",
             (course_id, path, kind, source, sha256, size, content_node_id),
         )
         self.conn.commit()
-        return cur.lastrowid or 0, True          # lastrowid types as int | None
+        # lastrowid types as int | None; a brand-new file is both new and changed
+        return cur.lastrowid or 0, True, True
 
     def mark_processed(self, file_id: int) -> None:
         self.conn.execute("UPDATE files SET processed=1 WHERE id=?", (file_id,))
@@ -258,6 +265,20 @@ class DB:
 
     # ── sync_runs ───────────────────────────────────────────────────────
     def start_sync(self, trigger: str = "manual") -> int:
+        # Reap runs left 'running' by a process that died (killed container,
+        # crash, reboot). Nothing else ever closes them — finish_sync only runs
+        # on a normal or except-path exit — and api/services reads the NEWEST row
+        # for status, so a phantom 'running' showed forever (four rows from
+        # 2026-08-03 were still open). Repaired, never deleted, matching how
+        # every other correction in this project works.
+        # The age guard matters: a legitimately long sync (extraction of a large
+        # PDF can take 10 minutes) must not be reaped out from under itself.
+        self.conn.execute(
+            "UPDATE sync_runs SET status='failed', finished_at=datetime('now'), "
+            "error=COALESCE(error, 'aborted — no process finished this run') "
+            "WHERE status='running' AND started_at < datetime('now','-30 minutes')"
+        )
+        self.conn.commit()
         cur = self.conn.execute(
             "INSERT INTO sync_runs (trigger) VALUES (?)", (trigger,)
         )
