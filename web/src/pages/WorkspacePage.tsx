@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import {
-  Bot, ChevronRight, FileText, FileCode2, FileType,
+  Bot, ChevronRight, Download, FileText, FileCode2, FileType,
   Folder, FolderLock, FolderPlus, Lock, Pencil, Plus, RefreshCw, Trash2, Upload,
 } from 'lucide-react'
 import { api } from '@/api/client'
 import { listKeys, useListCursor, useZoneKeys } from '@/lib/keynav'
+import { ancestorDirs, assetHref } from '@/lib/refs'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
 import { sanitizeHtml } from '@/lib/sanitize'
 import type { WorkspaceNode, WorkspaceTree } from '@/types'
@@ -21,9 +22,24 @@ function kindIcon(kind?: string) {
   return <FileCode2 size={13} />
 }
 
+/** Depth-first search of the workspace tree. Pure, so it lives at module scope:
+ *  a component-scoped copy is redefined every render, which makes it unusable
+ *  as an effect dependency. */
+function findNode(nodes: WorkspaceNode[], path: string): WorkspaceNode | null {
+  for (const n of nodes) {
+    if (n.path === path) return n
+    if (n.children) {
+      const f = findNode(n.children, path)
+      if (f) return f
+    }
+  }
+  return null
+}
+
 export function WorkspacePage() {
   const { courseId } = useParams()
   const cid = Number(courseId)
+  const [searchParams, setSearchParams] = useSearchParams()
   const [tree, setTree] = useState<WorkspaceTree | null>(null)
   // expanded DIRECTORY paths — a Set so subfolders can stay open under an
   // open parent (a single open-path string made any subfolder click
@@ -62,17 +78,6 @@ export function WorkspacePage() {
   openPathRef.current = openPath
   // set on a click-to-edit; the focus effect below consumes it
   const focusOnEdit = useRef(false)
-
-  const findNode = (nodes: WorkspaceNode[], path: string): WorkspaceNode | null => {
-    for (const n of nodes) {
-      if (n.path === path) return n
-      if (n.children) {
-        const f = findNode(n.children, path)
-        if (f) return f
-      }
-    }
-    return null
-  }
 
   const loadTree = useCallback(() => {
     api.workspaceTree(cid).then(setTree).catch(() => setTree(null)).finally(() => setLoading(false))
@@ -169,6 +174,12 @@ export function WorkspacePage() {
     await flushSave()
     setCurrent(n)
     setOpenPath(n.path)
+    // Keep the URL in step with the open file. This is what makes the ?path=
+    // landing below idempotent: the tree poll replaces `tree` every few
+    // seconds, so an effect guarded on "is the open file the param" only stays
+    // quiet if a manual open also updates the param. `replace` keeps the back
+    // button clean, and it makes a workspace view linkable.
+    setSearchParams({ path: n.path }, { replace: true })
     setPreview(true)
     setAssetUrl(null)
     setNotice(null)
@@ -190,6 +201,40 @@ export function WorkspacePage() {
       }
     }
   }
+
+  // The ?path= effect below wants "the latest openNode", not "re-run whenever
+  // openNode changes" — it is redefined every render, and depending on it would
+  // repeat the tree walk on every render for no reason.
+  const openNodeRef = useRef(openNode)
+  openNodeRef.current = openNode
+
+  // A [[file:path]] chip deep-links here as /workspace?path=… . Select it once
+  // the tree has loaded — the tree arrives asynchronously, so this cannot run on
+  // mount alone. Safe to re-run: openNode() syncs the URL, so once the param and
+  // the open file agree this returns immediately and the poll cannot yank the
+  // user back to a file they browsed away from.
+  const pathParam = searchParams.get('path')
+  const pathMissRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!pathParam || !tree) return
+    if (openPathRef.current === pathParam) return
+    const node = findNode(tree.nodes, pathParam)
+    if (!node || node.type !== 'file') {
+      // Once per param: setNotice with an identical string is a no-op anyway,
+      // but this keeps the effect from re-running the tree walk on every render.
+      if (pathMissRef.current !== pathParam) {
+        pathMissRef.current = pathParam
+        setNotice("That file isn't in this workspace.")
+      }
+      return
+    }
+    setOpenDirs((prev) => {
+      const next = new Set(prev)
+      for (const d of ancestorDirs(pathParam)) next.add(d)
+      return next
+    })
+    void openNodeRef.current(node)
+  }, [pathParam, tree])
 
   // auto-refresh: poll the tree; if the open file changed on disk (e.g. the
   // AI edited it via file_edit), reload when clean, flag it when dirty
@@ -483,6 +528,15 @@ export function WorkspacePage() {
                 {!current.writable && <Lock size={10} className="ws-badge" />}
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <a
+                  className="icon-btn"
+                  href={assetHref(current.path)}
+                  download={current.name}
+                  title="Download this file"
+                  aria-label="Download this file"
+                >
+                  <Download size={12} />
+                </a>
                 {current.writable && isText && (
                   <>
                     <button className="btn btn-outline btn-sm" onClick={askAi} title="Ask the AI about this file — it can also edit it">
@@ -507,7 +561,7 @@ export function WorkspacePage() {
               <p className="ws-saved">{saving ? 'saving…' : `saved ${savedAt}`}</p>
             )}
             {assetUrl ? (
-              <a className="empty compact" style={{ margin: 'auto', textDecoration: 'none' }} href={assetUrl} target="_blank" rel="noreferrer noopener">
+              <a className="empty compact" style={{ margin: 'auto', textDecoration: 'none' }} href={assetHref(current.path)} target="_blank" rel="noreferrer noopener">
                 Open in viewer (read-only) →
               </a>
             ) : preview ? (
