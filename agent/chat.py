@@ -573,8 +573,9 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
 
     citations = CitationRegistry(db, cfg, course_id)
     total_usage: dict = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-    # Defined once: the forced-answer retry below reuses these, and an inline
-    # lambda at the first call site left them undefined there (NameError).
+    # Defined once, before the loop: the forced-answer retry below reuses
+    # these, and inline lambdas at the first call site left them undefined
+    # there (a latent NameError on the empty-answer path).
     on_token = (lambda t: emit("token", {"text": t})) if emit else None
     on_reasoning = (lambda t: emit("reasoning", {"text": t})) if emit else None
     for i in range(MAX_ITERATIONS):
