@@ -4,9 +4,9 @@
 
 **Goal:** Let the agent hand the user a clickable inline reference to any workspace file (`[[file:<path>]]`), which opens in the Workspace tab — or in the Content tab when the path is course material — and let any Workspace file be downloaded.
 
-**Architecture:** A second chip kind reuses the seam `[cite:N]` already uses: `renderFileRefs` runs on the raw markdown before `marked.parse`, emits `<button data-file-path>`, and DOMPurify sanitizes it against the same closed allowlist. One delegated click handler serves both chip kinds; it resolves the path through the existing `resolveRef` and routes a corpus hit to the Content tab and a miss to the Workspace tab. Two tiny pure modules (`refs.ts`) hold the routing and URL-building decisions so they are unit-testable without a DOM.
+**Architecture:** A second chip kind reuses the seam `[cite:N]` already uses: `renderFileRefs` runs on the raw markdown before `marked.parse`, emits `<button data-file-path>`, and DOMPurify sanitizes it against the same closed allowlist. One delegated click handler serves both chip kinds; it resolves the path through the existing `resolveRef` and routes a corpus hit to the Content tab and a miss to the Workspace tab. Two dependency-free modules (`fileRefs.ts`, `refs.ts`) hold the transform and the routing decisions so they are unit-testable without a DOM or a browser.
 
-**Tech Stack:** React 19 + TypeScript + Vite 8, `marked` 18, DOMPurify 3, react-router 7; FastAPI backend (unchanged); `vitest` 5 for the pure string/decision modules only.
+**Tech Stack:** React 19 + TypeScript + Vite 8, `marked` 18, DOMPurify 3, react-router 7; FastAPI backend (unchanged); **Node's built-in test runner** for the pure modules.
 
 **Spec:** `docs/superpowers/specs/2026-10-08-inline-file-references-design.md`
 
@@ -14,8 +14,9 @@
 
 - **Client verification** (there is no build in this environment): `cd web && npx tsc -p tsconfig.app.json --tsBuildInfoFile /tmp/tsbuildinfo` must exit 0, and `npx oxlint` must add no new warnings (baseline is 14, all pre-existing).
 - `vite build` / `npm run build` cannot run here — `EACCES` on root-owned `node_modules/.tmp` and `node_modules/.vite-temp`. Do not treat its absence as a failure.
+- **Tests use Node's built-in runner — no new dependency.** Run: `cd web && node --test "src/lib/*.test.ts"`. Verified working on this machine's Node v24.18.1, which strips TypeScript types natively. Two facts make this safe here: `tsconfig.app.json` already sets `erasableSyntaxOnly: true` (so no source construct is un-strippable) and `allowImportingTsExtensions: true` (so `import './refs.ts'` type-checks). A **quoted glob** is required — `node --test src/lib/` does not discover `.ts` files (verified).
+- **Only dependency-free modules can be tested.** Node cannot import `md.ts`: it does `import 'katex/dist/katex.min.css'` and fails with `ERR_UNKNOWN_FILE_EXTENSION` (verified). Anything needing a test must not import CSS, `marked`, or `dompurify`.
 - **Python tests** run from the repo root: `.venv/bin/python -m pytest -o addopts=""`.
-- **vitest is scoped to pure modules only** — `src/lib/md.ts` and `src/lib/refs.ts`. No component tests, no DOM environment (`environment: 'node'`), no `jsdom`.
 - Paths in `[[file:…]]` are **data-root-relative**, the same form `content_read_file`, `extract_file` and the workspace API use.
 - `SANITIZE_CONFIG` stays a **closed allowlist**: add `data-file-path` only; `ALLOW_DATA_ATTR` stays `false`.
 - **No new API endpoints.** `/api/assets/{rel_path:path}` already serves any file under the data root.
@@ -26,12 +27,12 @@
 
 | File | Responsibility |
 | --- | --- |
-| `web/src/lib/md.ts` (modify) | Markdown → HTML. Gains `renderFileRefs` (the marker → chip transform) beside `renderCitations`, and the allowlist entry. |
-| `web/src/lib/md.test.ts` (create) | Unit tests for the transform and the allowlist. |
-| `web/src/lib/refs.ts` (create) | Pure decisions shared by chat and workspace: where a resolved ref opens (`refTarget`), a workspace deep link (`workspaceHref`), an encoded asset URL (`assetHref`), ancestor dirs for tree expansion (`ancestorDirs`). |
+| `web/src/lib/fileRefs.ts` (create) | Dependency-free: `escapeHtml` (shared with `renderCitations`) and `renderFileRefs`, the `[[file:…]]` → chip transform. No imports, so Node can test it. |
+| `web/src/lib/fileRefs.test.ts` (create) | Unit tests for the transform. |
+| `web/src/lib/md.ts` (modify) | Markdown → HTML. Imports `renderFileRefs` and `escapeHtml` from `fileRefs.ts` (dropping its private copy), runs the transform in `parseMarkdown`, and allowlists `data-file-path`. |
+| `web/src/lib/refs.ts` (create) | Dependency-free: pure decisions shared by chat and workspace — where a resolved ref opens (`refTarget`), a workspace deep link (`workspaceHref`), an encoded asset URL (`assetHref`), ancestor dirs for tree expansion (`ancestorDirs`). |
 | `web/src/lib/refs.test.ts` (create) | Unit tests for the above. |
-| `web/vitest.config.ts` (create) | Minimal vitest config: node environment, `src/**/*.test.ts`. |
-| `web/package.json` (modify) | `vitest` devDependency + `test` script. |
+| `web/package.json` (modify) | A `test` script. **No dependency added.** |
 | `web/src/chat/ChatView.tsx` (modify) | Click handler gains a `[data-file-path]` branch; `openCitation`'s navigation is extracted into `gotoContent` and reused by `openFileRef`. |
 | `web/src/pages/WorkspacePage.tsx` (modify) | Lands on `?path=`, and gains a Download control. |
 | `agent/context.py` (modify) | One prompt rule (2c) teaching the marker. |
@@ -41,126 +42,111 @@
 
 ---
 
-### Task 1: `renderFileRefs` + vitest
+### Task 1: `renderFileRefs` in a dependency-free module
 
 **Files:**
-- Modify: `web/src/lib/md.ts` (`renderCitations` is at `:135`, `SANITIZE_CONFIG` at `:176`, `parseMarkdown` at `:185`)
-- Create: `web/src/lib/md.test.ts`, `web/vitest.config.ts`
-- Modify: `web/package.json`
+- Create: `web/src/lib/fileRefs.ts`, `web/src/lib/fileRefs.test.ts`
+- Modify: `web/src/lib/md.ts` (private `escapeHtml` at `:109`, `renderCitations` at `:135`, `SANITIZE_CONFIG` at `:176`, `parseMarkdown` at `:185`), `web/package.json`
 
 **Interfaces:**
-- Produces: `renderFileRefs(md: string): string` (exported) and `SANITIZE_CONFIG` (exported) from `web/src/lib/md.ts`.
-- Consumes: nothing from other tasks.
+- Produces from `web/src/lib/fileRefs.ts`: `escapeHtml(s: string): string` and `renderFileRefs(md: string): string`.
+- Consumes: nothing.
 
-- [ ] **Step 1: Install vitest and wire the config**
+- [ ] **Step 1: Add the test script (no dependency)**
 
-Adding a dev-dependency is an install — confirm with the user before running it. `vitest@5` is the version compatible with this repo's `vite@8` (peer range `^6.4.0 || ^7.0.0 || ^8.0.0`) and `@types/node@^24`.
-
-```bash
-cd web && npm install -D vitest@^5.0.3
-```
-
-Add the script to `web/package.json` (alphabetical among the existing scripts is not required; keep it next to `lint`):
+In `web/package.json`, beside `lint`:
 
 ```json
     "lint": "oxlint",
-    "test": "vitest run",
-```
-
-Create `web/vitest.config.ts`:
-
-```ts
-import { defineConfig } from 'vitest/config'
-
-// Scoped to pure modules on purpose: no DOM, no component tests. `md.ts`
-// imports katex's CSS, which vitest stubs by default (css: false) — do not
-// turn CSS processing on, or node will try to parse a stylesheet.
-export default defineConfig({
-  test: {
-    include: ['src/**/*.test.ts'],
-    environment: 'node',
-  },
-})
+    "test": "node --test \"src/lib/*.test.ts\"",
 ```
 
 - [ ] **Step 2: Write the failing tests**
 
-Create `web/src/lib/md.test.ts`:
+Create `web/src/lib/fileRefs.test.ts`:
 
 ```ts
-import { describe, expect, it } from 'vitest'
+import assert from 'node:assert/strict'
+import { describe, it } from 'node:test'
 
-import { renderFileRefs, SANITIZE_CONFIG } from './md'
+import { escapeHtml, renderFileRefs } from './fileRefs.ts'
 
 describe('renderFileRefs', () => {
   it('turns a file marker into a chip carrying the path', () => {
     const html = renderFileRefs('see [[file:2026F/CS1100A/uploads/slides.pdf]]')
-    expect(html).toContain('data-file-path="2026F/CS1100A/uploads/slides.pdf"')
-    expect(html).toContain('>slides.pdf</button>')
+    assert.ok(html.includes('data-file-path="2026F/CS1100A/uploads/slides.pdf"'))
+    assert.ok(html.includes('>slides.pdf</button>'))
   })
 
   it('labels the chip with the basename, not the whole path', () => {
     const html = renderFileRefs('[[file:a/b/c.md]]')
-    expect(html).toContain('>c.md</button>')
-    expect(html).toContain('title="a/b/c.md"')
+    assert.ok(html.includes('>c.md</button>'))
+    assert.ok(html.includes('title="a/b/c.md"'))
   })
 
   it('leaves a traversal path as literal text', () => {
     const md = '[[file:../../etc/passwd]]'
-    expect(renderFileRefs(md)).toBe(md)
+    assert.equal(renderFileRefs(md), md)
   })
 
   it('leaves a half-typed marker as literal text', () => {
     const md = 'see [[file:abc'
-    expect(renderFileRefs(md)).toBe(md)
+    assert.equal(renderFileRefs(md), md)
   })
 
   it('escapes the path so it cannot break out of the attribute', () => {
     const html = renderFileRefs('[[file:a/"onmouseover=alert(1)]]')
-    expect(html).not.toContain('"onmouseover=')
-    expect(html).toContain('&quot;')
+    assert.ok(!html.includes('"onmouseover='))
+    assert.ok(html.includes('&quot;'))
   })
 
   it('renders both marker kinds in one message', () => {
     const html = renderFileRefs('a [cite:3] b [[file:x/y.md]]')
-    expect(html).toContain('[cite:3]')
-    expect(html).toContain('data-file-path="x/y.md"')
+    assert.ok(html.includes('[cite:3]'))
+    assert.ok(html.includes('data-file-path="x/y.md"'))
   })
 
   it('leaves an ordinary markdown link alone', () => {
     const md = 'see [docs](https://example.com)'
-    expect(renderFileRefs(md)).toBe(md)
+    assert.equal(renderFileRefs(md), md)
   })
+})
 
-  it('allowlists the file-path attribute for the sanitizer', () => {
-    // The chip is inert if DOMPurify strips its attribute: the click handler
-    // finds nothing and the chip silently does nothing. Cheap guard, no DOM.
-    expect(SANITIZE_CONFIG.ADD_ATTR).toContain('data-file-path')
+describe('escapeHtml', () => {
+  it('escapes the four characters that matter in an attribute or text node', () => {
+    assert.equal(escapeHtml('a&b<c>d"e'), 'a&amp;b&lt;c&gt;d&quot;e')
   })
 })
 ```
 
 - [ ] **Step 3: Run the tests to verify they fail**
 
-Run: `cd web && npx vitest run`
-Expected: FAIL — `renderFileRefs is not a function` / no export named `renderFileRefs`.
+Run: `cd web && node --test "src/lib/*.test.ts"`
+Expected: FAIL — `Cannot find module './fileRefs.ts'`.
 
-- [ ] **Step 4: Implement**
+- [ ] **Step 4: Implement `web/src/lib/fileRefs.ts`**
 
-In `web/src/lib/md.ts`, add `export` to the existing config declaration:
+No imports — that is the whole point of the module.
 
 ```ts
-export const SANITIZE_CONFIG = {
-  ADD_TAGS: ['button'],
-  ADD_ATTR: ['data-cite-id', 'data-file-path'],
-  ALLOW_DATA_ATTR: false,
-  FORBID_TAGS: ['form', 'input', 'select', 'textarea', 'option'],
+/**
+ * The `[[file:path]]` marker transform.
+ *
+ * Deliberately dependency-free: this module imports nothing, so Node's built-in
+ * test runner can load it directly. `md.ts` cannot be tested that way — it
+ * imports katex's CSS, which Node refuses with ERR_UNKNOWN_FILE_EXTENSION.
+ */
+
+/** Escape the characters that would break out of an attribute or a text node.
+ *  Shared with the citation chips in md.ts. */
+export function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
 }
-```
 
-Add `renderFileRefs` immediately after `renderCitations` (which ends at `:148`), reusing the file-local `escapeHtml` (`:109`):
-
-```ts
 /**
  * Replace [[file:<data-root-relative path>]] with inline chips.
  *
@@ -187,7 +173,33 @@ export function renderFileRefs(md: string): string {
 }
 ```
 
-Wire it into `parseMarkdown` (`:185`):
+- [ ] **Step 5: Run the tests to verify they pass**
+
+Run: `cd web && node --test "src/lib/*.test.ts"`
+Expected: PASS — 8 passed, 0 failed.
+
+- [ ] **Step 6: Wire it into `md.ts` and allowlist the attribute**
+
+Delete `md.ts`'s private `escapeHtml` (`:109-115`) and import the shared one instead, at the top beside the existing imports:
+
+```ts
+import { escapeHtml, renderFileRefs } from './fileRefs.ts'
+```
+
+Add `data-file-path` to the allowlist (`:176`):
+
+```ts
+const SANITIZE_CONFIG = {
+  ADD_TAGS: ['button'],
+  ADD_ATTR: ['data-cite-id', 'data-file-path'],
+  ALLOW_DATA_ATTR: false,
+  FORBID_TAGS: ['form', 'input', 'select', 'textarea', 'option'],
+}
+```
+
+`SANITIZE_CONFIG` stays unexported — it is only reachable from `md.ts`, which Node cannot import, so exporting it would buy nothing.
+
+Wire the transform into `parseMarkdown` (`:185`):
 
 ```ts
 export function parseMarkdown(content: string, citations?: Record<number, CitationMeta>): string {
@@ -197,23 +209,18 @@ export function parseMarkdown(content: string, citations?: Record<number, Citati
 }
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
-
-Run: `cd web && npx vitest run`
-Expected: PASS — 8 passed.
-
-- [ ] **Step 6: Verify types and lint**
+- [ ] **Step 7: Verify types and lint**
 
 Run: `cd web && npx tsc -p tsconfig.app.json --tsBuildInfoFile /tmp/tsbuildinfo && npx oxlint`
-Expected: tsc exit 0; oxlint still 14 warnings, none in `md.ts` or `md.test.ts`.
+Expected: tsc exit 0; oxlint 14 warnings (baseline), none in `fileRefs.ts` or `fileRefs.test.ts`.
 
-Note: `tsconfig.app.json` may not include `*.test.ts`; if `tsc` reports the new test file as untyped/unused, add it to the `include` list rather than excluding it.
+If `tsc` reports `Cannot find module 'node:test'`, add `"node"` to the `types` array in `tsconfig.app.json` (making it `["vite/client", "node"]`). `@types/node` is already a devDependency; the `types` array only governs *automatic* global inclusion, and this is the one case where an explicit `node:` import needs it. Do not add a dependency for this.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add web/package.json web/package-lock.json web/vitest.config.ts web/src/lib/md.ts web/src/lib/md.test.ts
-git commit -m "feat(web): render [[file:path]] markers as chips; add vitest for md.ts"
+git add web/package.json web/src/lib/fileRefs.ts web/src/lib/fileRefs.test.ts web/src/lib/md.ts
+git commit -m "feat(web): render [[file:path]] markers as chips"
 ```
 
 ---
@@ -239,64 +246,74 @@ git commit -m "feat(web): render [[file:path]] markers as chips; add vitest for 
 Create `web/src/lib/refs.test.ts`:
 
 ```ts
-import { describe, expect, it } from 'vitest'
+import assert from 'node:assert/strict'
+import { describe, it } from 'node:test'
 
-import { ancestorDirs, assetHref, refTarget, workspaceHref } from './refs'
+import { ancestorDirs, assetHref, refTarget, workspaceHref } from './refs.ts'
 
 describe('refTarget', () => {
   it('routes a resolved corpus file to the content tab', () => {
-    expect(refTarget({ kind: 'file', courseId: 1, fileId: 7, nodeId: 3 }))
-      .toEqual({ kind: 'content', fileId: 7, nodeId: 3 })
+    assert.deepEqual(refTarget({ kind: 'file', courseId: 1, fileId: 7, nodeId: 3 }), {
+      kind: 'content',
+      fileId: 7,
+      nodeId: 3,
+    })
   })
 
   it('routes a node-only hit to the content tab', () => {
-    expect(refTarget({ kind: 'overview', courseId: 1, nodeId: 9 }))
-      .toEqual({ kind: 'content', fileId: undefined, nodeId: 9 })
+    assert.deepEqual(refTarget({ kind: 'overview', courseId: 1, nodeId: 9 }), {
+      kind: 'content',
+      fileId: undefined,
+      nodeId: 9,
+    })
   })
 
   it('routes an unresolved path to the workspace', () => {
     // api.resolveRef THROWS (404) for a workspace path; the caller catches and
     // passes null. That null is the workspace case, not an error.
-    expect(refTarget(null)).toEqual({ kind: 'workspace' })
+    assert.deepEqual(refTarget(null), { kind: 'workspace' })
   })
 
   it('treats a hit with no ids as a workspace path', () => {
-    expect(refTarget({ kind: 'file', courseId: 1 })).toEqual({ kind: 'workspace' })
+    assert.deepEqual(refTarget({ kind: 'file', courseId: 1 }), { kind: 'workspace' })
   })
 })
 
 describe('workspaceHref', () => {
   it('encodes the path into the query string', () => {
-    expect(workspaceHref(4, 'uploads/a b#c.md'))
-      .toBe('/courses/4/workspace?path=uploads%2Fa%20b%23c.md')
+    assert.equal(workspaceHref(4, 'uploads/a b#c.md'), '/courses/4/workspace?path=uploads%2Fa%20b%23c.md')
   })
 })
 
 describe('ancestorDirs', () => {
   it('lists the directories a file sits under, shallowest first', () => {
-    expect(ancestorDirs('uploads/sub/deep.md')).toEqual(['uploads', 'uploads/sub'])
+    assert.deepEqual(ancestorDirs('uploads/sub/deep.md'), ['uploads', 'uploads/sub'])
   })
 
   it('returns nothing for a top-level file', () => {
-    expect(ancestorDirs('syllabus.md')).toEqual([])
+    assert.deepEqual(ancestorDirs('syllabus.md'), [])
   })
 })
 
 describe('assetHref', () => {
   it('encodes each segment but keeps the separators', () => {
     // The route is /api/assets/{rel_path:path} — a %2F would break routing.
-    expect(assetHref('2026F/CS1100A/content/Course Overview/a#b.pdf'))
-      .toBe('/api/assets/2026F/CS1100A/content/Course%20Overview/a%23b.pdf')
+    assert.equal(
+      assetHref('2026F/CS1100A/content/Course Overview/a#b.pdf'),
+      '/api/assets/2026F/CS1100A/content/Course%20Overview/a%23b.pdf',
+    )
   })
 })
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cd web && npx vitest run src/lib/refs.test.ts`
-Expected: FAIL — cannot resolve `./refs`.
+Run: `cd web && node --test "src/lib/*.test.ts"`
+Expected: FAIL — `Cannot find module './refs.ts'`.
 
 - [ ] **Step 3: Implement `web/src/lib/refs.ts`**
+
+Dependency-free, same as `fileRefs.ts`:
 
 ```ts
 /**
@@ -362,8 +379,8 @@ export function assetHref(path: string): string {
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `cd web && npx vitest run src/lib/refs.test.ts`
-Expected: PASS — 8 passed.
+Run: `cd web && node --test "src/lib/*.test.ts"`
+Expected: PASS — 16 passed, 0 failed (8 from Task 1).
 
 - [ ] **Step 5: Refactor `openCitation`'s navigation into `gotoContent`**
 
@@ -746,7 +763,7 @@ In `agent/context.py`, insert rule `2c` after rule `2b` (keeping the existing 2/
 - [ ] **Step 4: Run it to verify it passes**
 
 Run: `.venv/bin/python -m pytest tests/test_mine.py -o addopts="" -v`
-Expected: PASS, including the pre-existing prompt tests (this changes prompt text, and prefix caching means the rule must stay in the static leading block — `2c` sits inside the RULES list, which is already in that block).
+Expected: PASS, including the pre-existing prompt tests. This changes prompt text, and prefix caching means the rule must stay in the static leading block — `2c` sits inside the RULES list, which is already in that block.
 
 - [ ] **Step 5: Document the two kinds**
 
@@ -798,12 +815,15 @@ git commit -m "feat(agent): teach [[file:path]] workspace references"
 | Docs | 4 |
 | Error-handling table (missing file, traversal, half-typed, tree-loading race) | 1 (traversal, half-typed), 3 (missing, race) |
 | Security: escaping, closed allowlist, no new endpoints | 1, 3 |
-| Testing: vitest for pure modules, Python asset test | 1, 2, 3, 4 |
+| Testing: Node's runner for pure modules, Python asset test | 1, 2, 3, 4 |
 
 No spec requirement is left without a task.
 
 **Placeholder scan:** every step carries real code or a real command; no "handle edge cases", no "similar to Task N".
 
-**Type consistency:** `renderFileRefs(md: string): string` and `SANITIZE_CONFIG` are used with the same names in Tasks 1–2; `ResolvedRef` / `RefTarget` / `refTarget` / `workspaceHref` / `ancestorDirs` / `assetHref` are defined once in Task 2 and consumed with identical signatures in Task 3; `data-file-path` is spelled the same in `md.ts`, `SANITIZE_CONFIG` and `ChatView.tsx`.
+**Type consistency:** `renderFileRefs(md: string): string` and `escapeHtml(s: string): string` are defined once in Task 1 and consumed with the same names in `md.ts`; `ResolvedRef` / `RefTarget` / `refTarget` / `workspaceHref` / `ancestorDirs` / `assetHref` are defined once in Task 2 and consumed with identical signatures in Task 3; `data-file-path` is spelled the same in `fileRefs.ts`, `SANITIZE_CONFIG` and `ChatView.tsx`.
 
-**Known gaps, deliberate:** component wiring (the delegated click, the `?path=` effect, the download control) has no automated test — this repo has no component-test setup and the plan does not add one. Those four behaviours need a manual browser check, listed here so the gap is explicit rather than implied.
+**Known gaps, deliberate:**
+
+- The sanitizer allowlist has no unit test. Asserting it needs `SANITIZE_CONFIG` from `md.ts`, which Node cannot import (KaTeX CSS), and it is not worth exporting a constant purely to test it. A missing `data-file-path` there fails loudly and immediately in a browser — the chip renders but does nothing — so it is covered by the manual check below rather than silently.
+- Component wiring (the delegated click, the `?path=` effect, the download control, the tree-expansion race) has no automated test — this repo has no component-test setup and the plan does not add one. Those four behaviours need a manual browser check.
