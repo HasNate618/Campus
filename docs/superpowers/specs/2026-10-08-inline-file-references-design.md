@@ -190,12 +190,25 @@ The editor header gains a Download control for the selected file:
 </a>
 ```
 
-This requires computing `assetUrl` for **all** files, not only non-text ones
-(today it is set in the `!viewable` branch). `/api/assets/{path}`
-(`api/routers/data.py:72`) already serves any file under the data root and
-needs no change: the `download` attribute on a same-origin link supplies the
-`Content-Disposition: attachment` behaviour, and `download={current.name}`
-gives a sane filename. The existing "open in new tab" link for binaries stays.
+This does **not** reuse the existing `assetUrl` state: that value also selects
+the binary viewer branch (`assetUrl ? "Open in viewer" : preview`), so setting
+it for text files would replace the rendered view with a link. The download
+href is instead derived from the path by a shared helper:
+
+```ts
+// web/src/lib/refs.ts
+export function assetHref(path: string): string {
+  // Encode each segment but keep the separators: the route is
+  // /api/assets/{rel_path:path}, so a %2F would break it.
+  return `/api/assets/${path.split('/').map(encodeURIComponent).join('/')}`
+}
+```
+
+The same helper replaces the raw `href={assetUrl}` on the existing
+"Open in viewer (read-only)" link, which is currently **unencoded** —
+`services.workspace_read` builds `/api/assets/{term}/{code}/{rel}` by string
+interpolation, so a file whose name contains `#` or `?` produces a broken link
+today. Spaces happen to survive because browsers encode them.
 
 ## Prompt
 
