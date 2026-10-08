@@ -6,9 +6,12 @@ logic (agent/) and mutations (mutate_* tools, audit_log).
 from __future__ import annotations
 
 import datetime
+import errno
 import hashlib
 import json
 import logging
+import os
+import shutil
 import sqlite3
 import threading
 from pathlib import Path
@@ -403,11 +406,16 @@ def list_assignments(course_id: int, upcoming_only: bool = False) -> list[dict]:
 
 
 # ── workspace (course file tree + audited text editor) ─────────────────
-WRITABLE_WORKSPACE_DIRS = ("notes", "work")
+WRITABLE_WORKSPACE_DIRS = ("notes", "work", "uploads")
 WORKSPACE_TEXT_SUFFIXES = {".md", ".txt", ".html", ".htm", ".json", ".yaml", ".yml",
                            ".csv", ".py", ".ts", ".tsx", ".js", ".css", ".nix", ".sh"}
 WORKSPACE_READ_CAP = 200_000
 WORKSPACE_WRITE_CAP = 512_000
+# Upload guard rails (not product caps): refuse only on runaway size or a disk
+# floor. The DB shares this volume, so a full disk is an outage; extraction is
+# bounded separately, at read time.
+UPLOAD_MAX_BYTES = 2 * 1024 ** 3
+UPLOAD_MIN_FREE_BYTES = 512 * 1024 ** 2
 
 
 def course_dir(course: dict) -> Path:
@@ -519,6 +527,46 @@ def workspace_mkdir(course_id: int, rel: str) -> dict:
         raise ValueError("already exists")
     full.mkdir(parents=True, exist_ok=True)
     return {"path": rel}
+
+
+def workspace_upload(course_id: int, rel: str, reader) -> dict:
+    """Stream raw bytes into a writable workspace file.
+
+    `reader(remaining: int) -> bytes` is called until it returns empty bytes.
+    Bytes go to a `.part` file and are atomically replaced on success, so a
+    failed upload never leaves a truncated file. Raises PermissionError
+    (non-writable dir), ValueError (traversal / oversize), or OSError(ENOSPC)
+    (disk floor). No extraction — callers store bytes only."""
+    course = get_course(course_id) or {}
+    if not course.get("term"):
+        raise ValueError("course not found")
+    if not _writable_rel(rel):
+        raise PermissionError("read-only — only notes/, work/ and uploads/ are editable")
+    full = _resolve_workspace(course, rel)
+    full.parent.mkdir(parents=True, exist_ok=True)
+    tmp = full.with_name(full.name + ".part")
+    digest = hashlib.sha256()
+    size = 0
+    try:
+        with open(tmp, "wb") as out:
+            while True:
+                chunk = reader(UPLOAD_MAX_BYTES - size)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > UPLOAD_MAX_BYTES:
+                    raise ValueError("file too large")
+                if shutil.disk_usage(full.parent).free - len(chunk) < UPLOAD_MIN_FREE_BYTES:
+                    raise OSError(errno.ENOSPC, "not enough disk space")
+                digest.update(chunk)
+                out.write(chunk)
+            out.flush()
+            os.fsync(out.fileno())
+        os.replace(tmp, full)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+    return {"path": rel, "size": size, "sha256": digest.hexdigest()}
 
 
 def workspace_audit(action: str, course_id: int, rel: str, detail: dict) -> None:
