@@ -399,16 +399,55 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		return () => ro.disconnect();
 	}, []);
 
-	/** Tool children of an assistant node (fallback + tree semantics). */
+	/** Tool children of an assistant node (fallback + tree semantics). Indexed
+	 *  once per render (O(nodes)) rather than filtering session.nodes per node,
+	 *  which was O(nodes²) while the message list was built. */
+	const toolChildrenByParent = useMemo(() => {
+		const m = new Map<string, MsgNode[]>();
+		for (const n of session?.nodes ?? []) {
+			if (n.role !== "tool" || !n.parentId) continue;
+			const arr = m.get(n.parentId);
+			if (arr) arr.push(n);
+			else m.set(n.parentId, [n]);
+		}
+		return m;
+	}, [session?.nodes]);
 	const toolChildren = (assistantId: string): MsgNode[] =>
-		session?.nodes.filter(
-			(n) => n.parentId === assistantId && n.role === "tool",
-		) ?? [];
+		toolChildrenByParent.get(assistantId) ?? [];
 
 	/** Session-wide citation pool, newest turn first: citation IDs restart at 1
 	 *  every turn, but the model reuses [cite:N] across turns (and cites digest
 	 *  findings that have no IDs at all). Per-node lookup merges own citations
-	 *  first so a turn's own id=1 always beats an older turn's id=1. */
+	 *  first so a turn's own id=1 always beats an older turn's id=1.
+	 *
+	 *  Keyed on a SIGNATURE of the citation ids, not on session.nodes: the node
+	 *  array gets a new identity on every streamed token, so rebuilding here
+	 *  would mint a fresh array per message, defeat the memo()'d ChatMd, and make
+	 *  ZenMarkdown re-parse the whole conversation's markdown on every token.*/
+	const citationSig = useMemo(() => {
+		let sig = "";
+		for (const n of session?.nodes ?? []) {
+			if (n.role !== "assistant" || !n.citations?.length) continue;
+			// Every field the chip renders or the click resolves must be part of
+			// the signature: a later `done` event can enrich a citation (e.g. add
+			// a page) with the same id, and a stale map would swallow that.
+			sig += `${n.id}:${JSON.stringify(
+				n.citations.map((c) => [
+					c.id,
+					c.ref,
+					c.label,
+					c.excerpt ?? "",
+					c.page ?? null,
+					c.line ?? null,
+					c.courseId ?? null,
+					c.fileId ?? null,
+					c.nodeId ?? null,
+					c.kind ?? "",
+				]),
+			)}|`;
+		}
+		return sig;
+	}, [session?.nodes]);
 	const mergedCitesByNode = useMemo(() => {
 		const nodes = session?.nodes ?? [];
 		const pool: Citation[] = [];
@@ -433,7 +472,10 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 			if (merged.length) byNode.set(n.id, merged);
 		}
 		return byNode;
-	}, [session?.nodes]);
+		// `citationSig` captures every citation id/label; session.nodes is read
+		// through the current render's closure, deliberately not a dependency.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [citationSig]);
 
 	const openCitation = useCallback(
 		async (citeId: number, cites?: Citation[]) => {

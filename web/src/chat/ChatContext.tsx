@@ -98,19 +98,6 @@ export interface ChatSession {
 
 export type ChatMsg = MsgNode;
 
-/** Self-reporting stream/sync status — the chat UI renders this so the next
- *  failure is diagnosable at a glance ('connecting' stuck = the POST never
- *  fired; 'streaming' but no text = render issue; 'error' = exact message). */
-export interface StreamStatus {
-	phase: "idle" | "loading" | "connecting" | "streaming" | "done" | "error";
-	/** Most recent SSE event type seen (token / reasoning / tool_start / …). */
-	lastEvent?: string;
-	/** Count of the most recent event type (e.g. 'token × 142'). */
-	eventCount?: number;
-	/** Exact error text for phase === 'error'. */
-	error?: string;
-}
-
 export interface ChatSessionV2 {
 	id: string;
 	courseId: number;
@@ -135,7 +122,6 @@ export interface ChatSessionV2 {
 interface ChatContextValue {
 	sessions: ChatSession[];
 	busy: boolean;
-	streamStatus: StreamStatus;
 	lastCourseId: number | null;
 	model: string | null;
 	setModel: (m: string | null) => void;
@@ -201,13 +187,17 @@ function makeSession(courseId: number): ChatSession {
 
 /** Path from the root to activeNodeId (the displayed conversation). */
 export function pathFor(session: ChatSession): MsgNode[] {
+	// Index once (O(nodes)) so walking the active path is O(depth) instead of
+	// O(nodes × depth). This runs on every render — including every streamed
+	// token — so the repeated find() was quadratic in long conversations.
+	const byId = new Map(session.nodes.map((n) => [n.id, n]));
 	const out: MsgNode[] = [];
-	let cur = session.nodes.find((n) => n.id === session.activeNodeId) ?? null;
+	let cur = session.activeNodeId ? byId.get(session.activeNodeId) : undefined;
 	const guard = new Set<string>();
 	while (cur && !guard.has(cur.id)) {
 		guard.add(cur.id);
 		out.push(cur);
-		cur = session.nodes.find((n) => n.id === cur!.parentId) ?? null;
+		cur = cur.parentId ? byId.get(cur.parentId) : undefined;
 	}
 	return out.reverse();
 }
@@ -405,9 +395,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 		}
 	});
 	const [busy, setBusy] = useState(false);
-	const [streamStatus, setStreamStatus] = useState<StreamStatus>({
-		phase: "idle",
-	});
 	const [lastCourseId, setLastCourseId] = useState<number | null>(() => {
 		try {
 			const v = Number(localStorage.getItem(LAST_COURSE_KEY));
@@ -593,21 +580,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 	// only an offline cache now).
 	useEffect(() => {
 		let cancelled = false;
-		setStreamStatus({ phase: "loading" });
 		api
 			.chatSessions()
 			.then((list) => {
 				if (cancelled) return;
 				setSessions((prev) => mergeServerSessions(prev, list));
-				setStreamStatus({ phase: "idle" });
 			})
 			.catch((e) => {
 				console.error("[chat-sync] load failed:", e);
-				const msg = e instanceof Error ? e.message : String(e);
-				setStreamStatus({
-					phase: "error",
-					error: `session load failed: ${msg}`,
-				});
 			})
 			.finally(() => {
 				if (!cancelled) {
@@ -728,11 +708,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			}
 		} catch (e) {
 			console.error("[chat-sync] save failed:", e);
-			const msg = e instanceof Error ? e.message : String(e);
-			setStreamStatus({
-				phase: "error",
-				error: `session save failed: ${msg}`,
-			});
 		} finally {
 			savingRef.current = false;
 		}
@@ -951,10 +926,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			};
 			const patchSteps = (id: string) =>
 				patchNode(sid, id, (n) => ({ ...n, steps }));
-			// per-stream event ticker for the self-reporting status line
-			let lastEvent: string | undefined;
-			const eventCounts: Record<string, number> = {};
-			setStreamStatus({ phase: "connecting" });
 			const ensureAssistant = (seedThinking?: string): string => {
 				if (assistantId) return assistantId;
 				assistantId = makeUuid();
@@ -993,14 +964,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				courseId,
 				(event, data) => {
 					const d = data as Record<string, unknown>;
-					// event ticker → status line ('token × 142')
-					eventCounts[event] = (eventCounts[event] ?? 0) + 1;
-					lastEvent = event;
-					setStreamStatus({
-						phase: "streaming",
-						lastEvent: event,
-						eventCount: eventCounts[event],
-					});
 					if (event === "reasoning") {
 						turnThinking += (d.text as string) ?? "";
 						const id = ensureAssistant();
@@ -1119,11 +1082,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 					} else if (event === "done") {
 						receivedDone = true;
 						closeThought();
-						setStreamStatus({
-							phase: "done",
-							lastEvent: "done",
-							eventCount: eventCounts.token,
-						});
 						if (!assistantId) {
 							// nothing streamed at all — surface the final answer directly
 							const id = makeUuid();
@@ -1167,11 +1125,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 						// (a status line alone is invisible — the user saw thinking +
 						// tools then nothing)
 						closeThought();
-						setStreamStatus({
-							phase: "error",
-							lastEvent: "error",
-							error: String(d?.message ?? "stream error"),
-						});
 						const errText = `⚠ Stream failed: ${String(d?.message ?? "stream error")}`;
 						if (assistantId) {
 							patchNode(sid, assistantId, (n) => ({
@@ -1229,11 +1182,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 					}
 					// surface stream failures IN the chat — never silent
 					const errMsg = String(err?.message ?? err) || "unknown stream error";
-					setStreamStatus({
-						phase: "error",
-						lastEvent: "error",
-						error: errMsg,
-					});
 					if (assistantId) {
 						patchNode(sid, assistantId, (n) => ({
 							...n,
@@ -1262,19 +1210,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				})
 				.finally(() => {
 					turnAbortRef.current = null;
-					// stream ended without a done event → the response was cut short
-					// (an explicit stop is intentional — skip the cut-short warnings)
-					if (!receivedDone && !ac.signal.aborted) {
-						setStreamStatus((prev) =>
-							prev.phase === "error"
-								? prev
-								: {
-										phase: "error",
-										lastEvent: prev.lastEvent,
-										error: `stream ended without a done event (last: ${lastEvent ?? "none"})`,
-									},
-						);
-					}
 					if (!receivedDone && !assistantId && !ac.signal.aborted) {
 						const eid = makeUuid();
 						appendNode(sid, {
@@ -1586,7 +1521,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 		() => ({
 			sessions,
 			busy,
-			streamStatus,
 			lastCourseId,
 			model,
 			setModel,
@@ -1614,7 +1548,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 		[
 			sessions,
 			busy,
-			streamStatus,
 			lastCourseId,
 			model,
 			setModel,
