@@ -7,7 +7,7 @@ thread; events flow through an asyncio.Queue into the SSE response.
 from __future__ import annotations
 
 import asyncio
-
+import errno
 import hashlib
 import json
 import mimetypes
@@ -15,7 +15,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
@@ -82,68 +82,76 @@ class ChatRequest(BaseModel):
     view: ViewContext | None = None
 
 
-MAX_UPLOAD_BYTES = 20 * 1024 * 1024
-ALLOWED_UPLOADS = {
-    "application/pdf", "text/plain", "text/markdown", "text/csv", "application/json",
-    "image/png", "image/jpeg", "image/webp", "image/gif",
-}
+def _safe_name(name: str) -> str:
+    """A filesystem-safe basename for a user-supplied filename.
 
-
-def _upload_root(cfg) -> Path:
-    root = cfg.db_path.parent / "chat_uploads"
-    root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    return root
-
-
-def _extract_upload(path: Path, mime: str) -> str | None:
-    if mime == "application/pdf":
-        import fitz
-        doc = fitz.open(path)
-        text = "\n\n".join(f"[Page {i + 1}]\n{page.get_text()}" for i, page in enumerate(doc))  # type: ignore[arg-type]
-        return text[:120_000] or None
-    if mime.startswith("text/") or mime == "application/json":
-        return path.read_text(encoding="utf-8", errors="replace")[:120_000]
-    return None
+    Path components are stripped (so `../../x` cannot escape uploads/) and
+    anything outside [A-Za-z0-9._-] becomes `_`. The uuid prefix on the stored
+    name is what guarantees uniqueness; this only keeps the name readable and
+    inert.
+    """
+    base = Path(name or "attachment").name
+    cleaned = "".join(c if c.isalnum() or c in "._-" else "_" for c in base)
+    return (cleaned or "attachment")[:120]
 
 
 @router.post("/uploads")
-async def upload_attachment(file: UploadFile = File(...)):
-    """Store one chat attachment and return metadata, never raw file bytes."""
+async def upload_attachment(course_id: int = Query(...), file: UploadFile = File(...)):
+    """Store one chat attachment as a real file in the course workspace.
+
+    Nothing is extracted: bytes land in `<course>/uploads/` and the turn's
+    prompt carries a path manifest, so the agent reads the file on demand
+    (extract_file, or shell/file tools). Images are still served inline by
+    GET /chat/uploads/{id}. Any format is accepted — the workspace, not this
+    route, decides what is readable.
+    """
+    from api import services
     from sync.config import Config
     from sync.db import DB
+
     cfg = Config.load()
-    mime = (file.content_type or mimetypes.guess_type(file.filename or "")[0] or "").lower()
-    if mime not in ALLOWED_UPLOADS:
-        raise HTTPException(415, "Unsupported file type")
+    name = _safe_name(file.filename or "attachment")
+    mime = (file.content_type or mimetypes.guess_type(name)[0]
+            or "application/octet-stream").lower()
     attachment_id = uuid.uuid4().hex
-    path = _upload_root(cfg) / attachment_id
-    digest = hashlib.sha256()
-    size = 0
+    stored_name = f"{attachment_id}-{name}"
+
+    def reader(n: int) -> bytes:
+        # `.file` is the sync spooled temp file; a bounded chunk keeps memory
+        # flat regardless of upload size.
+        return file.file.read(min(n, 1024 * 1024))
+
     try:
-        with path.open("wb") as out:
-            while chunk := await file.read(1024 * 1024):
-                size += len(chunk)
-                if size > MAX_UPLOAD_BYTES:
-                    raise HTTPException(413, "File exceeds the 20 MB limit")
-                digest.update(chunk)
-                out.write(chunk)
-        # PyMuPDF parses every page of a 20 MB PDF, which is seconds of CPU.
-        # Doing that inline in an async def blocks the event loop, stalling
-        # every concurrent SSE stream and request for the whole parse.
-        extracted = await asyncio.to_thread(_extract_upload, path, mime)
-        db = DB(cfg.db_path)
-        try:
-            db.conn.execute(
-                "INSERT INTO chat_attachments (id, original_name, mime_type, stored_path, size, sha256, extracted_text) VALUES (?,?,?,?,?,?,?)",
-                (attachment_id, (file.filename or "attachment")[:240], mime, str(path), size, digest.hexdigest(), extracted),
-            )
-            db.conn.commit()
-        finally:
-            db.close()
-        return {"id": attachment_id, "name": (file.filename or "attachment")[:240], "mime": mime, "size": size}
-    except Exception:
-        path.unlink(missing_ok=True)
-        raise
+        stored = await asyncio.to_thread(
+            services.workspace_upload, course_id, f"uploads/{stored_name}", reader)
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    except ValueError as e:
+        raise HTTPException(413 if "too large" in str(e) else 400, str(e))
+    except OSError as e:
+        if e.errno == errno.ENOSPC:
+            raise HTTPException(507, "not enough disk space")
+        raise HTTPException(500, str(e))
+    finally:
+        await file.close()
+
+    course = services.get_course(course_id) or {}
+    # Data-root-relative path — the same form extract_file() and the workspace
+    # browser use, so the manifest line is directly callable.
+    rel = (f"{course.get('term', '')}/"
+           f"{str(course.get('code', '')).replace(' ', '')}/uploads/{stored_name}")
+    db = DB(cfg.db_path)
+    try:
+        db.conn.execute(
+            "INSERT INTO chat_attachments (id, original_name, mime_type, stored_path, size, sha256) "
+            "VALUES (?,?,?,?,?,?)",
+            (attachment_id, name, mime, rel, stored["size"], stored["sha256"]),
+        )
+        db.conn.commit()
+    finally:
+        db.close()
+    return {"id": attachment_id, "name": name, "mime": mime,
+            "size": stored["size"], "path": rel}
 
 
 @router.get("/uploads/{attachment_id}")
@@ -168,7 +176,13 @@ async def serve_attachment(attachment_id: str):
     if row is None:
         raise HTTPException(404, "attachment not found")
     mime, stored_path, original_name = row[0], row[1], row[2]
+    from api import services
+    # New rows store a data-root-relative workspace path; rows written before
+    # the unified-upload change stored an absolute path under data/chat_uploads.
+    # Accept both so old inline images keep rendering.
     path = Path(stored_path)
+    if not path.is_absolute():
+        path = services.SCHOOL_ROOT / path
     if not path.is_file():
         raise HTTPException(404, "attachment file missing")
     return FileResponse(path, media_type=mime or "application/octet-stream", filename=original_name)
@@ -183,7 +197,7 @@ def _load_attachments(db, cfg, ids: list[str]) -> list[dict[str, Any]]:
     rows = []
     for aid in clean:
         row = db.conn.execute(
-            "SELECT id, original_name, mime_type, stored_path, extracted_text "
+            "SELECT id, original_name, mime_type, size, stored_path AS path "
             "FROM chat_attachments WHERE id = ?",
             (aid,),
         ).fetchone()

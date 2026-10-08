@@ -477,6 +477,29 @@ def _sanitize_history(history: list[dict]) -> list[dict]:
     return out
 
 
+def build_attachment_manifest(files: list[dict]) -> str:
+    """Prompt block for non-image attachments: paths, never extracted text.
+
+    Uploaded bytes already sit in the course workspace, so the model is told
+    where each file is and how to read it. Handing over an extracted copy
+    instead would let the model reason about a lossy rendering it cannot check
+    against the original, and would burn context every turn whether or not the
+    file matters. Returns "" when there is nothing to list.
+
+    Images are excluded: they travel in the message itself as image_url parts
+    (vision needs the bytes), so they never appear here.
+    """
+    lines = [
+        f"\n- {a.get('original_name', 'file')} ({a.get('mime_type', '?')}, "
+        f"{a.get('size', '?')} bytes) path={a.get('path', '?')}"
+        for a in files if not str(a.get("mime_type", "")).startswith("image/")
+    ]
+    if not lines:
+        return ""
+    return ("\n\n--- Attached files (stored in the course workspace; call "
+            "extract_file(path) to read one) ---" + "".join(lines))
+
+
 def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = None,
              model: str | None = None, history: list[dict] | None = None,
              verbose: bool = True, emit=None, attachments: list[dict] | None = None,
@@ -524,23 +547,22 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
     messages: list[dict] = [{"role": "system", "content": system_text}]
     messages.extend(_sanitize_history(history or []))
     files = attachments or []
-    extracted = [
-        f"\n\n--- Attached file: {a['original_name']} ---\n{a['extracted_text']}\n--- End attached file ---"
-        for a in files if a.get("extracted_text")
-    ]
+    manifest_block = build_attachment_manifest(files)
     images = []
     for a in files:
         if a.get("mime_type", "").startswith("image/"):
-            raw = Path(a["stored_path"]).read_bytes()
+            # `path` is data-root-relative (the file lives in the course
+            # workspace), so resolve it against data_root to read the bytes.
+            raw = (cfg.data_root / a["path"]).read_bytes()
             encoded = base64.b64encode(raw).decode("ascii")
             images.append({"type": "image_url", "image_url": {
                 "url": f"data:{a['mime_type']};base64,{encoded}",
             }})
     if images:
-        content: str | list[dict] = [{"type": "text", "text": user_message + "".join(extracted)}]
+        content: str | list[dict] = [{"type": "text", "text": user_message + manifest_block}]
         content.extend(images)
     else:
-        content = user_message + "".join(extracted)
+        content = user_message + manifest_block
     messages.append({"role": "user", "content": content})
 
     # One stable session for the whole turn: every tool-loop iteration and
@@ -551,6 +573,10 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
 
     citations = CitationRegistry(db, cfg, course_id)
     total_usage: dict = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    # Defined once: the forced-answer retry below reuses these, and an inline
+    # lambda at the first call site left them undefined there (NameError).
+    on_token = (lambda t: emit("token", {"text": t})) if emit else None
+    on_reasoning = (lambda t: emit("reasoning", {"text": t})) if emit else None
     for i in range(MAX_ITERATIONS):
         if i >= NUDGE_AT and not any(m.get("role") == "user" and "must answer now" in m.get("content", "") for m in messages):
             messages.append({"role": "user", "content": (
@@ -565,8 +591,8 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
         for attempt in (1, 2, 3, 4):
             try:
                 msg, usage = _model_call(cfg, messages, model,
-                                         on_token=(lambda t: emit("token", {"text": t}) if emit else None),
-                                         on_reasoning=(lambda t: emit("reasoning", {"text": t}) if emit else None),
+                                         on_token=on_token,
+                                         on_reasoning=on_reasoning,
                                          session_id=session_id)
                 break
             except Exception as e:
