@@ -78,6 +78,14 @@ DAY_LETTERS = ["M", "Tu", "W", "Th", "F", "Sa", "Su"]
 KIND_ORDER = {"LEC": 0, "LAB": 1, "TUT": 2}
 
 
+def _int_or_zero(v) -> int:
+    """int() that can never raise — malformed or absent values become 0."""
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _fmt_12h(t: str) -> str:
     """'11:30' -> '11:30 AM', '18:30' -> '6:30 PM'.
 
@@ -91,7 +99,7 @@ def _fmt_12h(t: str) -> str:
     # therefore airtight rather than merely usually-right.
     if len(parts) != 2 or not parts[0].strip().isdecimal():
         return str(t or "")
-    hour = int(parts[0].strip())
+    hour = _int_or_zero(parts[0].strip())
     mm = parts[1]
     return f"{hour % 12 or 12}:{mm} {'AM' if hour < 12 else 'PM'}"
 
@@ -123,7 +131,7 @@ def get_schedule() -> list[dict]:
             block = {
                 "type": r["kind"],
                 "section": r["section"] or "",
-                "crn": int(r["class_nbr"]) if str(r["class_nbr"] or "").strip().isdecimal() else 0,
+                "crn": _int_or_zero(r["class_nbr"]),
                 "meetings": [],
             }
             if r["instructor"]:

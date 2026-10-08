@@ -92,3 +92,49 @@ def test_uploads_dir_is_writable_in_tree(upload_env):
     assert tree is not None
     up = next(n for n in tree["nodes"] if n["name"] == "uploads")
     assert up["writable"] is True
+
+
+def _client():
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+
+    return TestClient(app)
+
+
+def test_upload_endpoint_writes_file(upload_env):
+    _, root = upload_env
+    r = _client().post(
+        "/api/courses/1/workspace/upload?path=uploads/note.txt",
+        files={"file": ("note.txt", b"hello", "text/plain")},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["path"] == "uploads/note.txt"
+    assert body["size"] == 5
+    assert (root / "2026F" / "T1000A" / "uploads" / "note.txt").read_bytes() == b"hello"
+
+
+def test_upload_endpoint_rejects_non_writable(upload_env):
+    r = _client().post(
+        "/api/courses/1/workspace/upload?path=content/x.txt",
+        files={"file": ("x.txt", b"x", "text/plain")},
+    )
+    assert r.status_code == 403
+
+
+def test_upload_endpoint_writes_audit_row(upload_env):
+    db_path, _ = upload_env
+    r = _client().post(
+        "/api/courses/1/workspace/upload?path=uploads/a.bin",
+        files={"file": ("a.bin", b"abc", "application/octet-stream")},
+    )
+    assert r.status_code == 200
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT action FROM audit_log WHERE entity='files' AND action='upload'"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row is not None

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+import asyncio
+import errno
+
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 
 from api import services
 
@@ -62,7 +65,7 @@ def workspace_file_read(course_id: int, path: str = Query(...)):
 
 
 @router.put("/{course_id}/workspace/file")
-def workspace_file_write(course_id: int, path: str = Query(...), payload: dict = None):
+def workspace_file_write(course_id: int, path: str = Query(...), payload: dict | None = None):
     content = (payload or {}).get("content", "")
     if content is None:
         raise HTTPException(400, "content required")
@@ -97,6 +100,35 @@ def workspace_dir_create(course_id: int, path: str = Query(...)):
     except (ValueError, PermissionError) as e:
         raise HTTPException(400 if not isinstance(e, PermissionError) else 403, str(e))
     services.workspace_audit("mkdir", course_id, path, {})
+    return result
+
+
+@router.post("/{course_id}/workspace/upload")
+async def workspace_file_upload(course_id: int, path: str = Query(...),
+                                file: UploadFile = File(...)):
+    """Store raw uploaded bytes in a writable workspace dir (notes/, work/,
+    uploads/). Guard rails only — no size cap beyond a runaway valve and a disk
+    floor. No extraction: the agent reads the file on demand."""
+    def reader(n: int) -> bytes:
+        # `.file` is the sync spooled temp file; a bounded chunk keeps memory
+        # flat regardless of upload size.
+        return file.file.read(min(n, 1024 * 1024))
+
+    try:
+        result = await asyncio.to_thread(
+            services.workspace_upload, course_id, path, reader)
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    except ValueError as e:
+        raise HTTPException(413 if "too large" in str(e) else 400, str(e))
+    except OSError as e:
+        if e.errno == errno.ENOSPC:
+            raise HTTPException(507, "not enough disk space")
+        raise HTTPException(500, str(e))
+    finally:
+        await file.close()
+    services.workspace_audit("upload", course_id, path,
+                             {"size": result["size"], "sha256": result["sha256"]})
     return result
 
 
