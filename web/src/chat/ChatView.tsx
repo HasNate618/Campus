@@ -34,6 +34,7 @@ import { getLlmModel } from "@/lib/appConfig";
 import { listKeys, useListCursor, useZoneKeys } from "@/lib/keynav";
 import { ZenMarkdown } from "@/lib/ZenMarkdown";
 import type { CitationMeta } from "@/lib/md";
+import { refTarget, workspaceHref, type ResolvedRef } from "@/lib/refs";
 import { useChat, pathFor, type Citation, type MsgNode, type StepItem } from "./ChatContext";
 import type { Course } from "@/types";
 
@@ -498,29 +499,11 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [citationSig]);
 
-	const openCitation = useCallback(
-		async (citeId: number, cites?: Citation[]) => {
-			const c = cites?.find((x) => x.id === citeId);
-			if (!c) return;
-			const cid = c.courseId ?? courseId;
-			if (!cid) return;
-
-			let nodeId = c.nodeId ?? undefined;
-			let fileId = c.fileId ?? undefined;
-
-			if (!nodeId || !fileId) {
-				try {
-					const resolved = await api.resolveRef(cid, c.ref);
-					nodeId = resolved.nodeId ?? nodeId;
-					fileId = resolved.fileId ?? fileId;
-				} catch {
-					// fall through with what we have
-				}
-			}
-
-			const page =
-				c.page != null && c.page > 0 ? c.page : undefined;
-
+	/** Navigate to a resolved content target. Shared by both chip kinds: a
+	 *  citation always lands here, and a file reference lands here when its
+	 *  path turns out to be course material. */
+	const gotoContent = useCallback(
+		(cid: number, nodeId?: number, fileId?: number, page?: number) => {
 			// If the PDF is already open, jump immediately (even when route unchanged).
 			window.dispatchEvent(
 				new CustomEvent("campus:goto-citation", {
@@ -545,20 +528,79 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 				navigate(`/courses/${cid}/content?${q.toString()}`);
 			}
 		},
-		[courseId, navigate],
+		[navigate],
+	);
+
+	const openCitation = useCallback(
+		async (citeId: number, cites?: Citation[]) => {
+			const c = cites?.find((x) => x.id === citeId);
+			if (!c) return;
+			const cid = c.courseId ?? courseId;
+			if (!cid) return;
+
+			let nodeId = c.nodeId ?? undefined;
+			let fileId = c.fileId ?? undefined;
+
+			if (!nodeId || !fileId) {
+				try {
+					const resolved = await api.resolveRef(cid, c.ref);
+					nodeId = resolved.nodeId ?? nodeId;
+					fileId = resolved.fileId ?? fileId;
+				} catch {
+					// fall through with what we have
+				}
+			}
+
+			const page = c.page != null && c.page > 0 ? c.page : undefined;
+			gotoContent(cid, nodeId, fileId, page);
+		},
+		[courseId, gotoContent],
+	);
+
+	/** Open a [[file:path]] reference. A path that resolves in the corpus is
+	 *  served by the richer Content viewer; anything else is a workspace file,
+	 *  so it opens in the Workspace tab with the file selected. */
+	const openFileRef = useCallback(
+		async (path: string) => {
+			const cid = courseId;
+			if (!cid) return;
+			let resolved: ResolvedRef | null = null;
+			try {
+				resolved = await api.resolveRef(cid, path);
+			} catch {
+				// 404 for a workspace path — expected, not an error.
+				resolved = null;
+			}
+			const target = refTarget(resolved);
+			if (target.kind === "content") {
+				gotoContent(cid, target.nodeId, target.fileId);
+				return;
+			}
+			navigate(workspaceHref(cid, path));
+		},
+		[courseId, gotoContent, navigate],
 	);
 
 	const onCitationClick = useCallback(
 		(e: { target: EventTarget | null; preventDefault: () => void }, cites?: Citation[]) => {
-			const btn = (e.target as HTMLElement).closest<HTMLElement>(
-				"[data-cite-id]",
-			);
-			if (!btn) return;
-			e.preventDefault();
-			const id = Number(btn.dataset.citeId);
-			if (Number.isFinite(id)) void openCitation(id, cites);
+			const el = e.target as HTMLElement;
+
+			const citeBtn = el.closest<HTMLElement>("[data-cite-id]");
+			if (citeBtn) {
+				e.preventDefault();
+				const id = Number(citeBtn.dataset.citeId);
+				if (Number.isFinite(id)) void openCitation(id, cites);
+				return;
+			}
+
+			const fileBtn = el.closest<HTMLElement>("[data-file-path]");
+			if (fileBtn) {
+				e.preventDefault();
+				const path = fileBtn.dataset.filePath;
+				if (path) void openFileRef(path);
+			}
 		},
-		[openCitation],
+		[openCitation, openFileRef],
 	);
 
 	/** A short humanized purpose for a tool call, from its most meaningful
