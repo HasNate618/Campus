@@ -40,7 +40,10 @@ def _resolve_course(db: DB, code: str | None) -> int | None:
     if not code:
         return None
     if str(code).isdigit():
-        row = db.conn.execute("SELECT id FROM courses WHERE id=?", (int(code),)).fetchone()
+        # _coerce_int, not int(): the isdigit() guard makes this safe today, but
+        # the module's rule is that no agent path raises on model input.
+        row = db.conn.execute("SELECT id FROM courses WHERE id=?",
+                              (_coerce_int(code, -1),)).fetchone()
         if row:
             return row["id"]
     row = db.conn.execute("SELECT id FROM courses WHERE code=?", (code,)).fetchone()
@@ -573,6 +576,43 @@ def content_read_file(db: DB, cfg: Config, args: dict) -> dict:
                           f"(requested {requested}); {result['note']}")
     result["content"] = chunk
     return result
+
+
+# Read-time extraction budget. An upload's raw bytes are never rewritten and
+# never extracted at upload time; this bounds the text handed to the model when
+# a read finally asks for it.
+EXTRACT_BUDGET = 120_000
+
+
+def extract_file(db: DB, cfg: Config, args: dict) -> dict:
+    """Extract text from a stored file the corpus cannot read as text.
+
+    The counterpart to content_read_file: that reads text the corpus already
+    holds, this reaches into a raw upload (a PDF/DOCX/DOC attachment the model
+    was pointed at by a path manifest). Read-only and never raising — the agent
+    contract is {"error": ...} — and it never writes: the raw file stays exactly
+    as uploaded, so the model can still choose to read the bytes itself.
+    """
+    from sync.extractors import extract_to_text
+
+    rel = str(args.get("path", "") or "")
+    if not rel:
+        return {"error": "path is required"}
+    root = Path(cfg.data_root).resolve()
+    full = (root / rel).resolve()
+    if root not in full.parents and full != root:
+        return {"error": "path must be under data_root"}
+    if not full.is_file():
+        return {"error": f"file missing: {rel}"}
+    text = extract_to_text(full)
+    if text is None:
+        return {"error": "no text extractable"}
+    out: dict = {"path": rel, "text": text[:EXTRACT_BUDGET]}
+    if len(text) > EXTRACT_BUDGET:
+        out["truncated"] = True
+        out["note"] = (f"showing the first {EXTRACT_BUDGET} of {len(text)} "
+                       f"characters")
+    return out
 
 
 def _scan_without_rg(search_dir: Path, query: str) -> list[str]:
@@ -1183,6 +1223,13 @@ TOOLS = {
         pages={"type": "string", "description": "page or range, e.g. '57' or '57-60'"},
         offset={"type": "integer", "description": "line offset"},
         limit={"type": "integer", "description": "max lines to return"},
+    ),
+    "extract_file": _tool(
+        "extract_file",
+        "Extract text from a stored file that content_read_file cannot read as text — a raw PDF, DOCX, or DOC upload. Path is relative to data_root (an attachment's manifest line gives it, e.g. '2026F/CS1100A/uploads/abc-slides.pdf'). Read-only and bounded: returns the text (truncated=true past the read budget) or an error when nothing is extractable (images, archives, unknown formats). Prefer content_read_file for text/markdown the corpus already holds.",
+        extract_file,
+        required=["path"],
+        path={"type": "string", "description": "path relative to data_root"},
     ),
     "course_map": _tool(
         "course_map",

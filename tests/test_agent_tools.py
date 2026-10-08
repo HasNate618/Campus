@@ -579,3 +579,55 @@ def test_continuation_note_skips_a_numbering_gap(
     assert r["truncated"] is True and r["pageEnd"] == 2
     assert '"4-4"' in r["note"], "must continue at the next page that exists"
     assert '"3-4"' not in r["note"], "page 3 was never extracted"
+
+
+# ── extract_file: on-demand extraction of stored uploads ─────────────────
+
+def test_extract_file_returns_text(page_cfg):
+    from agent.tools import extract_file
+
+    up = page_cfg.data_root / "2026F/CS1100A/uploads"
+    up.mkdir(parents=True, exist_ok=True)
+    (up / "a.md").write_text("# Notes\n\nthe body text")
+
+    out = extract_file(None, page_cfg, {"path": "2026F/CS1100A/uploads/a.md"})
+    assert out["path"] == "2026F/CS1100A/uploads/a.md"
+    assert "the body text" in out["text"]
+
+
+def test_extract_file_rejects_traversal(page_cfg):
+    from agent.tools import extract_file
+
+    out = extract_file(None, page_cfg, {"path": "../../etc/passwd"})
+    assert out["error"] == "path must be under data_root"
+
+
+def test_extract_file_no_text_for_unsupported(page_cfg):
+    from agent.tools import extract_file
+
+    (page_cfg.data_root / "x.zip").write_bytes(b"PK\x03\x04")
+    out = extract_file(None, page_cfg, {"path": "x.zip"})
+    assert out["error"] == "no text extractable"
+
+
+def test_extract_file_missing_file(page_cfg):
+    from agent.tools import extract_file
+
+    out = extract_file(None, page_cfg, {"path": "nope.md"})
+    assert "error" in out
+
+
+def test_extract_file_truncates_over_budget(page_cfg, monkeypatch):
+    import agent.tools as tools
+
+    (page_cfg.data_root / "big.md").write_text("x" * 500)
+    monkeypatch.setattr(tools, "EXTRACT_BUDGET", 100)
+    out = tools.extract_file(None, page_cfg, {"path": "big.md"})
+    assert out["truncated"] is True
+    assert len(out["text"]) == 100
+
+
+def test_extract_file_is_registered():
+    from agent.tools import TOOLS
+
+    assert "extract_file" in TOOLS
