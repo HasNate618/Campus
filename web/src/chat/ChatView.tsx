@@ -1064,7 +1064,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		try {
 			const attachments: ChatAttachment[] = [];
 			for (const file of selectedFiles)
-				attachments.push(await api.chatUpload(file));
+				attachments.push(await api.chatUpload(file, courseId));
 			if (send(courseId, input, attachments)) {
 				setInput("");
 				for (const f of selectedFiles) {
@@ -1086,11 +1086,10 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		}
 	};
 
-	const addFiles = (files: FileList | null) => {
+	const addFiles = (files: FileList | File[] | null) => {
 		if (!files) return;
-		setSelectedFiles((current) =>
-			[...current, ...Array.from(files)].slice(0, 8),
-		);
+		const list = Array.isArray(files) ? files : Array.from(files);
+		setSelectedFiles((current) => [...current, ...list].slice(0, 8));
 	};
 
 	// local object-URL previews for image attachments (revoked on removal)
@@ -1372,13 +1371,39 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 			</div>
 
 			<div className="input-dock">
-				<div className="chat-input">
+				<div
+					className="chat-input"
+					onDragOver={(e) => {
+						// Only claim the event for file drags, so dragging text into the
+						// composer still behaves like normal text dragging.
+						if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+					}}
+					onDrop={(e) => {
+						if (e.dataTransfer.files.length) {
+							e.preventDefault();
+							addFiles(e.dataTransfer.files);
+						}
+					}}
+				>
 					<div className="chat-input-main">
 						<textarea
 							ref={inputRef}
 							value={input}
 							onChange={autoGrow}
 							onKeyDown={onKeyDown}
+							onPaste={(e) => {
+								// Ctrl+V an image (a screenshot, a copied file) attaches it.
+								// Only intervene when the clipboard actually holds files, so a
+								// plain text paste is left entirely alone.
+								const pasted = Array.from(e.clipboardData.items)
+									.filter((it) => it.kind === "file")
+									.map((it) => it.getAsFile())
+									.filter((f): f is File => f !== null);
+								if (pasted.length) {
+									e.preventDefault();
+									addFiles(pasted);
+								}
+							}}
 							placeholder={`Ask ${course ? course.code : "about this course"}…`}
 							rows={1}
 							disabled={busy || uploading}
@@ -1418,7 +1443,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 								type="file"
 								hidden
 								multiple
-								accept=".pdf,.txt,.md,.csv,.json,image/png,image/jpeg,image/webp,image/gif"
+								accept="*/*"
 								onChange={(e) => {
 									addFiles(e.target.files);
 									e.currentTarget.value = "";

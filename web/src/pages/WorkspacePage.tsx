@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent a
 import { useParams } from 'react-router-dom'
 import {
   Bot, ChevronRight, FileText, FileCode2, FileType,
-  Folder, FolderLock, FolderPlus, Lock, Pencil, Plus, RefreshCw, Trash2,
+  Folder, FolderLock, FolderPlus, Lock, Pencil, Plus, RefreshCw, Trash2, Upload,
 } from 'lucide-react'
 import { api } from '@/api/client'
 import { listKeys, useListCursor, useZoneKeys } from '@/lib/keynav'
@@ -45,6 +45,7 @@ export function WorkspacePage() {
   const [notice, setNotice] = useState<string | null>(null)
   const [newFileDir, setNewFileDir] = useState<string>('notes')
   const [externalChange, setExternalChange] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const mtimeRef = useRef<string | null>(null)
   const textRef = useRef(text)
   textRef.current = text
@@ -56,6 +57,7 @@ export function WorkspacePage() {
   const pendingRef = useRef<{ path: string; text: string } | null>(null)
   const saveTimer = useRef<number | null>(null)
   const taRef = useRef<HTMLTextAreaElement | null>(null)
+  const uploadInputRef = useRef<HTMLInputElement | null>(null)
   const openPathRef = useRef<string | null>(null)
   openPathRef.current = openPath
   // set on a click-to-edit; the focus effect below consumes it
@@ -290,6 +292,31 @@ export function WorkspacePage() {
     }
   }
 
+  // Raw bytes into uploads/ — nothing is extracted here, so any format is
+  // fine. The agent reads a file on demand (extract_file) when a chat turn
+  // needs it; the workspace just stores it.
+  const uploadFiles = async (files: FileList | File[]) => {
+    const list = Array.isArray(files) ? files : Array.from(files)
+    if (!list.length) return
+    setUploading(true)
+    setNotice(null)
+    let done = 0
+    try {
+      for (const file of list) {
+        const path = `uploads/${file.name}`
+        if (findNode(tree?.nodes ?? [], path) && !confirm(`${path} already exists — overwrite it?`)) continue
+        await api.workspaceUpload(cid, path, file)
+        done += 1
+      }
+      loadTree()
+      if (done) setNotice(`Uploaded ${done} file${done === 1 ? '' : 's'} to uploads/.`)
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : 'Upload failed.')
+    } finally {
+      setUploading(false)
+    }
+  }
+
   const reloadExternal = async () => {
     if (!current) return
     try {
@@ -364,7 +391,16 @@ export function WorkspacePage() {
 
   return (
     <div className="ws-wrap">
-      <div className="card ws-tree">
+      <div
+        className="card ws-tree"
+        onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) e.preventDefault() }}
+        onDrop={(e) => {
+          if (e.dataTransfer.files.length) {
+            e.preventDefault()
+            void uploadFiles(e.dataTransfer.files)
+          }
+        }}
+      >
         <p className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'space-between' }}>
           <span><Folder size={13} style={{ verticalAlign: -2 }} /> Workspace</span>
           <button className="icon-btn" onClick={loadTree} title="Refresh"><RefreshCw size={12} /></button>
@@ -403,8 +439,8 @@ export function WorkspacePage() {
           {!loading && tree && tree.nodes.length === 0 && <div className="empty compact">No files yet.</div>}
         </div>
         <div className="ws-new">
-          {/* Picks which of the two WRITABLE roots a new file/folder lands in:
-              notes/ and work/ are editable, everything else in the tree
+          {/* Picks which WRITABLE root a new file/folder lands in: notes/,
+              work/ and uploads/ are editable, everything else in the tree
               (content/, Assignments/, memory-card.md) is read-only. */}
           <label className="ws-new-label" htmlFor="ws-new-dir">New in</label>
           <select
@@ -415,7 +451,21 @@ export function WorkspacePage() {
           >
             <option value="notes">notes/ — editable notes</option>
             <option value="work">work/ — scratch files</option>
+            <option value="uploads">uploads/ — uploaded files</option>
           </select>
+          <input
+            ref={uploadInputRef}
+            type="file"
+            hidden
+            multiple
+            onChange={(e) => {
+              if (e.target.files) void uploadFiles(e.target.files)
+              e.currentTarget.value = ''
+            }}
+          />
+          <button className="btn btn-outline btn-sm" onClick={() => uploadInputRef.current?.click()} disabled={uploading} title="Upload files to uploads/ — any format">
+            <Upload size={12} /> {uploading ? 'Uploading…' : 'Upload'}
+          </button>
           <button className="btn btn-outline btn-sm" onClick={newDir} title="New folder"><FolderPlus size={12} /> Folder</button>
           <button className="btn btn-outline btn-sm" onClick={newFile}><Plus size={12} /> New file</button>
         </div>
@@ -424,7 +474,7 @@ export function WorkspacePage() {
       {/* Escape anywhere in the editor returns to the rendered view — the
           handler sits on the card so it still works once focus has left the box */}
       <div className="card ws-editor" onKeyDown={onEditorKeyDown}>
-        {!current && <div className="empty compact" style={{ margin: 'auto' }}>Select a file from the tree — notes/ and work/ are editable.</div>}
+        {!current && <div className="empty compact" style={{ margin: 'auto' }}>Select a file from the tree — notes/, work/ and uploads/ are editable.</div>}
         {current && (
           <>
             <div className="ws-editor-head">

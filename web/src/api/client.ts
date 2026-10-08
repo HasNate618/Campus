@@ -93,6 +93,24 @@ export const api = {
 		post<{ path: string }>(
 			`/courses/${courseId}/workspace/dir?path=${encodeURIComponent(path)}`,
 		),
+	workspaceUpload: async (
+		courseId: number,
+		path: string,
+		file: File,
+	): Promise<{ path: string; size: number; sha256: string }> => {
+		const form = new FormData();
+		form.append("file", file);
+		const res = await fetch(
+			`${BASE}/courses/${courseId}/workspace/upload?path=${encodeURIComponent(path)}`,
+			{ method: "POST", body: form },
+		);
+		if (!res.ok)
+			throw new Error(
+				(await res.text().catch(() => "")) ||
+					`${res.status} ${res.statusText}`,
+			);
+		return res.json();
+	},
 	announcements: (courseId?: number, limit = 20) => {
 		const q = new URLSearchParams({ limit: String(limit) });
 		if (courseId != null) q.set("course_id", String(courseId));
@@ -154,13 +172,16 @@ export const api = {
 			error?: string;
 		}>("/chat/models"),
 	chatAttachmentUrl: (id: string) => `${BASE}/chat/uploads/${id}`,
-	chatUpload: async (file: File): Promise<ChatAttachment> => {
+	chatUpload: async (file: File, courseId: number): Promise<ChatAttachment> => {
 		const form = new FormData();
 		form.append("file", file);
-		const res = await fetch(`${BASE}/chat/uploads`, {
-			method: "POST",
-			body: form,
-		});
+		const res = await fetch(
+			`${BASE}/chat/uploads?course_id=${courseId}`,
+			{
+				method: "POST",
+				body: form,
+			},
+		);
 		if (!res.ok)
 			throw new Error(
 				(await res.text().catch(() => "")) || `${res.status} ${res.statusText}`,
@@ -198,6 +219,8 @@ export interface ChatAttachment {
 	name: string;
 	mime: string;
 	size: number;
+	// data-root-relative workspace path, e.g. 2026F/CS1100A/uploads/<id>-name
+	path: string;
 }
 
 export interface ChatServerSession {
