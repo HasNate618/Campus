@@ -25,6 +25,7 @@ import httpx
 from sync.config import Config
 from sync.d2l import D2LClient, D2LError
 from sync.db import DB
+from sync.extractors import extract_to_text
 from sync.token_store import TokenStore
 
 try:
@@ -98,25 +99,6 @@ def rewrite_dropbox_quicklinks(db, course_id: int) -> int:
 
 def _norm_code(code: str) -> str:
     return re.sub(r"\s+", "", code or "").upper()
-
-
-def _looks_like_data_table(t) -> bool:
-    """Truth-table-style grids (rows of short cells) — NOT the slide-deck
-    layout boxes PyMuPDF's table finder also reports (those have huge
-    cells: header/footer text columns). Short-cell filter keeps only real
-    data tables."""
-    try:
-        if t.row_count < 2 or t.col_count < 2:
-            return False
-        ext = t.extract()
-        if not ext:
-            return False
-        cells = [str(c).strip() for row in ext for c in row if c is not None]
-        if not cells:
-            return False
-        return max(len(c) for c in cells) <= 30
-    except Exception:
-        return False
 
 
 def _extract_code(name: str) -> str:
@@ -857,14 +839,20 @@ class SyncEngine:
         """Atomic utf-8 `.md` write (tmp + fsync + replace): a crash mid-write
         must never leave a short `.md` that looks complete."""
         tmp = md.with_suffix(".md.tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            f.write(text)
-            f.flush()
-            try:
-                import os
-                os.fsync(f.fileno())
-            except OSError:
-                pass
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(text)
+                f.flush()
+                try:
+                    import os
+                    os.fsync(f.fileno())
+                except OSError:
+                    pass
+        except Exception:
+            # Never leave a half-written .tmp beside the target; re-raise so the
+            # caller's try/except still sees the failure.
+            tmp.unlink(missing_ok=True)
+            raise
         tmp.replace(md)
 
     def _write_stub(self, course_id: int, pdf_path: Path, reason: str, src_row) -> None:
@@ -900,28 +888,7 @@ class SyncEngine:
             # entirely. PyMuPDF is the zero-config default when no parser is
             # connected.
             if not self.cfg.pdf_extractor_url:
-                import pymupdf
-                doc = pymupdf.open(path)
-                parts: list[str] = []
-                page_no = 0
-                for page in doc:
-                    page_no += 1
-                    text = page.get_text()
-                    if not text.strip():
-                        continue
-                    # marker format matches citations.PAGE_RE (plain N, no totals)
-                    parts.append(f"<!-- page {page_no} -->\n{text.rstrip()}")
-                    try:
-                        found = page.find_tables()
-                        tables = [t for t in (found.tables if found else [])
-                                  if _looks_like_data_table(t)]
-                    except Exception:
-                        tables = []
-                    for t in tables:
-                        parts.append("")
-                        parts.append(t.to_markdown())
-                doc.close()
-                text = "\n".join(parts)
+                text = extract_to_text(path, max_bytes=self.cfg.max_extract_size) or ""
                 if len(text.strip()) > 200:
                     md = path.with_suffix(".md")
                     self._write_md(md, text)
@@ -931,12 +898,11 @@ class SyncEngine:
                     self.deltas.append({"kind": "pdf_extracted", "path": str(md),
                                         "excerpt": excerpt})
                     return True
-                # PyMuPDF didn't extract (scan) and no parser connected —
-                # nothing to do; file stays unprocessed for future retries
+                # No text layer and no parser connected — nothing to do; the
+                # file stays unprocessed for future retries.
                 return False
-            else:
-                pass  # external parser handles everything (incl. scans);
-                      # _scan_pages imports pymupdf itself when needed
+            # else: external parser handles everything (incl. scans);
+            # _scan_pages imports pymupdf itself when needed
             # external parser: send raw bytes, get markdown back
             timeout = 600 if size_mb > 2 else 300
             r = httpx.put(f"{self.cfg.pdf_extractor_url}/process",
@@ -966,21 +932,12 @@ class SyncEngine:
             md = path.with_suffix(".md")
             if md.exists() and md.stat().st_size > 0:
                 return True
-            if path.suffix.lower() == ".docx":
-                import docx  # python-docx
-                text = "\n".join(p.text for p in docx.Document(str(path)).paragraphs)
-            else:
-                out = subprocess.run(["antiword", str(path)], capture_output=True,
-                                     text=True, timeout=60)
-                if out.returncode != 0:
-                    return False
-                text = out.stdout
-            if text.strip():
+            text = extract_to_text(path, max_bytes=self.cfg.max_extract_size)
+            if text and text.strip():
                 self._write_md(md, text)
                 return True
         except Exception as e:
             print(f"  extract FAILED {path}: {e!r}", flush=True)
-            pass
         return False
 
     def _scan_pages(self, path: Path) -> int | None:
