@@ -415,6 +415,19 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 	const toolChildren = (assistantId: string): MsgNode[] =>
 		toolChildrenByParent.get(assistantId) ?? [];
 
+	/** Non-tool children of each node (branch forks). Indexed once per render
+	 *  (O(nodes)) rather than filtering session.nodes for every rendered node. */
+	const childrenByParent = useMemo(() => {
+		const m = new Map<string, MsgNode[]>();
+		for (const n of session?.nodes ?? []) {
+			if (n.role === "tool" || n.intermediate || !n.parentId) continue;
+			const arr = m.get(n.parentId);
+			if (arr) arr.push(n);
+			else m.set(n.parentId, [n]);
+		}
+		return m;
+	}, [session?.nodes]);
+
 	/** Session-wide citation pool, newest turn first: citation IDs restart at 1
 	 *  every turn, but the model reuses [cite:N] across turns (and cites digest
 	 *  findings that have no IDs at all). Per-node lookup merges own citations
@@ -464,10 +477,18 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		const byNode = new Map<string, Citation[]>();
 		for (const n of nodes) {
 			if (n.role !== "assistant") continue;
-			const ownIds = new Set((n.citations ?? []).map((c) => c.id));
+			const own = n.citations ?? [];
+			const ownIds = new Set(own.map((c) => c.id));
+			// Only the pool citations this message actually references. Handing
+			// every node the whole session pool meant one `cite_register` from ANY
+			// turn changed every node's citation array, re-rendering and re-parsing
+			// the entire conversation.
+			const referenced = new Set<number>();
+			for (const m of String(n.content ?? "").matchAll(/\[cite:(\d+)\]/g))
+				referenced.add(Number(m[1]));
 			const merged = [
-				...(n.citations ?? []),
-				...pool.filter((c) => !ownIds.has(c.id)),
+				...own,
+				...pool.filter((c) => !ownIds.has(c.id) && referenced.has(c.id)),
 			];
 			if (merged.length) byNode.set(n.id, merged);
 		}
@@ -738,10 +759,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 	};
 
 	const renderBranchChips = (node: MsgNode): ReactNode => {
-		const kids =
-			session?.nodes.filter(
-				(n) => n.parentId === node.id && n.role !== "tool" && !n.intermediate,
-			) ?? [];
+		const kids = childrenByParent.get(node.id) ?? [];
 		if (kids.length < 2) return null;
 		return (
 			<div key={`br-${node.id}`} className="branch-chips">
