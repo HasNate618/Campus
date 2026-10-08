@@ -177,6 +177,12 @@ RULES:
     tool "sources") and the chip renders source + page itself. NEVER write page
     numbers in prose — no "[cite:1, p.59]", no "on page 59". State the fact with
     a bare [cite:N] chip only.
+2c. A file in the workspace (anything under uploads/, notes/ or work/ — including
+    a file you just wrote) is NOT a citation. Reference it as
+    [[file:<path relative to data_root>]], copying the exact path from the tool
+    result: [[file:2026F/CS1100A/notes/2026-10-08-outline.md]]. The user clicks
+    it to open the file. Use [cite:N] for course material (lecture files,
+    assignments, announcements, modules) and [[file:…]] only for workspace files.
 3. For anything about dates/deadlines/status, query the harness tools first —
    do not guess from memory.
 4. To change something (extend a due date, write a note, add a fact/event),

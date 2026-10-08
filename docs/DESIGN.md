@@ -73,6 +73,21 @@ notes. No external calendar required as primary.
 - web search/read via a pluggable MCP tool
 - Future MCPs pluggable; **no LMS MCP** — everything comes from synced data
 
+### Inline references
+
+Two kinds, split by what they point at:
+
+| Marker | Points at | Opens |
+| --- | --- | --- |
+| `[cite:N]` | course material (files, announcements, modules) | Content tab — PDF page, node |
+| `[[file:<data-root-relative path>]]` | a workspace file (`uploads/`, `notes/`, `work/`) | Workspace tab, file selected |
+
+`[cite:N]` ids are minted server-side (`CitationRegistry`), so the model can
+only cite material it actually read. `[[file:…]]` is written directly by the
+model, so it can reference any path it can name; a path that resolves in the
+corpus routes to the Content tab anyway, so a wrong choice still lands
+somewhere sensible.
+
 ### UI direction
 
 Hybrid: **course hubs** (browse real content) + **chat rail** (context-aware).

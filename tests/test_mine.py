@@ -956,6 +956,17 @@ def test_prompt_teaches_page_addressing(cfg, db):
     assert "up to 1000 lines" in prompt, "offset/limit guidance must stay truthful"
 
 
+def test_prompt_teaches_workspace_file_references(cfg, db):
+    """A workspace file is not a citation: the model must know the marker,
+    or it will cite a path that resolve_ref cannot resolve."""
+    from agent.context import build_system_prompt
+
+    prompt = build_system_prompt(cfg, db, None)
+    assert "[[file:" in prompt, "prompt must teach the [[file:path]] marker"
+    assert "uploads/" in prompt, "prompt must name the workspace dirs"
+    assert "notes/" in prompt and "work/" in prompt
+
+
 def test_content_read_file_result_cap_exceeds_the_page_budget():
     """Plan 2026-09-21 Task 4 — makes rule 8's promise true.
 
