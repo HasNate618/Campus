@@ -905,7 +905,13 @@ class SyncEngine:
             # external parser: send raw bytes, get markdown back
             timeout = 600 if size_mb > 2 else 300
             r = httpx.put(f"{self.cfg.pdf_extractor_url}/process",
-                          content=path.read_bytes(), timeout=timeout)
+                          content=path.read_bytes(),
+                          # Name the document. pdf-parse reads the name from this
+                          # header and falls back to "document.pdf" when it is
+                          # absent, which is why every Campus document appeared as
+                          # "document" in that service's job list.
+                          headers={"X-Filename": path.name},
+                          timeout=timeout)
             r.raise_for_status()
             data = r.json()
             content = data.get("page_content", "")

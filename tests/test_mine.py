@@ -412,9 +412,19 @@ def test_extract_pdf_registers_md_sibling(db, cfg, tmp_path, monkeypatch):
     row = db.conn.execute("SELECT * FROM files").fetchone()
     fake_resp = MagicMock()
     fake_resp.json.return_value = {"page_content": "# Outline\nFinal Dec 15 worth 45%."}
-    monkeypatch.setattr(sync_mod.httpx, "put", lambda *a, **k: fake_resp)
+    sent: dict = {}
+
+    def fake_put(url, **kw):
+        sent["url"] = url
+        sent.update(kw)
+        return fake_resp
+
+    monkeypatch.setattr(sync_mod.httpx, "put", fake_put)
     eng = SyncEngine(cfg, db, client=MagicMock())
     assert eng.extract_pdf(row) is True
+    # The parser names jobs from this header and falls back to "document.pdf",
+    # so without it every Campus document showed as "document" in its UI.
+    assert sent.get("headers", {}).get("X-Filename") == "outline.pdf"
     mdrow = db.conn.execute(
         "SELECT kind, source, processed FROM files WHERE path=?",
         ("2026F/CS1100A/outline.md",)).fetchone()
@@ -600,7 +610,7 @@ def test_extract_marks_pages_and_pins_encoding(db, cfg, tmp_path, monkeypatch):
         (course["id"], "2026F/CS1100A/doc.pdf", "d" * 64))
     db.conn.commit()
     row = db.conn.execute("SELECT * FROM files WHERE path LIKE '%.pdf'").fetchone()
-    def fake_put(url, content=None, timeout=None):
+    def fake_put(url, content=None, timeout=None, headers=None):
         fake = MagicMock()
         fake.json.return_value = {"page_content": "# Doc\nHello."}
         return fake
