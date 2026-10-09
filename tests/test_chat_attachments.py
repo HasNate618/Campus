@@ -45,7 +45,18 @@ def chat_env(tmp_path: Path, monkeypatch):
         data_root = school
 
     monkeypatch.setattr(Config, "load", classmethod(lambda cls, *a, **k: _Cfg()))
+    # api.config resolves DB_PATH at import, so patching Config.load alone only
+    # reaches the router paths that re-load the config per request (chat.py).
+    # The course lookup goes through api.services -> api.db, which read the
+    # frozen module-level DB_PATH, so point those at this test's DB too. Same
+    # pattern as tests/test_assets_api.py.
+    import api.config as _cfg
+    import api.db as _db
     import api.services as svc
+
+    monkeypatch.setattr(_cfg, "DB_PATH", dbp)
+    monkeypatch.setattr(_db, "DB_PATH", dbp)
+    monkeypatch.setattr(svc, "DB_PATH", dbp)
     monkeypatch.setattr(svc, "SCHOOL_ROOT", school)
     (school / "2026F" / "CS1100A" / "uploads").mkdir(parents=True)
     return dbp, school
