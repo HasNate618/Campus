@@ -963,7 +963,7 @@ class SyncEngine:
         """Serialize extraction of unprocessed files (one at a time — the
         pdf-extractor worker is single and local engine is slow). Never
         blocks the sync critical path: called after digest."""
-        done, failed = 0, 0
+        done, failed, unsupported = 0, 0, 0
         rows = self.db.unprocessed_files(course_id) if course_id else \
             self.db.conn.execute("SELECT * FROM files WHERE processed=0").fetchall()
         total = len(rows)
@@ -1023,8 +1023,16 @@ class SyncEngine:
                 self.db.mark_processed(row["id"])  # one attempt; .md sibling persists
                 continue
             if path.suffix.lower() != ".pdf":
-                self._write_stub(row["course_id"], path, f"unsupported type {path.suffix}", row)
-                self.db.mark_processed(row["id"])  # not a PDF — nothing to extract
+                # Nothing to extract, and deliberately NO stub `.md`. A stub is
+                # upserted by register_extraction as a real `files` row, so every
+                # .zip/.mp4/.py mirrored as a first-class, searchable corpus
+                # document whose entire content was "unsupported type". The skip
+                # stays visible — printed here and counted in the summary below —
+                # it just never becomes a file.
+                unsupported += 1
+                print(f"  skipped (unsupported type {path.suffix or 'no extension'}): "
+                      f"{row['path']}", flush=True)
+                self.db.mark_processed(row["id"])  # one attempt; nothing to extract
                 continue
             if path.stat().st_size > self.cfg.max_extract_size:
                 self._write_stub(row["course_id"], path,
@@ -1040,6 +1048,7 @@ class SyncEngine:
         if total:
             parts = [f"{done} extracted"]
             if failed: parts.append(f"{failed} failed")
+            if unsupported: parts.append(f"{unsupported} skipped (unsupported type)")
             print(f"  → {', '.join(parts)}", flush=True)
         return done
 

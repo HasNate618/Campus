@@ -120,6 +120,39 @@ def test_mine_course_writes_fact_and_counts(db, cfg, monkeypatch):
     db.close()
 
 
+def test_unsupported_file_gets_no_md_mirror(db, cfg, tmp_path, monkeypatch):
+    """A .zip has nothing to extract, and must NOT get a stub `.md`.
+
+    The stub was upserted by register_extraction as a real `files` row, so every
+    .zip/.mp4/.py became a first-class corpus document whose entire content was
+    "unsupported type" — visible in the workspace and searchable. The skip must
+    stay recorded (the source is marked processed, and the run prints it) without
+    becoming a file.
+    """
+    from unittest.mock import MagicMock
+    from sync.sync import SyncEngine
+    (tmp_path / "2026F" / "CS1100A").mkdir(parents=True)
+    (tmp_path / "2026F" / "CS1100A" / "skeleton.zip").write_bytes(b"PK\x03\x04")
+    course = db.get_course_by_code("CS 1100A")
+    db.conn.execute(
+        "INSERT INTO files (course_id, path, kind, source, size, sha256, processed)"
+        " VALUES (?,?,'other','brightspace',10,?,0)",
+        (course["id"], "2026F/CS1100A/skeleton.zip", "s" * 64))
+    db.conn.commit()
+    eng = SyncEngine(cfg, db, client=MagicMock())
+    eng.run_extraction_queue(course_id=course["id"])
+    # the stub would be named skeleton.md (with_suffix REPLACES .zip)
+    assert not (tmp_path / "2026F" / "CS1100A" / "skeleton.md").exists()
+    assert db.conn.execute(
+        "SELECT COUNT(*) FROM files WHERE path=?",
+        ("2026F/CS1100A/skeleton.md",)).fetchone()[0] == 0
+    # still recorded: one attempt, nothing to extract
+    assert db.conn.execute(
+        "SELECT processed FROM files WHERE path=?",
+        ("2026F/CS1100A/skeleton.zip",)).fetchone()["processed"] == 1
+    db.close()
+
+
 def test_card_filters_noise_and_keeps_grading(db, cfg):
     from agent.memory import build_card
     course = db.get_course_by_code("CS 1100A")
