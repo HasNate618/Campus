@@ -86,9 +86,8 @@ def _safe_name(name: str) -> str:
     """A filesystem-safe basename for a user-supplied filename.
 
     Path components are stripped (so `../../x` cannot escape uploads/) and
-    anything outside [A-Za-z0-9._-] becomes `_`. The uuid prefix on the stored
-    name is what guarantees uniqueness; this only keeps the name readable and
-    inert.
+    anything outside [A-Za-z0-9._-] becomes `_`. Uniqueness is NOT handled
+    here — see services.unique_upload_name, which suffixes only on a collision.
     """
     base = Path(name or "attachment").name
     cleaned = "".join(c if c.isalnum() or c in "._-" else "_" for c in base)
@@ -110,11 +109,12 @@ async def upload_attachment(course_id: int = Query(...), file: UploadFile = File
     from sync.db import DB
 
     cfg = Config.load()
+    course = services.get_course(course_id) or {}
     name = _safe_name(file.filename or "attachment")
     mime = (file.content_type or mimetypes.guess_type(name)[0]
             or "application/octet-stream").lower()
     attachment_id = uuid.uuid4().hex
-    stored_name = f"{attachment_id}-{name}"
+    stored_name = services.unique_upload_name(course, name)
 
     def reader(n: int) -> bytes:
         # `.file` is the sync spooled temp file; a bounded chunk keeps memory
@@ -135,7 +135,6 @@ async def upload_attachment(course_id: int = Query(...), file: UploadFile = File
     finally:
         await file.close()
 
-    course = services.get_course(course_id) or {}
     # Data-root-relative path — the same form extract_file() and the workspace
     # browser use, so the manifest line is directly callable.
     rel = (f"{course.get('term', '')}/"

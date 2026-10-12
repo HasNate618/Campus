@@ -34,7 +34,7 @@ import { getLlmModel } from "@/lib/appConfig";
 import { listKeys, useListCursor, useZoneKeys } from "@/lib/keynav";
 import { ZenMarkdown } from "@/lib/ZenMarkdown";
 import type { CitationMeta } from "@/lib/md";
-import { refTarget, workspaceHref, type ResolvedRef } from "@/lib/refs";
+import { refTarget, WORKSPACE_OPEN_EVENT, workspaceHref, type ResolvedRef } from "@/lib/refs";
 import { useChat, pathFor, type Citation, type MsgNode, type StepItem } from "./ChatContext";
 import type { Course } from "@/types";
 
@@ -576,7 +576,16 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 				gotoContent(cid, target.nodeId, target.fileId);
 				return;
 			}
-			navigate(workspaceHref(cid, path));
+			// The server hands back the course-relative path. Without it we still
+			// reach the workspace, just with no file selected.
+			const href = target.rel ? workspaceHref(cid, target.rel) : `/courses/${cid}/workspace`;
+			navigate(href);
+			// Tell the workspace directly. The URL alone cannot: react-router does
+			// not re-render on a redundant navigation, so clicking this same chip
+			// twice while that file's URL is already open would do nothing.
+			window.dispatchEvent(
+				new CustomEvent(WORKSPACE_OPEN_EVENT, { detail: { path: target.rel } }),
+			);
 		},
 		[courseId, gotoContent, navigate],
 	);

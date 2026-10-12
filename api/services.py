@@ -14,6 +14,7 @@ import os
 import shutil
 import sqlite3
 import threading
+from urllib.parse import quote
 from pathlib import Path
 
 from api.config import cfg, DB_PATH, SCHOOL_ROOT
@@ -230,9 +231,38 @@ def resolve_ref(course_id: int, ref: str) -> dict | None:
 
     db = DB(DB_PATH)
     try:
-        return _resolve(db, course_id, ref)
+        hit = _resolve(db, course_id, ref)
     finally:
         db.close()
+    if hit:
+        return hit
+
+    # Not course material, so it may be a workspace file. A `[[file:path]]`
+    # marker is written by the model with a data-root-relative path, which
+    # never resolves through the corpus — resolve it here instead of 404-ing.
+    # The client needs the COURSE-relative form to select the file in the
+    # workspace tree, and it has no reliable way to derive it (it would have to
+    # know the term/code prefix, and the tree path compared against the marker
+    # path differ exactly in that prefix).
+    course = get_course(course_id)
+    if not course or not ref:
+        return None
+    for rel in (_strip_course_prefix(course, ref), ref):
+        if not rel:
+            continue
+        try:
+            full = _resolve_workspace(course, rel)
+        except ValueError:
+            continue
+        if full.is_file():
+            return {"kind": "workspace", "courseId": course_id, "ref": ref, "rel": rel}
+    return None
+
+
+def _strip_course_prefix(course: dict, ref: str) -> str | None:
+    """`2026F/CS1100A/notes/x.md` -> `notes/x.md`, but only for THIS course."""
+    prefix = f"{course['term']}/{course['code'].replace(' ', '')}/"
+    return ref[len(prefix):] if ref.startswith(prefix) else None
 
 
 def _read_text(path: Path, max_chars: int = 200_000) -> str:
@@ -433,6 +463,48 @@ def course_dir(course: dict) -> Path:
     return SCHOOL_ROOT / course["term"] / course["code"].replace(" ", "")
 
 
+def _asset_url(course: dict, rel: str) -> str:
+    """Public URL for a workspace file.
+
+    Each segment is percent-encoded but the `/` separators stay literal: the
+    route is `/api/assets/{rel_path:path}`, so an encoded separator would not
+    match. Interpolating the raw path (as this did before) produced broken
+    links for any filename containing `#` or `?`.
+    """
+    prefix = f"{course['term']}/{course['code'].replace(' ', '')}"
+    return "/api/assets/" + "/".join(quote(p, safe="") for p in f"{prefix}/{rel}".split("/"))
+
+
+def unique_upload_name(course: dict, name: str) -> str:
+    """`report.pdf`, or `report-2.pdf` when that name is already taken.
+
+    Chat uploads used to be stored as `<uuid>-<name>` while the workspace
+    Upload button stored the plain name — one feature, two naming conventions,
+    and an `uploads/` full of names nobody can read. Suffixing only on a
+    collision keeps the path the agent cites (`extract_file(path=...)`)
+    human-readable without ever silently overwriting a file the user put there.
+    """
+    if not course.get("term") or not course.get("code"):
+        # Unknown course: nothing to collide with, and workspace_upload is what
+        # rejects that properly (400).
+        return name
+    up = course_dir(course) / "uploads"
+    if not up.is_dir():
+        # Fresh course, no uploads/ yet — the first upload needs no suffix.
+        return name
+    if "." in name[1:]:  # a leading dot is not an extension
+        stem, ext = name.rsplit(".", 1)
+        suffix = f".{ext}"
+    else:
+        stem, suffix = name, ""
+    candidate = name
+    n = 1
+    while (up / candidate).exists():
+        n += 1
+        candidate = f"{stem}-{n}{suffix}"
+    return candidate
+
+
 def _writable_rel(rel: str) -> bool:
     return rel.split("/", 1)[0] in WRITABLE_WORKSPACE_DIRS
 
@@ -488,13 +560,16 @@ def workspace_read(course_id: int, rel: str) -> dict:
     full = _resolve_workspace(course, rel)
     if not full.exists() or not full.is_file():
         raise FileNotFoundError(rel)
+    # `asset` is returned for EVERY file, not just binaries: the workspace
+    # Download control needs it for text files too, and the client cannot build
+    # it — tree paths are course-relative while this URL is data-root-relative.
+    asset = _asset_url(course, rel)
     if full.suffix.lower() in WORKSPACE_TEXT_SUFFIXES:
         if full.stat().st_size > WORKSPACE_READ_CAP:
             raise ValueError("file too large to edit — open in viewer")
         return {"text": full.read_text(encoding="utf-8", errors="replace"),
-                "viewable": True, "asset": None}
-    return {"text": None, "viewable": False,
-            "asset": f"/api/assets/{course['term']}/{course['code'].replace(' ', '')}/{rel}"}
+                "viewable": True, "asset": asset}
+    return {"text": None, "viewable": False, "asset": asset}
 
 
 def workspace_write(course_id: int, rel: str, content: str) -> dict:

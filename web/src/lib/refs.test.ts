@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { ancestorDirs, assetHref, refTarget, workspaceHref } from './refs.ts'
+import { ancestorDirs, refTarget, workspaceHref } from './refs.ts'
 
 describe('refTarget', () => {
   it('routes a resolved corpus file to the content tab', () => {
@@ -20,14 +20,22 @@ describe('refTarget', () => {
     })
   })
 
-  it('routes an unresolved path to the workspace', () => {
-    // api.resolveRef THROWS (404) for a workspace path; the caller catches and
-    // passes null. That null is the workspace case, not an error.
-    assert.deepEqual(refTarget(null), { kind: 'workspace' })
+  it('passes through the course-relative path the server resolved', () => {
+    // The server strips the term/code prefix the client cannot know about.
+    assert.deepEqual(refTarget({ kind: 'workspace', courseId: 1, rel: 'notes/x.md' }), {
+      kind: 'workspace',
+      rel: 'notes/x.md',
+    })
   })
 
-  it('treats a hit with no ids as a workspace path', () => {
-    assert.deepEqual(refTarget({ kind: 'file', courseId: 1 }), { kind: 'workspace' })
+  it('routes an unresolved path to the workspace with no path', () => {
+    // api.resolveRef THROWS (404) for a path that is neither; the caller catches
+    // and passes null. That is a miss, not an error.
+    assert.deepEqual(refTarget(null), { kind: 'workspace', rel: '' })
+  })
+
+  it('treats a hit with no ids and no rel as a miss', () => {
+    assert.deepEqual(refTarget({ kind: 'file', courseId: 1 }), { kind: 'workspace', rel: '' })
   })
 })
 
@@ -47,15 +55,5 @@ describe('ancestorDirs', () => {
 
   it('returns nothing for a top-level file', () => {
     assert.deepEqual(ancestorDirs('syllabus.md'), [])
-  })
-})
-
-describe('assetHref', () => {
-  it('encodes each segment but keeps the separators', () => {
-    // The route is /api/assets/{rel_path:path} — a %2F would break routing.
-    assert.equal(
-      assetHref('2026F/CS1100A/content/Course Overview/a#b.pdf'),
-      '/api/assets/2026F/CS1100A/content/Course%20Overview/a%23b.pdf',
-    )
   })
 })

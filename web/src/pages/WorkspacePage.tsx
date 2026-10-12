@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import { api } from '@/api/client'
 import { listKeys, useListCursor, useZoneKeys } from '@/lib/keynav'
-import { ancestorDirs, assetHref } from '@/lib/refs'
+import { WORKSPACE_OPEN_EVENT, ancestorDirs } from '@/lib/refs'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
 import { sanitizeHtml } from '@/lib/sanitize'
 import type { WorkspaceNode, WorkspaceTree } from '@/types'
@@ -54,6 +54,9 @@ export function WorkspacePage() {
   // to the editor and Escape goes back — there is no Edit/Preview toggle.
   const [preview, setPreview] = useState(true)
   const [assetUrl, setAssetUrl] = useState<string | null>(null)
+  // The server now returns `asset` for EVERY file (the Download control needs it
+  // for text files too), so `viewable` — not assetUrl — decides which pane shows.
+  const [viewable, setViewable] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [savedAt, setSavedAt] = useState<string | null>(null)
@@ -181,6 +184,7 @@ export function WorkspacePage() {
     // button clean, and it makes a workspace view linkable.
     setSearchParams({ path: n.path }, { replace: true })
     setPreview(true)
+    setViewable(false)
     setAssetUrl(null)
     setNotice(null)
     setExternalChange(false)
@@ -188,13 +192,17 @@ export function WorkspacePage() {
     if (n.type === 'file') {
       try {
         const r = await api.workspaceRead(cid, n.path)
+        setViewable(r.viewable)
+        // The server builds this: term/code prefix plus per-segment encoding for
+        // anything with `#`, `?` or a space. The client cannot — tree paths are
+        // course-relative while this URL is data-root-relative.
+        setAssetUrl(r.asset)
         if (r.viewable) {
           setText(r.text ?? '')
           setSavedText(r.text ?? '')
         } else {
           setText('')
           setSavedText('')
-          setAssetUrl(r.asset)
         }
       } catch {
         setNotice('Could not read the file.')
@@ -208,33 +216,54 @@ export function WorkspacePage() {
   const openNodeRef = useRef(openNode)
   openNodeRef.current = openNode
 
-  // A [[file:path]] chip deep-links here as /workspace?path=… . Select it once
-  // the tree has loaded — the tree arrives asynchronously, so this cannot run on
-  // mount alone. Safe to re-run: openNode() syncs the URL, so once the param and
-  // the open file agree this returns immediately and the poll cannot yank the
-  // user back to a file they browsed away from.
+  // Two ways in, one selection path. A deep link or refresh arrives as
+  // ?path=; a chat chip click arrives as an event. The event is necessary
+  // because react-router does not re-render on a redundant navigation — without
+  // it, clicking the same chip twice while that file's URL is already open
+  // reached no effect at all and the chip did nothing.
+  const [selectReq, setSelectReq] = useState<{ path: string; n: number } | null>(null)
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const path = (e as CustomEvent<{ path?: string }>).detail?.path
+      if (path) setSelectReq({ path, n: Date.now() })
+    }
+    window.addEventListener(WORKSPACE_OPEN_EVENT, onOpen)
+    return () => window.removeEventListener(WORKSPACE_OPEN_EVENT, onOpen)
+  }, [])
+
   const pathParam = searchParams.get('path')
+  useEffect(() => {
+    if (!pathParam) return
+    // Skip when this is just openNode() echoing back a file we already
+    // selected, or the two effects ping-pong.
+    setSelectReq((prev) => (prev?.path === pathParam ? prev : { path: pathParam, n: Date.now() }))
+  }, [pathParam])
+
   const pathMissRef = useRef<string | null>(null)
   useEffect(() => {
-    if (!pathParam || !tree) return
-    if (openPathRef.current === pathParam) return
-    const node = findNode(tree.nodes, pathParam)
+    const req = selectReq
+    if (!req || !tree) return
+    // Not "have I seen this param": once the URL and the open file agree this
+    // returns, so the tree poll cannot yank the user back to a file they
+    // browsed away from.
+    if (openPathRef.current === req.path) return
+    const node = findNode(tree.nodes, req.path)
     if (!node || node.type !== 'file') {
-      // Once per param: setNotice with an identical string is a no-op anyway,
-      // but this keeps the effect from re-running the tree walk on every render.
-      if (pathMissRef.current !== pathParam) {
-        pathMissRef.current = pathParam
+      // Once per path: setNotice with an identical string is a no-op anyway,
+      // but this stops the effect re-walking the tree on every render.
+      if (pathMissRef.current !== req.path) {
+        pathMissRef.current = req.path
         setNotice("That file isn't in this workspace.")
       }
       return
     }
     setOpenDirs((prev) => {
       const next = new Set(prev)
-      for (const d of ancestorDirs(pathParam)) next.add(d)
+      for (const d of ancestorDirs(req.path)) next.add(d)
       return next
     })
     void openNodeRef.current(node)
-  }, [pathParam, tree])
+  }, [selectReq, tree])
 
   // auto-refresh: poll the tree; if the open file changed on disk (e.g. the
   // AI edited it via file_edit), reload when clean, flag it when dirty
@@ -528,15 +557,17 @@ export function WorkspacePage() {
                 {!current.writable && <Lock size={10} className="ws-badge" />}
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <a
-                  className="icon-btn"
-                  href={assetHref(current.path)}
-                  download={current.name}
-                  title="Download this file"
-                  aria-label="Download this file"
-                >
-                  <Download size={12} />
-                </a>
+                {assetUrl && (
+                  <a
+                    className="icon-btn"
+                    href={assetUrl}
+                    download={current.name}
+                    title="Download this file"
+                    aria-label="Download this file"
+                  >
+                    <Download size={12} />
+                  </a>
+                )}
                 {current.writable && isText && (
                   <>
                     <button className="btn btn-outline btn-sm" onClick={askAi} title="Ask the AI about this file — it can also edit it">
@@ -560,8 +591,8 @@ export function WorkspacePage() {
             {(saving || savedAt) && (
               <p className="ws-saved">{saving ? 'saving…' : `saved ${savedAt}`}</p>
             )}
-            {assetUrl ? (
-              <a className="empty compact" style={{ margin: 'auto', textDecoration: 'none' }} href={assetHref(current.path)} target="_blank" rel="noreferrer noopener">
+            {!viewable ? (
+              <a className="empty compact" style={{ margin: 'auto', textDecoration: 'none' }} href={assetUrl ?? '#'} target="_blank" rel="noreferrer noopener">
                 Open in viewer (read-only) →
               </a>
             ) : preview ? (

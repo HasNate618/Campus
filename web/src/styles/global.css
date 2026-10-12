@@ -2582,6 +2582,35 @@
     opacity: 0.85;
   }
 
+  /* A workspace file the user owns. Green against the violet citation chip:
+     two reference kinds, distinguishable at a glance, and the file chip has
+     to look like something you can act on — it was shipping with no styling
+     at all, which read as plain text in a paragraph. */
+  .file-chip {
+    display: inline;
+    vertical-align: baseline;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--green);
+    background: rgba(74, 222, 128, 0.16);
+    border: 1px solid rgba(74, 222, 128, 0.4);
+    border-radius: 999px;
+    padding: 1px 8px;
+    margin: 0 2px;
+    cursor: pointer;
+    white-space: nowrap;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .file-chip:hover {
+    filter: brightness(1.12);
+    background: rgba(74, 222, 128, 0.26);
+  }
+
   .md iframe {
     max-width: 100%;
   }
