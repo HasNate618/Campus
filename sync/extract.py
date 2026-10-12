@@ -32,6 +32,20 @@ def list_models() -> int:
     return 0
 
 
+def _reindex(cfg, db) -> None:
+    """Rebuild the search index so newly extracted `.md` files become searchable.
+
+    Incremental: only items whose (ref, hash) changed are re-embedded, so this is
+    cheap after a single-file extraction.
+    """
+    try:
+        from sync.search import rebuild as rebuild_index
+        idx = rebuild_index(cfg, db)
+        print(f"  re-index: {idx['chunks']} chunks ({idx['embedded_items']} embedded)")
+    except Exception as e:
+        print(f"  re-index skipped: {e}")
+
+
 def main() -> int:
     import os
     from sync.config import Config
@@ -76,17 +90,17 @@ def main() -> int:
                 return 2
             ok = engine.extract_pdf(row)
             print("extracted" if ok else "FAILED", rel)
+            # Single-file extraction used to return right here and skip the
+            # re-index, so the .md landed in `files` but never entered the search
+            # corpus — which is the whole point of extracting it.
+            if ok:
+                _reindex(cfg, db)
             return 0 if ok else 1
         n = engine.run_extraction_queue(course_id)
         print(f"extraction queue done: {n} extracted")
         # re-index so newly extracted PDFs enter the search corpus
         if n > 0:
-            try:
-                from sync.search import rebuild as rebuild_index
-                idx = rebuild_index(cfg, db)
-                print(f"  re-index: {idx['chunks']} chunks ({idx['embedded_items']} embedded)")
-            except Exception as e:
-                print(f"  re-index skipped: {e}")
+            _reindex(cfg, db)
         # one completion ping (the sync's own ntfy already fired)
         try:
             import httpx as _h
