@@ -40,7 +40,24 @@ TOPIC_TYPE_MAP = {1: "file", 2: "link", 3: "link"}
 
 
 def _safe_name(s: str, max_len: int = 80) -> str:
+    """Sanitize a filename for disk, PRESERVING the extension when truncating.
+
+    Truncating the whole string chopped the suffix off long names: an 87-char
+    "02- Section5 ... A Practice Guide.pdf" became an 80-char name ending
+    mid-word with no extension at all, so the extractor could not tell what the
+    file was and skipped real course content as "unsupported type". Shorten the
+    stem and keep the suffix.
+    """
     s = re.sub(r'[<>:"/\\|?*]', "_", s).strip().strip(".")
+    if len(s) <= max_len:
+        return s or "untitled"
+    stem, dot, ext = s.rpartition(".")
+    # Only a short trailing token is an extension; "Chapter 1. Introduction" has
+    # a dot but no suffix, and there the plain truncation is right.
+    if dot and 0 < len(ext) <= 10:
+        keep = max_len - len(ext) - 1
+        if keep > 0:
+            return stem[:keep] + "." + ext
     return s[:max_len] or "untitled"
 
 

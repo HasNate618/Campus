@@ -195,6 +195,28 @@ def test_extensionless_pdf_is_extracted_by_content(db, cfg, tmp_path, monkeypatc
     db.close()
 
 
+def test_safe_name_keeps_the_extension_when_truncating():
+    """Truncation must not eat the suffix.
+
+    An 87-char "... A Practice Guide.pdf" was cut to 80 chars, which removed
+    ".pdf" entirely, so the extractor could not tell what the file was and
+    skipped real course content as "unsupported type".
+    """
+    from sync.sync import _safe_name
+    long_pdf = ("02- Section5 - Requirements Elicitation _ Requirements Management"
+                "_ A Practice Guide.pdf")
+    got = _safe_name(long_pdf)
+    assert len(got) <= 80
+    assert got.endswith(".pdf"), got
+    assert got.startswith("02- Section5")
+    # a dot inside the stem is not an extension: plain truncation is correct
+    dotted = "A" * 70 + ". Introduction to Networks and Their Protocols"
+    assert _safe_name(dotted) == dotted[:80]
+    # short names are untouched, and an empty name still has a fallback
+    assert _safe_name("outline.pdf") == "outline.pdf"
+    assert _safe_name("   ") == "untitled"
+
+
 def test_card_filters_noise_and_keeps_grading(db, cfg):
     from agent.memory import build_card
     course = db.get_course_by_code("CS 1100A")
