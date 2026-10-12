@@ -147,6 +147,23 @@ def dropbox_submit_url(base_url: str, org_unit: int, folder_id: int) -> str:
             f"?db={folder_id}&grpid=0&isprv=0&bp=0&ou={org_unit}")
 
 
+_PDF_MAGIC = b"%PDF-"
+
+
+def looks_like_pdf(path: Path) -> bool:
+    """Is this a PDF by CONTENT rather than by name?
+
+    Brightspace occasionally serves a file with its extension stripped — a 153 KB
+    course PDF arrived as "...A Practice Gu" with no suffix — so a suffix is not
+    evidence of the type. Five bytes settle it: every PDF starts with %PDF-.
+    """
+    try:
+        with open(path, "rb") as f:
+            return f.read(len(_PDF_MAGIC)) == _PDF_MAGIC
+    except OSError:
+        return False
+
+
 class SyncEngine:
     def __init__(self, cfg: Config, db: DB, client: D2LClient, model: str | None = None):
         self.cfg = cfg
@@ -868,7 +885,8 @@ class SyncEngine:
         pdf-extractor uses its cloud engine by default; local mode caused
         high CPU load on the host and was removed.)"""
         path = Path(self.cfg.data_root) / file_row["path"]
-        if not path.exists() or path.suffix.lower() != ".pdf":
+        # Content, not name: an extension-less PDF is still a PDF.
+        if not path.exists() or not looks_like_pdf(path):
             self.db.mark_processed(file_row["id"])
             return False
         try:
@@ -978,7 +996,11 @@ class SyncEngine:
             # `extract --file` bypasses the queue and ignores the skip.
             # When an external parser is connected, it handles everything
             # (including long scans) — only apply this to local-OCR-only.
-            if not self.cfg.pdf_extractor_url and path.suffix.lower() == ".pdf":
+            # Content, not name: Brightspace sometimes strips the extension, and a
+            # 153 KB course PDF arrived with no suffix at all. Without this it was
+            # skipped as "unsupported type" and never extracted or indexed.
+            is_pdf = path.suffix.lower() == ".pdf" or looks_like_pdf(path)
+            if not self.cfg.pdf_extractor_url and is_pdf:
                 pages = self._scan_pages(path)
                 if pages is not None and pages >= self.cfg.long_scan_skip_pages:
                     self._write_stub(row["course_id"], path,
@@ -1022,7 +1044,7 @@ class SyncEngine:
                     self._write_stub(row["course_id"], path, "doc extraction failed", row)
                 self.db.mark_processed(row["id"])  # one attempt; .md sibling persists
                 continue
-            if path.suffix.lower() != ".pdf":
+            if not is_pdf:
                 # Nothing to extract, and deliberately NO stub `.md`. A stub is
                 # upserted by register_extraction as a real `files` row, so every
                 # .zip/.mp4/.py mirrored as a first-class, searchable corpus

@@ -153,6 +153,48 @@ def test_unsupported_file_gets_no_md_mirror(db, cfg, tmp_path, monkeypatch):
     db.close()
 
 
+def test_extensionless_pdf_is_extracted_by_content(db, cfg, tmp_path, monkeypatch):
+    """A PDF whose extension Brightspace stripped must still be extracted.
+
+    It arrived as "02- Section5 ... A Practice Gu" with no suffix at all and was
+    skipped as "unsupported type", so real course content never reached the
+    corpus. Type is decided by content, not by name.
+    """
+    from unittest.mock import MagicMock
+    import sync.sync as sync_mod
+    from sync.sync import SyncEngine, looks_like_pdf
+    cfg.pdf_extractor_url = "http://parser:8000"  # skip the local-OCR branch
+    name = "02- Section5 - Requirements Elicitation _ Requirements Management_ A Practice Gu"
+    d = tmp_path / "2026F" / "CS1100A" / "Week 2"
+    d.mkdir(parents=True)
+    (d / name).write_bytes(b"%PDF-1.4\nnot really a pdf\n")
+    assert looks_like_pdf(d / name)
+
+    course = db.get_course_by_code("CS 1100A")
+    rel = f"2026F/CS1100A/Week 2/{name}"
+    db.conn.execute(
+        "INSERT INTO files (course_id, path, kind, source, size, sha256, processed)"
+        " VALUES (?,?,'other','brightspace',25,?,0)", (course["id"], rel, "s" * 64))
+    db.conn.commit()
+
+    def fake_put(url, **kw):
+        r = MagicMock()
+        r.json.return_value = {"page_content": "# Section 5\nElicitation."}
+        return r
+
+    monkeypatch.setattr(sync_mod.httpx, "put", fake_put)
+    eng = SyncEngine(cfg, db, client=MagicMock())
+    eng.run_extraction_queue(course_id=course["id"])
+
+    md = d / (name + ".md")
+    assert md.exists(), "extension-less PDF should have been extracted"
+    assert "Section 5" in md.read_text(encoding="utf-8")
+    assert db.conn.execute(
+        "SELECT COUNT(*) FROM files WHERE path=?",
+        (rel + ".md",)).fetchone()[0] == 1
+    db.close()
+
+
 def test_card_filters_noise_and_keeps_grading(db, cfg):
     from agent.memory import build_card
     course = db.get_course_by_code("CS 1100A")
