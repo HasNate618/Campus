@@ -483,6 +483,41 @@ def _asset_url(course: dict, rel: str) -> str:
 COMPOUND_EXTENSIONS = (".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst", ".tar.bz", ".tar.Z")
 
 
+def _split_extension(name: str) -> tuple[str, str]:
+    """(`data`, `.tar.gz`) — the last extension, or the last compound one.
+
+    `data.tar.gz` must collide to `data-2.tar.gz`, not `data.tar-2.gz`: only
+    the last extension would otherwise survive, which is also what the
+    workspace derives a file's `kind` from.
+    """
+    lower = name.lower()
+    compound = next((e for e in COMPOUND_EXTENSIONS if lower.endswith(e) and len(name) > len(e)), None)
+    if compound:
+        return name[: -len(compound)], compound
+    if "." in name[1:]:  # a leading dot is not an extension
+        stem, ext = name.rsplit(".", 1)
+        return stem, f".{ext}"
+    return name, ""
+
+
+def _unique_name_in(directory: Path, name: str) -> str:
+    """`report.pdf`, or `report-2.pdf` when that name is already in `directory`.
+
+    Takes a directory rather than assuming `uploads/`: the workspace Upload
+    button can land in notes/ or work/ as well.
+    """
+    if not directory.is_dir():
+        # Fresh directory — the first upload needs no suffix.
+        return name
+    stem, suffix = _split_extension(name)
+    candidate = name
+    n = 1
+    while (directory / candidate).exists():
+        n += 1
+        candidate = f"{stem}-{n}{suffix}"
+    return candidate
+
+
 def unique_upload_name(course: dict, name: str) -> str:
     """`report.pdf`, or `report-2.pdf` when that name is already taken.
 
@@ -496,25 +531,7 @@ def unique_upload_name(course: dict, name: str) -> str:
         # Unknown course: nothing to collide with, and workspace_upload is what
         # rejects that properly (400).
         return name
-    up = course_dir(course) / "uploads"
-    if not up.is_dir():
-        # Fresh course, no uploads/ yet — the first upload needs no suffix.
-        return name
-    lower = name.lower()
-    compound = next((e for e in COMPOUND_EXTENSIONS if lower.endswith(e) and len(name) > len(e)), None)
-    if compound:
-        stem, suffix = name[: -len(compound)], compound
-    elif "." in name[1:]:  # a leading dot is not an extension
-        stem, ext = name.rsplit(".", 1)
-        suffix = f".{ext}"
-    else:
-        stem, suffix = name, ""
-    candidate = name
-    n = 1
-    while (up / candidate).exists():
-        n += 1
-        candidate = f"{stem}-{n}{suffix}"
-    return candidate
+    return _unique_name_in(course_dir(course) / "uploads", name)
 
 
 def _writable_rel(rel: str) -> bool:
@@ -641,6 +658,13 @@ def workspace_upload(course_id: int, rel: str, reader) -> dict:
     if not _writable_rel(rel):
         raise PermissionError(READONLY_WORKSPACE_MSG)
     full = _resolve_workspace(course, rel)
+    if full.exists():
+        # A repeat upload must not replace a file the user already put here: a
+        # second `test.txt` becomes `test-2.txt`. The chat attachment path has
+        # always versioned; the workspace Upload button did not, so its repeat
+        # silently destroyed the earlier file.
+        full = full.with_name(_unique_name_in(full.parent, full.name))
+        rel = full.relative_to(course_dir(course).resolve()).as_posix()
     full.parent.mkdir(parents=True, exist_ok=True)
     tmp = full.with_name(full.name + ".part")
     digest = hashlib.sha256()

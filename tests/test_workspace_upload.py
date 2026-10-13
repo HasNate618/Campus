@@ -138,3 +138,47 @@ def test_upload_endpoint_writes_audit_row(upload_env):
     finally:
         conn.close()
     assert row is not None
+
+
+def test_upload_versions_a_repeated_filename(upload_env):
+    """A second test.txt must not destroy the first.
+
+    The chat attachment path has always suffixed on collision; the workspace
+    Upload button wrote to the exact path named, so its repeat replaced the
+    earlier file with no warning.
+    """
+    from api.services import workspace_upload
+
+    first = workspace_upload(1, "uploads/test.txt", _reader(b"one", b""))
+    second = workspace_upload(1, "uploads/test.txt", _reader(b"two", b""))
+    assert first["path"] == "uploads/test.txt"
+    assert second["path"] == "uploads/test-2.txt"
+
+
+def test_upload_preserves_the_earlier_file(upload_env):
+    """The point of versioning is that the first upload survives intact."""
+    _, root = upload_env
+    from api.services import workspace_upload
+
+    workspace_upload(1, "uploads/test.txt", _reader(b"first", b""))
+    workspace_upload(1, "uploads/test.txt", _reader(b"second", b""))
+    up = root / "2026F" / "T1000A" / "uploads"
+    assert (up / "test.txt").read_bytes() == b"first"
+    assert (up / "test-2.txt").read_bytes() == b"second"
+
+
+def test_upload_versions_outside_uploads(upload_env):
+    """notes/ and work/ are writable too — the helper cannot assume uploads/."""
+    from api.services import workspace_upload
+
+    workspace_upload(1, "notes/draft.txt", _reader(b"a", b""))
+    out = workspace_upload(1, "notes/draft.txt", _reader(b"b", b""))
+    assert out["path"] == "notes/draft-2.txt"
+
+
+def test_upload_keeps_a_free_name_unchanged(upload_env):
+    """Only a collision earns a suffix — an unused name stays readable."""
+    from api.services import workspace_upload
+
+    out = workspace_upload(1, "uploads/solo.txt", _reader(b"x", b""))
+    assert out["path"] == "uploads/solo.txt"
