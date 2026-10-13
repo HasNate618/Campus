@@ -1,0 +1,24 @@
+# Campus — lint configuration.
+#
+# Why this file exists: pi-lens runs its OWN bundled ruff against this repo.
+# With no project-local config it applies its bundled rule set, which
+# reported findings on code written months earlier (import-block ordering,
+# `datetime.timezone.utc` vs `datetime.UTC`, `try/except/pass`). The turn-end
+# check then demanded those be fixed in unrelated commits. A project-local
+# ruff config overrides the bundled one outright, so this pins the rule set
+# to what the project actually runs.
+#
+# This is ruff's own default selection: pycodestyle errors and pyflakes.
+# Deliberately NOT enabled — `I` (import sorting, churn with no payoff),
+# `UP` (pyupgrade rewrites that rewrite working code), `S` (bandit, whose
+# `try/except/pass`-style findings flag intentional swallowing here).
+
+[lint]
+select = ["E4", "E7", "E9", "F"]
+
+[lint.per-file-ignores]
+# Tests import helpers to assert on them and re-export fixtures; unused
+# imports there are deliberate, not dead code.
+"tests/**" = ["F401"]
+# The app entrypoint wires routes by import for side effects.
+"api/main.py" = ["F401"]
