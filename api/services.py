@@ -475,6 +475,14 @@ def _asset_url(course: dict, rel: str) -> str:
     return "/api/assets/" + "/".join(quote(p, safe="") for p in f"{prefix}/{rel}".split("/"))
 
 
+# The second half of a compound extension. `data.tar.gz` should collide to
+# `data-2.tar.gz`, not `data.tar-2.gz`: only the last extension would otherwise
+# survive, which is also what the workspace uses to name the file's `kind`.
+# Compound extensions are not formally enumerable, so this lists the wrappers
+# that actually occur.
+COMPOUND_EXTENSIONS = (".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst", ".tar.bz", ".tar.Z")
+
+
 def unique_upload_name(course: dict, name: str) -> str:
     """`report.pdf`, or `report-2.pdf` when that name is already taken.
 
@@ -492,7 +500,11 @@ def unique_upload_name(course: dict, name: str) -> str:
     if not up.is_dir():
         # Fresh course, no uploads/ yet — the first upload needs no suffix.
         return name
-    if "." in name[1:]:  # a leading dot is not an extension
+    lower = name.lower()
+    compound = next((e for e in COMPOUND_EXTENSIONS if lower.endswith(e) and len(name) > len(e)), None)
+    if compound:
+        stem, suffix = name[: -len(compound)], compound
+    elif "." in name[1:]:  # a leading dot is not an extension
         stem, ext = name.rsplit(".", 1)
         suffix = f".{ext}"
     else:
