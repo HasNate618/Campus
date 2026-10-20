@@ -98,6 +98,13 @@ llm_api_key: ""               # Bearer auth when set (OpenAI, OpenRouter, ...); 
 # institution label used in the AI system prompt, e.g. "Your University"
 # institution: ""
 
+# The agent's shell tool (terminal_run). OFF by default: it is the one tool
+# that runs arbitrary commands in the container, so the model is not told it
+# exists and any call to it is refused. Set true (or
+# CAMPUS_TERMINAL_ENABLED=1) to enable it; the command blocklist, the 30 s
+# default timeout and the audit entry for every command apply either way.
+# terminal_enabled: true
+
 # timezone for user-facing datetimes + the system prompt clock.
 # Empty = system local time. e.g. timezone: "America/Toronto"
 

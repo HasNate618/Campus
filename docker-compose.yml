@@ -11,6 +11,15 @@ services:
   campus:
     build: .
     container_name: campus-demo
+    # The image runs as uid 1000 so it owns the mounted data volume. cap-drop
+    # ALL removes CAP_DAC_OVERRIDE, so the container cannot read or write files
+    # it does not own with root's authority, and no-new-privileges stops a
+    # setuid binary from gaining any back.
+    user: "1000:100"
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
     ports:
       - "127.0.0.1:8087:8000"
     volumes:
@@ -22,6 +31,8 @@ services:
       # OPENAI_ENDPOINT: https://api.openai.com/v1
       # OPENAI_MODEL: gpt-4o-mini
       # OPENAI_API_KEY: your-key   # only if the endpoint requires auth
+      # The agent's shell tool is off unless this is set to 1:
+      # CAMPUS_TERMINAL_ENABLED: "1"
     restart: unless-stopped
 
 volumes:

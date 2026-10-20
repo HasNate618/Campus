@@ -18,8 +18,6 @@ import subprocess
 import uuid
 from pathlib import Path
 
-import httpx
-
 from sync.config import Config
 from sync.db import DB
 
@@ -114,9 +112,11 @@ def harness_list_assignments(db: DB, cfg: Config, args: dict) -> dict:
            FROM assignments a JOIN courses c ON c.id=a.course_id WHERE 1=1"""
     params = []
     if course_id:
-        q += " AND a.course_id=?"; params.append(course_id)
+        q += " AND a.course_id=?"
+        params.append(course_id)
     if args.get("status"):
-        q += " AND a.status=?"; params.append(args["status"])
+        q += " AND a.status=?"
+        params.append(args["status"])
     days = _coerce_int(args.get("due_within_days"), 0)
     if days > 0:
         # lower bound too: only assignments due from now until now+N days
@@ -128,7 +128,8 @@ def harness_list_assignments(db: DB, cfg: Config, args: dict) -> dict:
         if aid < 0:
             return {"error": "assignment_id must be a number — get it from "
                              "harness_list_assignments"}
-        q += " AND a.id=?"; params.append(aid)
+        q += " AND a.id=?"
+        params.append(aid)
     q += " ORDER BY a.due_at"
     rows = db.conn.execute(q, params).fetchall()
     out = []
@@ -189,10 +190,12 @@ def harness_get_announcements(db: DB, cfg: Config, args: dict) -> dict:
            FROM announcements a JOIN courses c ON c.id=a.course_id WHERE 1=1"""
     params = []
     if course_id:
-        q += " AND a.course_id=?"; params.append(course_id)
+        q += " AND a.course_id=?"
+        params.append(course_id)
     days = _coerce_int(args.get("days"), 0)
     if days > 0:
-        q += " AND a.posted_at >= datetime('now', ?)"; params.append(f"-{days} days")
+        q += " AND a.posted_at >= datetime('now', ?)"
+        params.append(f"-{days} days")
     q += " ORDER BY a.posted_at DESC LIMIT 30"
     rows = db.conn.execute(q, params).fetchall()
     out = []
@@ -220,9 +223,11 @@ def harness_get_facts(db: DB, cfg: Config, args: dict) -> dict:
     q = "SELECT fact, category, confidence, source, created_at FROM memory_facts WHERE is_active=1"
     params = []
     if course_id:
-        q += " AND course_id=?"; params.append(course_id)
+        q += " AND course_id=?"
+        params.append(course_id)
     if args.get("category"):
-        q += " AND category=?"; params.append(args["category"])
+        q += " AND category=?"
+        params.append(args["category"])
     q += " ORDER BY id DESC LIMIT 40"
     rows = db.conn.execute(q, params).fetchall()
     return {"facts": _rows_as_dicts(rows)}
@@ -242,9 +247,11 @@ def content_list_files(db: DB, cfg: Config, args: dict) -> dict:
     q = "SELECT path, kind, source, processed, size FROM files WHERE 1=1"
     params = []
     if course_id:
-        q += " AND course_id=?"; params.append(course_id)
+        q += " AND course_id=?"
+        params.append(course_id)
     if args.get("kind"):
-        q += " AND kind=?"; params.append(args["kind"])
+        q += " AND kind=?"
+        params.append(args["kind"])
     q += " ORDER BY path LIMIT 100"
     rows = db.conn.execute(q, params).fetchall()
     return {"files": _rows_as_dicts(rows)}
@@ -385,9 +392,8 @@ def content_read_file(db: DB, cfg: Config, args: dict) -> dict:
             return {"error": ("pages= needs a file with <!-- page N --> markers; "
                               "this is a module description — use offset/limit"),
                     "pagesInFile": None}
-        import re as _re
-        desc = _re.sub(r"<[^>]+>", " ", row["description"] or "")
-        desc = _re.sub(r"\s+", " ", desc).strip()
+        desc = re.sub(r"<[^>]+>", " ", row["description"] or "")
+        desc = re.sub(r"\s+", " ", desc).strip()
         text = f"# {row['title']}\n\n{desc}"
         lines = text.splitlines()
         total = len(lines)
@@ -584,8 +590,11 @@ def content_read_file(db: DB, cfg: Config, args: dict) -> dict:
 EXTRACT_BUDGET = 120_000
 
 
-def extract_file(db: DB, cfg: Config, args: dict) -> dict:
+def extract_file(db: DB | None, cfg: Config, args: dict) -> dict:
     """Extract text from a stored file the corpus cannot read as text.
+
+    `db` is unused: extraction works from the file store alone, so callers
+    (and tests) may pass None.
 
     The counterpart to content_read_file: that reads text the corpus already
     holds, this reaches into a raw upload (a PDF/DOCX/DOC attachment the model
@@ -711,12 +720,11 @@ def content_grep(db: DB, cfg: Config, args: dict) -> dict:
     # tool for exact phrases must find them there too ("Email Response Time"
     # was lost because content_grep only scanned files)
     if course_id:
-        import re as _re
         q = "SELECT id, title, description FROM content_nodes WHERE course_id=? AND description IS NOT NULL"
         for r in db.conn.execute(q, (course_id,)):
             d = r["description"] or ""
-            stripped = _re.sub(r"<[^>]+>", " ", d)
-            stripped = _re.sub(r"\s+", " ", stripped)
+            stripped = re.sub(r"<[^>]+>", " ", d)
+            stripped = re.sub(r"\s+", " ", stripped)
             i = stripped.lower().find(query.lower())
             if i < 0:
                 continue
@@ -761,7 +769,8 @@ def mutate_update_assignment(db: DB, cfg: Config, args: dict) -> dict:
     q = "SELECT * FROM assignments WHERE id=?"
     params: list = [aid]
     if course_id:
-        q += " AND course_id=?"; params.append(course_id)
+        q += " AND course_id=?"
+        params.append(course_id)
     row = db.conn.execute(q + " LIMIT 1", params).fetchone()
     if not row:
         return {"error": f"assignment id {args['id']} not found"}
@@ -769,7 +778,8 @@ def mutate_update_assignment(db: DB, cfg: Config, args: dict) -> dict:
     updates, params = [], []
     for field in ("due_at", "status", "notes"):
         if args.get(field) is not None:
-            updates.append(f"{field}=?"); params.append(args[field])
+            updates.append(f"{field}=?")
+            params.append(args[field])
     if not updates:
         return {"error": "no fields to update (due_at/status/notes)"}
     params.append(row["id"])
@@ -1041,9 +1051,6 @@ def file_write(db: DB, cfg: Config, args: dict) -> dict:
 # secrets, no /etc/nixos, no mounts outside the workspace. Blocklist +
 # audit are accident-prevention and visibility, not a security boundary —
 # the container IS the boundary.
-import re as _re
-import subprocess as _sp
-
 TERMINAL_MAX_OUTPUT = 10_000  # chars returned to the model
 TERMINAL_DEFAULT_TIMEOUT = 30
 TERMINAL_MAX_TIMEOUT = 120
@@ -1075,11 +1082,11 @@ def terminal_run(db: DB, cfg: Config, args: dict) -> dict:
         return {"error": "empty command"}
     low = cmd.lower()
     for pat in TERMINAL_BLOCKLIST:
-        if _re.search(pat, low):
+        if re.search(pat, low):
             _audit(db, "blocked", {"command": cmd, "reason": f"blocklist: {pat}"})
             return {"error": f"blocked: command matches denied pattern {pat}"}
     # content/ write-guard: deny write-class commands whose args mention content/
-    if _re.search(TERMINAL_WRITE_OPS, low) and _re.search(TERMINAL_CONTENT_GUARD, low):
+    if re.search(TERMINAL_WRITE_OPS, low) and re.search(TERMINAL_CONTENT_GUARD, low):
         _audit(db, "blocked", {"command": cmd, "reason": "content/ is read-only"})
         return {"error": "blocked: content/ is read-only (sync owns it)"}
 
@@ -1094,12 +1101,13 @@ def terminal_run(db: DB, cfg: Config, args: dict) -> dict:
     timeout = min(_coerce_int(args.get("timeout_s"), TERMINAL_DEFAULT_TIMEOUT),
                    TERMINAL_MAX_TIMEOUT)
     try:
-        p = _sp.run(cmd, shell=True, cwd=wd, capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run(cmd, shell=True, cwd=wd, capture_output=True,
+                       text=True, timeout=timeout)
         out = (p.stdout or "") + (("\n[stderr]\n" + p.stderr) if p.stderr else "")
         out = out[-TERMINAL_MAX_OUTPUT:]
         _audit(db, "run", {"command": cmd, "cwd": str(wd), "exit": p.returncode})
         return {"exit": p.returncode, "cwd": str(wd), "output": out}
-    except _sp.TimeoutExpired:
+    except subprocess.TimeoutExpired:
         _audit(db, "timeout", {"command": cmd, "cwd": str(wd), "timeout_s": timeout})
         return {"error": f"timed out after {timeout}s"}
     except Exception as e:
@@ -1473,11 +1481,35 @@ except Exception:
 
 TOOL_SCHEMAS = [t["schema"] for t in TOOLS.values()]
 
+# Opt-in tools: name -> the config flag that enables it. A tool listed here is
+# absent from the schema list sent to the model unless its flag is true, and
+# execute_tool refuses it even if the model calls it by name. terminal_run is
+# the one tool that runs arbitrary commands, so it is off unless asked for.
+OPT_IN_TOOLS: dict[str, str] = {"terminal_run": "terminal_enabled"}
+
+
+def gated_tools_off(cfg: Config) -> set[str]:
+    """Opt-in tools this config has not enabled."""
+    return {name for name, flag in OPT_IN_TOOLS.items()
+            if not getattr(cfg, flag, False)}
+
+
+def tool_schemas(cfg: Config) -> list[dict]:
+    """The tool list to send to the model: TOOL_SCHEMAS minus any opt-in tool
+    the config has not enabled. Cheap enough to call per request."""
+    off = gated_tools_off(cfg)
+    if not off:
+        return TOOL_SCHEMAS
+    return [t["schema"] for name, t in TOOLS.items() if name not in off]
+
 
 def execute_tool(name: str, args: dict, db: DB, cfg: Config) -> dict:
     entry = TOOLS.get(name)
     if not entry:
         return {"error": f"unknown tool: {name}"}
+    if name in gated_tools_off(cfg):
+        return {"error": (f"{name} is disabled; set {OPT_IN_TOOLS[name]}: true "
+                          f"(CAMPUS_TERMINAL_ENABLED=1) to enable it")}
     try:
         return entry["handler"](db, cfg, args or {})
     except Exception as e:

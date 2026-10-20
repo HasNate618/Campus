@@ -39,11 +39,16 @@ ENV_OVERRIDES: list[tuple[str, str]] = [
     ("CAMPUS_NTFY_URL", "ntfy_url"),
     ("CAMPUS_MCP_URL", "mcp_url"),
     ("CAMPUS_MCP_URLS", "mcp_urls"),
+    ("CAMPUS_TERMINAL_ENABLED", "terminal_enabled"),
     ("CAMPUS_EMBED_MODEL", "embed_model"),
     ("CAMPUS_RERANK_MODEL", "rerank_model"),
     ("CAMPUS_BRIGHTSPACE_BASE_URL", "brightspace_base_url"),
     ("CAMPUS_WEB_PASSWORD", "web_password"),
 ]
+
+# Env values arrive as strings, so a boolean flag needs parsing: without this
+# CAMPUS_TERMINAL_ENABLED=0 would set the string "0", which is truthy.
+_BOOL_ENV_ATTRS = frozenset({"terminal_enabled"})
 
 # Comma-separated in the environment, lists on Config.
 _ENV_CSV_ATTRS = frozenset({"llm_urls", "mcp_urls"})
@@ -166,6 +171,14 @@ def _yaml_error_message(path: Path, e: yaml.YAMLError) -> str:
     )
 
 
+def _as_bool(val: object) -> bool:
+    """Env/file value for a boolean flag. 1/true/yes/on (any case) are true;
+    everything else, including "0", "false" and "", is false."""
+    if isinstance(val, bool):
+        return val
+    return str(val).strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass
 class Config:
     base_url: str = ""  # LMS base URL, e.g. https://your-university.brightspace.com
@@ -241,6 +254,11 @@ class Config:
     # from multiple servers; mcp_url / CAMPUS_MCP_URL is a single-entry alias.
     mcp_url: str = ""
     mcp_urls: list = field(default_factory=list)  # merged; empty => [mcp_url]
+    # The agent's shell tool (terminal_run) is OPT-IN, because it is the one
+    # tool that runs arbitrary commands in the container. Off by default: the
+    # tool is left out of the schema list sent to the model, its prompt rule is
+    # dropped, and a call to it is refused. Env: CAMPUS_TERMINAL_ENABLED.
+    terminal_enabled: bool = False
     # Semantic search (corpus embeddings + rerank) is OPT-IN. Most
     # OpenAI-compatible endpoints don't serve /embeddings or /rerank, so these
     # default empty: search_corpus falls back to a lexical (substring + term
@@ -321,6 +339,8 @@ def _read_config_file(path: Path) -> dict:
     """
     if not path.exists():
         return {}
+    # Deliberate: this layer is allowed to raise, unlike read_settings_layer.
+    # pi-lens-ignore: unchecked-throwing-call-python
     with open(path) as f:
         return yaml.safe_load(f) or {}
 
@@ -343,7 +363,9 @@ def _apply_env(cfg: "Config") -> None:
         val = os.environ.get(env_key)
         if not val:
             continue
-        if attr in _ENV_CSV_ATTRS:  # comma-separated list -> list field
+        if attr in _BOOL_ENV_ATTRS:
+            setattr(cfg, attr, _as_bool(val))
+        elif attr in _ENV_CSV_ATTRS:  # comma-separated list -> list field
             setattr(cfg, attr, [u.strip() for u in val.split(",") if u.strip()])
         else:
             setattr(cfg, attr, val)
@@ -365,10 +387,10 @@ def _apply_env(cfg: "Config") -> None:
 
 def _coerce_paths(cfg: "Config") -> None:
     """expand ~ and coerce to Path (YAML strings don't auto-coerce)."""
-    for field in ("data_root", "db_path", "token_dir", "browser_profile_dir"):
-        val = getattr(cfg, field)
+    for name in ("data_root", "db_path", "token_dir", "browser_profile_dir"):
+        val = getattr(cfg, name)
         if isinstance(val, str):
             val = Path(val)
         if isinstance(val, Path):
             val = Path(os.path.expanduser(str(val)))
-        setattr(cfg, field, val)
+        setattr(cfg, name, val)

@@ -1,0 +1,17 @@
+# Campus — YAML lint configuration.
+#
+# Same reasoning as ruff.toml: pi-lens runs its OWN bundled yamllint, and with
+# no project-local config it applies an 80-column limit to files written
+# months earlier. config.example.yaml is the clearest case — its trailing
+# comments are column-aligned so the file reads as a table, and the only way
+# to satisfy an 80-column limit is to break that alignment. docker-compose.yml
+# and the workflow files carry long single-line commands for the same reason.
+#
+# This pins the rule set so the turn-end check reports real YAML errors
+# (duplicate keys, bad indentation, tab characters) rather than reflowed prose.
+# Everything except line length keeps yamllint's defaults.
+
+extends: default
+
+rules:
+  line-length: disable
