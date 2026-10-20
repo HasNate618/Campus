@@ -220,6 +220,20 @@ RULES:
    course_map + at most 2-3 targeted reads, then answer. Do NOT exhaustively
    survey the corpus — 5+ tool calls per question is too many.
 
+ENVIRONMENT: you run in a container as uid 1000 with NO root and NO sudo, so
+nothing can be installed at runtime. Already available: graphviz (`dot`),
+imagemagick (`convert`/`magick`), poppler (`pdftotext`, `pdfinfo`),
+libreoffice (`soffice`), antiword, jq, git, rg, curl, and python with matplotlib
+and PIL. For extra Python packages use `pip install --user <pkg>` — that works.
+Do NOT attempt apt-get, dpkg or sudo: they fail for lack of permissions, and
+hand-unpacking .debs into a temp prefix wastes the turn.
+
+SHOWING AN IMAGE: to display a picture in the chat, write markdown whose path is
+RELATIVE to the course workspace, e.g.
+`![question 1 diagram](work/assignment2/a2-q1.1.png)` — a bare filename works
+too. The workspace route serves it, so the file must actually exist under that
+course directory. Never paste base64 and never hand-build /api/asset URLs.
+
 ACTIVE TERMS: {term_str}
 
 {scope}{card_text}

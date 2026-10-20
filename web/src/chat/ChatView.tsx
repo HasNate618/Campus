@@ -67,11 +67,14 @@ const ChatMd = memo(function ChatMd({
 	content,
 	citations,
 	frozen,
+	assetBase,
 }: {
 	content: string;
 	citations?: CitationMeta[];
 	/** False while the turn is still running — see ZenMarkdown. */
 	frozen?: boolean;
+	/** Resolves relative image srcs to the course's asset route. */
+	assetBase?: string;
 }) {
 	const [rendered, setRendered] = useState(content);
 	const citeMap = useMemo(() => {
@@ -84,7 +87,7 @@ const ChatMd = memo(function ChatMd({
 		const raf = requestAnimationFrame(() => setRendered(content));
 		return () => cancelAnimationFrame(raf);
 	}, [content]);
-	return <ZenMarkdown content={rendered} citations={citeMap} frozen={frozen} />;
+	return <ZenMarkdown content={rendered} citations={citeMap} frozen={frozen} assetBase={assetBase} />;
 });
 
 function shortModel(id: string): string {
@@ -115,6 +118,12 @@ interface Props {
 
 export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 	const navigate = useNavigate();
+	// Relative images in an answer (`![](a2-q1.1.png)` — what the agent writes
+	// after rendering a plot) resolve against the course workspace, not the SPA
+	// route. Same prefix the server's _asset_url builds for Downloads.
+	const assetBase = course?.term && course?.code
+		? `/api/assets/${encodeURIComponent(course.term)}/${encodeURIComponent(course.code.replace(/\s+/g, ""))}`
+		: undefined;
 	const {
 		busy,
 		sessionsFor,
@@ -1024,6 +1033,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 								content={node.content}
 								citations={mergedCitesByNode.get(node.id) ?? node.citations}
 								frozen={!busy}
+								assetBase={assetBase}
 							/>
 							{node.streaming && <span className="stream-cursor" />}
 						</div>

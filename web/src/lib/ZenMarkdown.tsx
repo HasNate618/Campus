@@ -16,17 +16,25 @@ export function ZenMarkdown({
   className,
   citations,
   frozen = true,
+  assetBase,
 }: {
   content: string
   className?: string
   citations?: Record<number, CitationMeta>
+  /** Prefix that resolves RELATIVE image srcs to the workspace asset route,
+   *  e.g. `/api/assets/2026F/SE3310A`. Omit where relative images cannot be
+   *  resolved (the placeholder degradation still applies). */
+  assetBase?: string
   /** False while the content can still change (a live chat turn) — the
    *  post-process is skipped so injected diagrams/copy headers can't be wiped
    *  by the next token re-render and re-added, which flickers. */
   frozen?: boolean
 }) {
   const ref = useRef<HTMLDivElement>(null)
-  const html = useMemo(() => parseMarkdown(content ?? '', citations), [content, citations])
+  const html = useMemo(
+    () => parseMarkdown(content ?? '', citations, assetBase),
+    [content, citations, assetBase],
+  )
   useZenPostProcess(ref, [html], frozen)
   return (
     <div

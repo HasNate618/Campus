@@ -4,6 +4,7 @@ import katex from 'katex'
 import 'katex/dist/katex.min.css'
 
 import { escapeHtml, renderFileRefs } from './fileRefs.ts'
+import { rewriteImageSrcs } from './imgSrc.ts'
 
 /**
  * Shared markdown → HTML for the chat (and content) renderers.
@@ -175,8 +176,13 @@ const SANITIZE_CONFIG = {
   FORBID_TAGS: ['form', 'input', 'select', 'textarea', 'option'],
 }
 
-export function parseMarkdown(content: string, citations?: Record<number, CitationMeta>): string {
+export function parseMarkdown(
+  content: string,
+  citations?: Record<number, CitationMeta>,
+  assetBase?: string,
+): string {
   const body = renderFileRefs(renderCitations(content ?? '', citations))
   const html = (marked.parse(balanceFences(renderFootnotes(body))) as string) || ''
-  return DOMPurify.sanitize(html, SANITIZE_CONFIG)
+  const clean = DOMPurify.sanitize(html, SANITIZE_CONFIG)
+  return assetBase ? rewriteImageSrcs(clean, assetBase) : clean
 }

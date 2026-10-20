@@ -14,9 +14,14 @@ RUN npm run build
 
 # ── Stage 2: runtime ────────────────────────────────────────────────────
 FROM python:3.12-slim
-# playwright chromium system deps
+# playwright chromium system deps + general-purpose tooling the agent is
+# expected to reach for. The agent's tools have to be baked in: the container
+# runs as uid 1000 with cap-drop ALL and no sudo, so a missing binary cannot be
+# installed at runtime. Without graphviz, "render a diagram" became a 12-step
+# fight with dpkg-deb that still failed on a missing libgd.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git ripgrep curl ca-certificates antiword \
+        graphviz poppler-utils jq imagemagick \
         libreoffice-impress libreoffice-writer \
         libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
         libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
