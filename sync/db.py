@@ -50,6 +50,26 @@ class DB:
         scols = {r[1] for r in self.conn.execute("PRAGMA table_info(chat_sessions)")}
         if "model" not in scols:
             self.conn.execute("ALTER TABLE chat_sessions ADD COLUMN model TEXT")
+        if "active_node_id" not in scols:
+            self.conn.execute("ALTER TABLE chat_sessions ADD COLUMN active_node_id TEXT")
+        # Conversations used to be one JSON blob per session. Nodes are rows now
+        # so that a save can only add or update the nodes it names — see
+        # api/chat_nodes.py for why the blob replace lost messages.
+        self.conn.execute(
+            """CREATE TABLE IF NOT EXISTS chat_nodes (
+                session_id  INTEGER NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+                id          TEXT NOT NULL,
+                parent_id   TEXT,
+                role        TEXT NOT NULL,
+                content     TEXT NOT NULL DEFAULT '',
+                position    INTEGER NOT NULL DEFAULT 0,
+                data_json   TEXT,
+                created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (session_id, id)
+            )""")
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chat_nodes_session ON chat_nodes(session_id)")
         # single-row client prefs (pinned models)
         self.conn.execute(
             """CREATE TABLE IF NOT EXISTS chat_prefs (

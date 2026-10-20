@@ -57,29 +57,52 @@ def test_title_only_update_preserves_the_tree(session_db):
     from api.routers.chat import SessionUpdate, put_session
 
     dbp, sid = session_db
-    assert put_session(sid, SessionUpdate(title="Renamed")) == {"ok": True, "id": sid}
+    res = put_session(sid, SessionUpdate(title="Renamed"))
+    assert res["ok"] is True and res["id"] == sid
+    assert res["added"] == 0 and res["removed"] == 0   # nothing touched the tree
     row = _row(dbp, sid)
     assert row["title"] == "Renamed"
     assert json.loads(row["nodes_json"]) == TREE   # the regression under test
     assert row["model"] == "model-a"               # omitted -> kept
 
 
-def test_explicit_empty_tree_still_clears(session_db):
-    """Sending nodes explicitly must remain able to clear the tree."""
+def test_an_empty_node_list_clears_nothing(session_db):
+    """`nodes: []` used to wipe the conversation.
+
+    It now means "no nodes to write". Removal has to name the node, which is
+    what stops a stale device from destroying turns it never saw. This is a
+    deliberate contract change, not an accident.
+    """
     from api.routers.chat import SessionUpdate, put_session
 
     dbp, sid = session_db
-    put_session(sid, SessionUpdate(nodes=[], activeNodeId=None))
-    assert json.loads(_row(dbp, sid)["nodes_json"]) == {"nodes": [], "activeNodeId": None}
+    put_session(sid, SessionUpdate(nodes=[]))
+    tree = json.loads(_row(dbp, sid)["nodes_json"])
+    assert [n["id"] for n in tree["nodes"]] == ["n1"]   # still there
+    assert tree["activeNodeId"] == "n1"
 
 
-def test_nodes_update_replaces_the_tree(session_db):
+def test_naming_the_node_is_what_removes_it(session_db):
     from api.routers.chat import SessionUpdate, put_session
 
     dbp, sid = session_db
-    new = {"nodes": [{"id": "z", "role": "user", "content": "q"}], "activeNodeId": "z"}
-    put_session(sid, SessionUpdate(nodes=new["nodes"], activeNodeId="z"))
-    assert json.loads(_row(dbp, sid)["nodes_json"]) == new
+    res = put_session(sid, SessionUpdate(nodes=[], deletedNodeIds=["n1"]))
+    assert res["removed"] == 1
+    assert json.loads(_row(dbp, sid)["nodes_json"])["nodes"] == []
+
+
+def test_nodes_update_upserts_and_keeps_the_rest(session_db):
+    """A save adds what it names; it does not replace the tree with it."""
+    from api.routers.chat import SessionUpdate, put_session
+
+    dbp, sid = session_db
+    new_node = {"id": "z", "role": "user", "content": "q", "parentId": "n1"}
+    put_session(sid, SessionUpdate(nodes=[new_node], activeNodeId="z"))
+    tree = json.loads(_row(dbp, sid)["nodes_json"])
+    ids = [n["id"] for n in tree["nodes"]]
+    assert ids == ["n1", "z"]            # the node it never mentioned survived
+    assert tree["activeNodeId"] == "z"
+    assert tree["nodes"][0]["children"] == ["z"]   # linkage derived from parentId
 
 
 def test_omitted_model_keeps_and_explicit_null_clears(session_db):

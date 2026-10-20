@@ -205,6 +205,8 @@ export const api = {
 			activeNodeId: string | null;
 			model?: string | null;
 			updatedAt?: number;
+			/** Node ids this device dropped on purpose; the only way a save removes. */
+			deletedNodeIds?: string[];
 		},
 	) => put(`/chat/sessions/${id}`, body),
 	chatSessionDelete: (id: number) => del(`/chat/sessions/${id}`),
@@ -284,6 +286,10 @@ export async function streamChat(
 	clientSessionId?: string,
 	// what the user has open, so a deictic "explain this" resolves to it
 	view?: ViewContext | null,
+	// Node ids the server stores this turn under, so the answer survives a
+	// stream this browser never finishes reading
+	assistantNodeId?: string | null,
+	parentNodeId?: string | null,
 ): Promise<void> {
 	const res = await fetch("/api/chat", {
 		method: "POST",
@@ -301,6 +307,9 @@ export async function streamChat(
 			session_id: sessionId ?? null,
 			client_session_id: clientSessionId,
 			view: view ? viewToWire(view) : null,
+			user_node_id: branch ?? null, // `branch` IS the user node id
+			assistant_node_id: assistantNodeId ?? null,
+			parent_node_id: parentNodeId ?? null,
 		}),
 		signal,
 	});

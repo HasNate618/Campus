@@ -15,6 +15,12 @@ import {
 	type ChatServerSession,
 } from "@/api/client";
 import type { ViewContext } from "@/types";
+import {
+	capForCache,
+	removedIds,
+	sessionSignature,
+	unionNodes,
+} from "@/lib/chatMerge";
 
 /** Chat message tree (Open WebUI-style): a flat node store linked by
  *  parentId/children. The visible conversation is the path from the root
@@ -358,7 +364,12 @@ function persist(sessions: ChatSession[]): void {
 		// only sessions with actual messages survive — 'New chat' drafts are
 		// in-memory only and vanish on reload
 		const real = sessions.filter((s) => s.nodes.some((n) => n.role !== "tool"));
-		localStorage.setItem(STORAGE_KEY, JSON.stringify(real.map(stripUiFlags)));
+		// Capped: all 86 sessions came to ~22 MB against a ~5 MB origin limit,
+		// so setItem threw and the catch below swallowed it — the cache froze at
+		// whatever snapshot last fit. Newest sessions are kept; the rest come
+		// from the server on load anyway.
+		const capped = capForCache(real.map(stripUiFlags));
+		localStorage.setItem(STORAGE_KEY, JSON.stringify(capped));
 	} catch {
 		/* quota — keep in-memory */
 	}
@@ -517,10 +528,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 		});
 	}
 
-	// Merge server sessions into local state. Server nodes win on match;
-	// unknown server sessions are adopted; client uuids stay stable; the
-	// client's own updatedAt is preferred (server time is only a fallback
-	// for sessions this device has never seen).
+	// Merge server sessions into local state. Nodes are UNIONED by id, so a
+	// conversation never loses a turn to whichever device synced last; unknown
+	// server sessions are adopted; client uuids stay stable; per-session title
+	// and time follow the newer side, while the open branch stays local (it is
+	// this device's UI state).
 	// Keyed by SERVER id. The old code matched `byId.get(local.id)`
 	// against these keys — local.id is a client uuid, never equal to a
 	// numeric server id — so NO local session ever matched, and every
@@ -542,34 +554,28 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			// node still flagged streaming after the turn flag drops.)
 			if (local.nodes.some((n) => n.streaming)) return local;
 			const refreshed = toLocalSession(srv);
-			// Newer-wins by TIME. This used to compare node COUNTS, which is
-			// not a recency signal: for a branching tree an abandoned branch
-			// inflates the count, so the device holding the most (often
-			// oldest) nodes won forever and never adopted the other device's
-			// newer turns — one device would keep showing a conversation the
-			// other had long moved past. Fall back to the old count heuristic
-			// only when a timestamp is missing, so untimestamped rows keep the
-			// previous behaviour.
-			const srvTime = refreshed.updatedAt;
-			const localTime = local.updatedAt;
-			const serverIsNewer = srvTime && localTime ? srvTime > localTime : false;
-			if (!srvTime || !localTime) {
-				if (refreshed.nodes.length <= local.nodes.length) return local;
-			} else if (!serverIsNewer && refreshed.nodes.length <= local.nodes.length) {
-				return local;
-			}
+			// UNION, not a winner. This used to pick one whole copy — newer
+			// timestamp first, then the node-count heuristic — so whichever
+			// device looked newer replaced the other's tree and its turns
+			// vanished from that screen. Each side now contributes the nodes
+			// the other has never seen, so the two converge instead of fight.
+			const serverNewer =
+				(refreshed.updatedAt || 0) > (local.updatedAt || 0);
 			// Keep a real client uuid stable (activeMap + in-flight streams
 			// target it); reconcile numeric-id leftovers from the old
 			// uuid→server-id promotion to a fresh uuid + serverId.
 			const id = /^[0-9]+$/.test(local.id) ? makeUuid() : local.id;
 			return {
-				...refreshed,
+				...local,
 				id,
-				// Adopting the server's tree means adopting its time too — the
-				// server value is authoritative once the clock skew is fixed,
-				// whereas keeping the local one would preserve an already
-				// inflated timestamp forever.
-				updatedAt: refreshed.updatedAt || local.updatedAt,
+				title: serverNewer ? refreshed.title || local.title : local.title,
+				model: local.model ?? refreshed.model ?? null,
+				createdAt: local.createdAt || refreshed.createdAt,
+				updatedAt: Math.max(local.updatedAt || 0, refreshed.updatedAt || 0),
+				nodes: unionNodes(local.nodes, refreshed.nodes),
+				// The open branch is this device's UI state: never adopt the
+				// other device's and jump the reader somewhere else.
+				activeNodeId: local.activeNodeId ?? refreshed.activeNodeId ?? null,
 			};
 		});
 		for (const srv of byId.values()) merged.push(toLocalSession(srv));
@@ -650,17 +656,41 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [sessions]);
 
+	// What this device last pushed, per server session: a cheap fingerprint for
+	// "did anything change" and the node ids it had, so a prune can be named.
+	const syncedRef = useRef(new Map<number, { sig: string; ids: Set<string> }>());
+
 	async function saveSessions(): Promise<void> {
 		if (savingRef.current) return;
 		savingRef.current = true;
+		const markSynced = (serverId: number, s: ChatSession) => {
+			syncedRef.current.set(serverId, {
+				sig: sessionSignature(s),
+				ids: new Set(s.nodes.map((n) => n.id)),
+			});
+		};
 		try {
 			for (const s of sessionsRef.current) {
 				if (s.nodes.length === 0) continue; // never persist empty drafts
+				// Only what actually changed goes up. This loop used to re-PUT
+				// every session on every tick, which is how a phone holding a
+				// nine-day-old copy rewrote chats it had never opened — five
+				// sessions in this database still share one identical
+				// updated_at because of it.
+				const sig = sessionSignature(s);
+				const prev = s.serverId != null ? syncedRef.current.get(s.serverId) : undefined;
+				const ids = new Set(s.nodes.map((n) => n.id));
+				const gone = prev ? removedIds(prev.ids, ids) : [];
+				if (prev && prev.sig === sig && gone.length === 0) continue;
 				const payload = {
 					title: s.title,
 					nodes: stripUiFlags(s).nodes,
 					activeNodeId: s.activeNodeId,
 					model: s.model ?? null,
+					// Node ids this device deliberately dropped (edit-and-resend
+					// prunes the old descendants). The server removes ONLY these,
+					// so an unchanged save can never shrink a tree.
+					deletedNodeIds: gone,
 					// the true per-session activity time — the server adopts it as
 					// updated_at instead of stamping its own (bulk re-saves used to
 					// clobber every session's time with the same value). Clamped:
@@ -671,12 +701,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				if (s.serverId != null) {
 					try {
 						await api.chatSessionSave(s.serverId, payload);
+						markSynced(s.serverId, s);
 					} catch (e) {
 						if (e instanceof Error && e.message.startsWith("404")) {
 							// server forgot this session (DB reset, deleted
 							// elsewhere, stale cache) — drop the dead id so the
 							// next tick re-creates it, and keep saving the rest
 							// of the batch instead of 404-spamming every tick.
+							syncedRef.current.delete(s.serverId);
 							setSessions((ss) =>
 								ss.map((x) =>
 									x.id === s.id ? { ...x, serverId: undefined } : x,
@@ -704,6 +736,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 						ss.map((x) => (x.id === s.id ? { ...x, serverId: created.id } : x)),
 					);
 					await api.chatSessionSave(created.id, payload);
+					markSynced(created.id, s);
 				}
 			}
 		} catch (e) {
@@ -900,8 +933,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			attachments: ChatAttachment[] = [],
 			model?: string | null,
 			serverId?: number | null,
+			// Node ids the server needs to store this turn itself (see the
+			// chat endpoint): the parent the user message hangs off, and the id
+			// this turn's reply will use.
+			parentNodeId?: string | null,
+			assistantNodeId?: string | null,
 		) => {
 			let assistantId: string | null = null;
+			let assistantActivated = false;
 			let turnThinking = "";
 			let receivedDone = false;
 			// ordered thought/tool steps of this turn — each contiguous reasoning
@@ -927,7 +966,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			const patchSteps = (id: string) =>
 				patchNode(sid, id, (n) => ({ ...n, steps }));
 			const ensureAssistant = (seedThinking?: string): string => {
-				if (assistantId) return assistantId;
+				if (assistantId) {
+					// A pre-minted node may exist without being active: it is
+					// appended up front so the server can address it, but it only
+					// joins the visible path once there is something to show.
+					if (!assistantActivated) {
+						assistantActivated = true;
+						setActiveNode(sid, assistantId);
+					}
+					return assistantId;
+				}
 				assistantId = makeUuid();
 				appendNode(sid, {
 					id: assistantId,
@@ -941,6 +989,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 					steps: [],
 					createdAt: Date.now(),
 				});
+				assistantActivated = true;
 				setActiveNode(sid, assistantId);
 				return assistantId;
 			};
@@ -959,6 +1008,25 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 					}),
 				);
 			};
+			// Mint the reply's node id up front and hand it to the server, which
+			// writes the answer itself under this id. The save used to be the
+			// browser's job alone, so a cut stream, a closed tab or a locked
+			// phone left the turn in a ledger nothing read.
+			if (assistantNodeId) {
+				appendNode(sid, {
+					id: assistantNodeId,
+					parentId: userNodeId,
+					children: [],
+					role: "assistant",
+					content: "",
+					streaming: true,
+					thinking: "",
+					thinkingDone: false,
+					steps: [],
+					createdAt: Date.now(),
+				});
+				assistantId = assistantNodeId;
+			}
 			void streamChat(
 				message,
 				courseId,
@@ -1165,8 +1233,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				// Looked up by THIS conversation's course, so a view published for
 				// another course can never be attached to this turn.
 				courseId == null ? null : (viewRef.current.get(courseId) ?? null),
+				assistantNodeId ?? null,
+				parentNodeId ?? null,
 			)
-				.catch((err) => {
+				.catch(async (err) => {
 					closeThought();
 					if (ac.signal.aborted) {
 						// user-initiated stop — keep whatever streamed, no scary warning
@@ -1182,6 +1252,37 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 					}
 					// surface stream failures IN the chat — never silent
 					const errMsg = String(err?.message ?? err) || "unknown stream error";
+					// The server stores each turn itself now, under the id this
+					// turn was given. If it finished the answer while this browser
+					// was losing the stream, that answer exists — show it instead
+					// of an error notice. This is the "⚠ Stream failed: Error in
+					// input stream" case: the work was never lost, it was just
+					// unread.
+					if (assistantId && serverId) {
+						try {
+							const fresh = await api.chatSessionGet(serverId);
+							const saved = (
+								(fresh.nodes ?? []) as { id?: string; content?: string }[]
+							).find((n) => n.id === assistantId);
+							if (saved && typeof saved.content === "string" && saved.content) {
+								const recovered = saved.content;
+								patchNode(sid, assistantId, (n) => ({
+									...n,
+									// the server's copy is the finished one
+									content: recovered,
+									streaming: false,
+									thinkingDone: true,
+									steps: n.steps?.length ? n.steps : steps,
+								}));
+								// tell .finally() the turn completed, so it does not
+								// stamp a "no done event" warning over the answer
+								receivedDone = true;
+								return;
+							}
+						} catch {
+							/* reconciliation is best-effort — fall through */
+						}
+					}
 					if (assistantId) {
 						patchNode(sid, assistantId, (n) => ({
 							...n,
@@ -1277,6 +1378,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				}));
 
 			const userNodeId = makeUuid();
+			// Both ids exist before the request goes out: the server stores this
+			// turn under them, so the answer does not depend on this browser
+			// surviving to save it.
+			const assistantNodeId = makeUuid();
+			const parentNodeId = session.activeNodeId ?? null;
 			setSessions((ss) =>
 				ss.map((s) => {
 					if (s.id !== sid) return s;
@@ -1328,7 +1434,18 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 					),
 				);
 			}
-			streamTurn(sid, userNodeId, text, courseId, history, attachments, effective, activeFor(courseId)?.serverId);
+			streamTurn(
+				sid,
+				userNodeId,
+				text,
+				courseId,
+				history,
+				attachments,
+				effective,
+				activeFor(courseId)?.serverId,
+				parentNodeId,
+				assistantNodeId,
+			);
 			return true;
 		},
 		[activeFor, sessions, setLastCourse, streamTurn],

@@ -11,6 +11,7 @@ import errno
 import hashlib
 import json
 import mimetypes
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -76,6 +77,13 @@ class ChatRequest(BaseModel):
     client_session_id: str | None = None
     model: str | None = None  # LLM model override (default = config)
     branch: str | None = None  # user-node id that starts this turn (fork key)
+    # Node ids the client already minted for this turn. The server writes the
+    # user message and the reply under these ids, so the turn survives a broken
+    # stream, a closed tab, or a save that never fired — and the client's own
+    # later save is an UPDATE of these rows rather than a second copy.
+    user_node_id: str | None = None
+    assistant_node_id: str | None = None
+    parent_node_id: str | None = None
     attachments: list[str] = []
     # What the user is looking at, so "explain this" can resolve. Per-turn
     # context only: never persisted with the message.
@@ -213,8 +221,8 @@ def list_sessions(course_id: int | None = None):
     """Session list with full trees (the client restores chats from this)."""
     from sync.db import DB
     from sync.config import Config
+    from api import chat_nodes
     import hashlib
-    import json
     cfg = Config.load()
     db = DB(cfg.db_path)
     try:
@@ -228,12 +236,9 @@ def list_sessions(course_id: int | None = None):
         out = []
         seen: dict = {}
         for r in rows:
-            tree = {}
-            if r["nodes_json"]:
-                try:
-                    tree = json.loads(r["nodes_json"])
-                except json.JSONDecodeError:
-                    tree = {}
+            # Nodes are rows now; load_tree falls back to the old blob for any
+            # session the migration has not reached.
+            tree = chat_nodes.load_tree(db, r["id"])
             # Collapse BYTE-IDENTICAL duplicates. An older client re-created the
             # same chat on every load whenever its local session had lost its
             # serverId, so one conversation accumulated ten identical rows and
@@ -271,6 +276,10 @@ class SessionUpdate(BaseModel):
     # it last touched the session is the truth (the server used to stamp
     # updated_at on every bulk re-save, clobbering individual times).
     updatedAt: float | None = None
+    # Node ids the client deliberately dropped (edit-and-resend prunes the old
+    # descendants). Opt-in on purpose: a save that names no deletions can never
+    # shrink a tree, which is how a stale device used to destroy newer turns.
+    deletedNodeIds: list[str] | None = None
 
 
 @router.post("/sessions")
@@ -316,21 +325,16 @@ def create_session(body: SessionCreate):
 def get_session(sid: int):
     from sync.db import DB
     from sync.config import Config
-    import json
+    from api import chat_nodes
     cfg = Config.load()
     db = DB(cfg.db_path)
     try:
         row = db.conn.execute(
-            "SELECT id, course_id, title, nodes_json, model, updated_at FROM chat_sessions WHERE id=?",
+            "SELECT id, course_id, title, model, updated_at FROM chat_sessions WHERE id=?",
             (sid,)).fetchone()
         if not row:
             raise HTTPException(404, "session not found")
-        tree = {}
-        if row["nodes_json"]:
-            try:
-                tree = json.loads(row["nodes_json"])
-            except json.JSONDecodeError:
-                tree = {}
+        tree = chat_nodes.load_tree(db, sid)
         return {"id": row["id"], "courseId": row["course_id"], "title": row["title"],
                 "model": row["model"],
                 "updatedAt": row["updated_at"],
@@ -343,39 +347,45 @@ def get_session(sid: int):
 def put_session(sid: int, body: SessionUpdate):
     from sync.db import DB
     from sync.config import Config
-    import json
+    from api import chat_nodes
     cfg = Config.load()
     db = DB(cfg.db_path)
     try:
         row = db.conn.execute("SELECT id FROM chat_sessions WHERE id=?", (sid,)).fetchone()
         if not row:
             raise HTTPException(404, "session not found")
-        # One static statement — no SQL is built from strings. The CASE flags
-        # carry the "was this field present?" decision that model_fields_set
-        # makes, so an omitted field leaves its column untouched while an
-        # explicitly-sent null still clears `model` (COALESCE alone could not
-        # distinguish the two).
-        write_nodes = "nodes" in body.model_fields_set and body.nodes is not None
         write_model = "model" in body.model_fields_set
         ts = body.updatedAt / 1000 if body.updatedAt else None
+        # Session columns first: save_nodes rebuilds the compatibility snapshot
+        # from the rows and reads active_node_id while doing it, so that value
+        # has to be current before the nodes land.
         db.conn.execute(
             "UPDATE chat_sessions SET "
             "  title = COALESCE(?, title), "
-            "  nodes_json = CASE WHEN ? THEN ? ELSE nodes_json END, "
+            "  active_node_id = CASE WHEN ? THEN ? ELSE active_node_id END, "
             "  model = CASE WHEN ? THEN ? ELSE model END, "
             "  updated_at = CASE WHEN ? THEN datetime(?, 'unixepoch') ELSE datetime('now') END "
             "WHERE id=?",
             (body.title,
-             int(write_nodes),
-             json.dumps({"nodes": body.nodes, "activeNodeId": body.activeNodeId},
-                        default=str) if write_nodes else None,
+             int("activeNodeId" in body.model_fields_set),
+             body.activeNodeId,
              int(write_model),
              body.model,
              int(ts is not None),
              ts,
              sid))
         db.conn.commit()
-        return {"ok": True, "id": sid}
+        # A save is a per-node UPSERT, never a tree replace. The old statement
+        # was `nodes_json = <whatever the client sent>`, so a device holding a
+        # stale copy silently overwrote turns another device had written; the
+        # nodes it named were fine, the ones it had never seen were gone. Now
+        # the only way to remove a node is to name it in deletedNodeIds.
+        write_nodes = "nodes" in body.model_fields_set and body.nodes is not None
+        counts = {"added": 0, "updated": 0, "removed": 0, "total": 0}
+        if write_nodes or body.deletedNodeIds:
+            counts = chat_nodes.save_nodes(
+                db, sid, body.nodes if write_nodes else None, body.deletedNodeIds)
+        return {"ok": True, "id": sid, **counts}
     finally:
         db.close()
 
@@ -531,6 +541,36 @@ def _do_turn(req: ChatRequest, emit) -> None:
             except Exception as e:
                 print(f"  [chat] turn-digest store failed (turn continues): {e!r}", flush=True)
         if req.session_id:
+            # The tree is written here, by the server, not only by the browser.
+            # Until now `nodes_json` was entirely client-owned: if the stream
+            # broke mid-turn, the tab closed, or the debounced save never fired,
+            # the answer existed in chat_messages and nowhere the UI could read
+            # it — the turn was simply missing from the conversation. Same ids
+            # the client minted, so its later save updates these rows.
+            try:
+                from api import chat_nodes
+                now_ms = int(time.time() * 1000)
+                if req.user_node_id:
+                    chat_nodes.save_nodes(db, req.session_id, [{
+                        "id": req.user_node_id,
+                        "parentId": req.parent_node_id,
+                        "role": "user",
+                        "content": req.message,
+                        "children": [req.assistant_node_id] if req.assistant_node_id else [],
+                        "createdAt": now_ms,
+                    }])
+                if req.assistant_node_id:
+                    chat_nodes.save_nodes(db, req.session_id, [{
+                        "id": req.assistant_node_id,
+                        "parentId": req.user_node_id,
+                        "role": "assistant",
+                        "content": answer,
+                        "children": [],
+                        "createdAt": now_ms,
+                    }])
+                    chat_nodes.set_active_node(db, req.session_id, req.assistant_node_id)
+            except Exception as e:
+                print(f"  [chat] node store failed (turn continues): {e!r}", flush=True)
             db.conn.execute(
                 "INSERT INTO chat_messages (session_id, role, content) VALUES (?,?,?)",
                 (req.session_id, "user", req.message))

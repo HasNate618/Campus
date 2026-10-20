@@ -212,9 +212,31 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     title       TEXT NOT NULL DEFAULT 'New chat',
     nodes_json  TEXT,                       -- full message tree (JSON blob)
     model       TEXT,                       -- per-session LLM model; NULL = inherit current selection
+    active_node_id TEXT,                    -- which branch the client had open
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- One row per message node: the storage of record for a conversation.
+-- chat_sessions.nodes_json is kept only as a compatibility snapshot (see
+-- api/chat_nodes.py). A save upserts the nodes it names and cannot touch any
+-- other node, which is what the old whole-blob replace got wrong: a client
+-- holding a stale copy rewrote the tree and destroyed turns another device had
+-- written. `position` is the node's index among its siblings (children arrays
+-- are derived, never stored).
+CREATE TABLE IF NOT EXISTS chat_nodes (
+    session_id  INTEGER NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+    id          TEXT NOT NULL,
+    parent_id   TEXT,
+    role        TEXT NOT NULL,
+    content     TEXT NOT NULL DEFAULT '',
+    position    INTEGER NOT NULL DEFAULT 0,
+    data_json   TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (session_id, id)
+);
+CREATE INDEX IF NOT EXISTS idx_chat_nodes_session ON chat_nodes(session_id);
 
 -- Single-row client prefs (pinned models). id is pinned to 1 (one local user).
 CREATE TABLE IF NOT EXISTS chat_prefs (
