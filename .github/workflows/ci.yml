@@ -18,8 +18,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt -r api/requirements.txt -r requirements-dev.txt
-          playwright install chromium --with-deps || true   # auth module import-safe; browsers optional for tests
+          pip install \
+            -r requirements.txt \
+            -r api/requirements.txt \
+            -r requirements-dev.txt
+          # auth module is import-safe; browsers are optional for tests
+          playwright install chromium --with-deps || true
 
       - name: Run tests
         run: pytest
@@ -32,13 +36,19 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "22.x"
           cache: npm
           cache-dependency-path: web/package-lock.json
 
       - name: Install frontend deps
         working-directory: web
         run: npm ci
+
+      # `node --test "src/lib/*.test.ts"` needs Node 22 for glob expansion and
+      # built-in TypeScript type stripping. Node 20 fails to resolve the glob.
+      - name: Web tests
+        working-directory: web
+        run: npm test
 
       - name: Type-check
         working-directory: web
