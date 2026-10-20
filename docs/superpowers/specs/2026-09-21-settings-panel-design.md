@@ -337,7 +337,7 @@ be. `/api/config` must not be extended with settings values either.
   "readonly": {
     "db_path": { "value": "/app/data/harness.db", "from": "CAMPUS_DB" },
     "data_root": { "value": "/app/data/school", "from": "CAMPUS_DATA_ROOT" },
-    "token_dir": { "value": "/home/nate/.campus", "from": "default" }
+    "token_dir": { "value": "/home/user/.campus", "from": "default" }
   }
 }
 ```
@@ -556,7 +556,7 @@ Documented exposure, accepted deliberately:
 
 - **Demo deployment** binds loopback only (`docker-compose.yml:15`
   `127.0.0.1:8087:8000`).
-- **Production** is plain HTTP on a Tailscale tailnet with no public ingress
+- **Production** is plain HTTP on a private network with no public ingress
   (`api/auth.py` session comment).
 - **Residual risk:** any client that can reach the port can repoint
   `llm_urls` (or `pdf_extractor_url`, or `ntfy_url`) and harvest

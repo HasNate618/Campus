@@ -10,8 +10,8 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 )
 
-// PWA: register the service worker (secure contexts only — plain-HTTP LAN
-// hosts skip this silently; the Tailscale HTTPS host gets full install).
+// PWA: register the service worker (secure contexts only, so plain-HTTP LAN
+// hosts skip this silently; an HTTPS host gets full install).
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(() => {

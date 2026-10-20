@@ -676,8 +676,8 @@ git commit -m "feat: visible extraction skips, atomic md writes"
 ```python
 def test_fact_dupes_paraphrase_gate():
     from sync.mine import _fact_dupes
-    assert _fact_dupes("Professor: Samarabandu, Email: jagath@uwo.ca, Office: TEB 351",
-                        "Instructor: Prof. Samarabandu, email: jagath@uwo.ca, office: TEB 351") is True
+    assert _fact_dupes("Professor: Example, Email: example@example.edu, Office: Room 101",
+                        "Instructor: Prof. Example, email: example@example.edu, office: Room 101") is True
     assert _fact_dupes("Midterm Oct 20 worth 25%", "Midterm Oct 21 worth 25%") is False
     assert _fact_dupes("Final is worth 45%", "Midterm is worth 20%") is False
     assert _fact_dupes("Labs need 5 commits", "Labs need 10 commits") is False
@@ -689,13 +689,13 @@ def test_apply_skips_paraphrase_facts_and_retitled_events(db):
     course = db.get_course_by_code("CS 1100A")
     db.conn.execute(
         "INSERT INTO memory_facts (course_id, fact, category, confidence, source) VALUES (?,?,?,?,?)",
-        (course["id"], "Instructor: Prof. X, email: x@uwo.ca.", "prof-note", 0.9, "mine:old"))
+        (course["id"], "Instructor: Prof. X, email: x@example.edu.", "prof-note", 0.9, "mine:old"))
     db.conn.execute(
         "INSERT INTO events (course_id, kind, title, starts_at, ics_uid) VALUES (?,?,?,?,?)",
         (course["id"], "assignment", "Project Approval", "2026-09-25", "u" * 16))
     db.conn.commit()
     out = apply_mining(db, course["id"], {
-        "facts": [{"fact": "Professor X, Email: x@uwo.ca.", "category": "prof-note", "confidence": 0.9}],
+        "facts": [{"fact": "Professor X, Email: x@example.edu.", "category": "prof-note", "confidence": 0.9}],
         "events": [{"title": "Project Approval from TA", "starts_at": "2026-09-25", "kind": "assignment"}],
         "exams": [], "assignment_updates": []}, source="mine:test")
     assert out == {"facts": 0, "events": 0, "exams": 0, "assignments": 0}
