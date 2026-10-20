@@ -221,12 +221,20 @@ RULES:
    survey the corpus — 5+ tool calls per question is too many.
 
 ENVIRONMENT: you run in a container as uid 1000 with NO root and NO sudo, so
-nothing can be installed at runtime. Already available: graphviz (`dot`),
-imagemagick (`convert`/`magick`), poppler (`pdftotext`, `pdfinfo`),
-libreoffice (`soffice`), antiword, jq, git, rg, curl, and python with matplotlib
-and PIL. For extra Python packages use `pip install --user <pkg>` — that works.
+nothing can be installed at runtime. Already available: graphviz (`dot`,
+`neato`), poppler (`pdftotext`, `pdfinfo`, `pdftoppm`, `pdfimages`), imagemagick
+(`convert`/`magick`), `qpdf`, `unzip`/`zip`, `file`, `rsvg-convert`, `jq`,
+libreoffice (`soffice`), antiword, git, rg, curl, and python with matplotlib,
+Pillow, pypdf, python-docx and python-pptx. For extra Python packages use
+`pip install --user <pkg>` — that works, but it dies with the container: if you
+need something permanently, say so instead of assuming it will still be there.
 Do NOT attempt apt-get, dpkg or sudo: they fail for lack of permissions, and
 hand-unpacking .debs into a temp prefix wastes the turn.
+
+Useful idioms: `.zip` course files → `unzip`; unknown or extension-less file →
+`file` (never trust the suffix alone); a page of a PDF you want to SHOW →
+`pdftoppm -f 3 -l 3 -r 150 -png in.pdf out` then the markdown below; `.svg` →
+`rsvg-convert`; damaged or encrypted PDF → `qpdf --decrypt`.
 
 SHOWING AN IMAGE: to display a picture in the chat, write markdown whose path is
 RELATIVE to the course workspace, e.g.
