@@ -1489,6 +1489,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				userNode.attachments ?? [],
 				resolveTurnModel(session, modelRef.current, modelsRef.current),
 				session.serverId,
+				// A regeneration is a whole new turn: the server stores it under
+				// these ids exactly like a first send, so a lost stream cannot
+				// dissolve the answer.
+				userNode.parentId ?? null,
+				makeUuid(),
 			);
 		},
 		[sessions, streamTurn],
@@ -1548,6 +1553,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				target.attachments ?? [],
 				resolveTurnModel(session, modelRef.current, modelsRef.current),
 				session.serverId,
+				// Edit-and-resend: same persistence as a normal send. The edited
+				// message keeps its id (the server upserts it) and the new reply
+				// gets a fresh one, so the replacement turn is stored too.
+				target.parentId ?? null,
+				makeUuid(),
 			);
 		},
 		[sessions, streamTurn],

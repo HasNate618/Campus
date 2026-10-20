@@ -216,6 +216,51 @@ def _load_attachments(db, cfg, ids: list[str]) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+def _session_attachment_files(db, session_id: int) -> list[dict[str, Any]]:
+    """Files attached anywhere earlier in this conversation.
+
+    The attachment manifest used to describe only the CURRENT turn, so on the
+    next question the model had no idea the file existed. It answered "the
+    assignment PDF has no attachment in my harness records" about a PDF sitting
+    in the course workspace, having gone looking in Brightspace records instead.
+    The user re-uploaded it and got the same answer, because a re-upload adds a
+    new turn whose earlier context is again invisible.
+
+    Name/mime/size/path are stored on the user node, so this needs no extra
+    lookup: it reads the tree the session already has.
+    """
+    out: list[dict[str, Any]] = []
+    seen: set = set()
+    try:
+        rows = db.conn.execute(
+            "SELECT data_json FROM chat_nodes WHERE session_id=? AND role='user' "
+            "ORDER BY position DESC LIMIT 40", (session_id,)).fetchall()
+    except Exception:
+        return out
+    import json as _json
+    for r in rows:
+        try:
+            data = _json.loads(r[0]) if r[0] else {}
+        except _json.JSONDecodeError:
+            continue
+        for a in (data.get("attachments") or []) if isinstance(data, dict) else []:
+            if not isinstance(a, dict):
+                continue
+            path = a.get("path")
+            if not path or path in seen:
+                continue
+            seen.add(path)
+            out.append({
+                "id": a.get("id"),
+                "original_name": a.get("name") or a.get("original_name") or "file",
+                "mime_type": a.get("mime") or a.get("mime_type") or "?",
+                "size": a.get("size", "?"),
+                "path": path,
+                "earlier": True,
+            })
+    return out
+
+
 @router.get("/sessions")
 def list_sessions(course_id: int | None = None):
     """Session list with full trees (the client restores chats from this)."""
@@ -497,6 +542,15 @@ def _do_turn(req: ChatRequest, emit) -> None:
     try:
         history = _inject_reasoning(req.history, key)
         attachments = _load_attachments(db, cfg, req.attachments)
+        # Carry forward files attached earlier in this same conversation: the
+        # model should not have to be re-told, and a follow-up question ("walk me
+        # through 1.2") arrived with no manifest at all.
+        if req.session_id:
+            known = {a.get("path") for a in attachments}
+            for extra in _session_attachment_files(db, req.session_id):
+                if extra.get("path") not in known:
+                    attachments.append(extra)
+                    known.add(extra.get("path"))
         try:
             from agent.chat import load_turn_digest
             prior = load_turn_digest(db, req.session_id)

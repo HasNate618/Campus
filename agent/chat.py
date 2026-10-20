@@ -492,6 +492,8 @@ def build_attachment_manifest(files: list[dict]) -> str:
     lines = [
         f"\n- {a.get('original_name', 'file')} ({a.get('mime_type', '?')}, "
         f"{a.get('size', '?')} bytes) path={a.get('path', '?')}"
+        + (" [attached earlier in this chat — still in the workspace]"
+           if a.get("earlier") else "")
         for a in files if not str(a.get("mime_type", "")).startswith("image/")
     ]
     if not lines:

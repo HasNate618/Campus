@@ -6,6 +6,21 @@ import { rewriteImageSrcs } from './imgSrc.ts'
 const BASE = '/api/assets/2026F/SE3310A'
 
 describe('rewriteImageSrcs', () => {
+	it('resolves the full workspace path the agent actually writes', () => {
+		// the real markdown from an SE 3310 answer
+		const html = '<img src="2026F/SE3310A/work/assignment2/q12-shapes.png" alt="shapes">'
+		const out = rewriteImageSrcs(html, BASE)
+		assert.equal(
+			out,
+			'<img src="/api/assets/2026F/SE3310A/work/assignment2/q12-shapes.png" alt="shapes">',
+		)
+		assert.ok(!out.includes('/api/assets/2026F/SE3310A/2026F/'), 'course prefix applied twice')
+	})
+
+	it('treats a leading slash as a workspace path', () => {
+		const out = rewriteImageSrcs('<img src="/2026F/SE3310A/work/x.png">', BASE)
+		assert.equal(out, '<img src="/api/assets/2026F/SE3310A/work/x.png">')
+	})
   it('points a bare filename at the course asset route', () => {
     assert.equal(
       rewriteImageSrcs('<img src="a2-q1.1.png" alt="graph">', BASE),
