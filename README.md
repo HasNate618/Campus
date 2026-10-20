@@ -129,13 +129,42 @@ docker compose up --build
 Without Docker:
 
 ```bash
+git clone https://github.com/HasNate618/Campus && cd Campus
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt -r api/requirements.txt
-cd web && npm ci && cd ..
+(cd web && npm ci && npm run build)
 cp config.example.yaml config.yaml
-python3 seed/seed.py
-python3 tools/ics_import.py seed/sample.ics
+.venv/bin/python seed/seed.py
+.venv/bin/python tools/ics_import.py seed/sample.ics
 .venv/bin/python -m uvicorn api.main:app --port 8000
+# open http://localhost:8000
 ```
+
+`seed/seed.py` creates `data/harness.db` from `schema.sql` and fills it with the
+sample courses, so it is safe to run on a fresh checkout. The API serves the
+built bundle from `web/dist`, so the web build has to run before the server
+starts; without it, `http://localhost:8000` answers `Frontend not built`. Every
+Python command in these steps uses `.venv/bin/python` because `seed.py` and
+`tools/ics_import.py` import `pyyaml` and `httpx`, which the system interpreter
+does not have.
+
+`make dev` runs the same steps in order and then starts the server.
+
+### NixOS / Nix
+
+With flakes enabled, `nix develop` gives the same environment `shell.nix`
+describes: Python 3.12 with `playwright`, `httpx` and `pyyaml`, Node 22, ffmpeg,
+and the Playwright browsers from nixpkgs, pointed to by
+`PLAYWRIGHT_BROWSERS_PATH`. Run the "Without Docker" steps above inside that
+shell, so `pip` installs the remaining Python packages into `.venv` against the
+interpreter Nix provides.
+
+```bash
+nix develop
+# then the Without Docker steps from this section
+```
+
+`nix-shell` keeps working on a system without flakes and gives the same browser
+setup from the system `<nixpkgs>`.
 
 ## Real deployment
 
