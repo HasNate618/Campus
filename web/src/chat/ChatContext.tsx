@@ -649,16 +649,29 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 	// Debounced save: every change pushes the tree to the server.
 	useEffect(() => {
 		if (!serverReadyRef.current) return;
+		// Max wait, not just a debounce. Every token changes `sessions`, and
+		// clearing then re-arming a 900 ms timer on each change meant the save
+		// never fired while an answer was arriving — so a mid-answer reload lost
+		// the question and the partial answer with it. Past MAX_SAVE_WAIT the
+		// pending save goes out regardless of the incoming stream.
+		const MAX_SAVE_WAIT = 4000;
+		const now = Date.now();
+		if (!dirtySinceRef.current) dirtySinceRef.current = now;
+		const waited = now - dirtySinceRef.current;
+		const delay = waited >= MAX_SAVE_WAIT ? 0 : Math.min(900, MAX_SAVE_WAIT - waited);
 		if (saveTimer.current) window.clearTimeout(saveTimer.current);
 		saveTimer.current = window.setTimeout(() => {
+			dirtySinceRef.current = 0;
 			void saveSessions();
-		}, 900);
+		}, delay);
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [sessions]);
 
 	// What this device last pushed, per server session: a cheap fingerprint for
 	// "did anything change" and the node ids it had, so a prune can be named.
 	const syncedRef = useRef(new Map<number, { sig: string; ids: Set<string> }>());
+	// When the oldest unsaved change happened, for the max-wait save below.
+	const dirtySinceRef = useRef(0);
 
 	async function saveSessions(): Promise<void> {
 		if (savingRef.current) return;

@@ -551,6 +551,25 @@ def _do_turn(req: ChatRequest, emit) -> None:
                 if extra.get("path") not in known:
                     attachments.append(extra)
                     known.add(extra.get("path"))
+        # The question is stored BEFORE the model runs. It used to be written only
+        # after the answer completed, so reloading the page mid-answer lost the
+        # question as well: the server had nothing, and the browser's own save is
+        # debounced behind the token stream (each token re-arms the timer, so it
+        # never fires while an answer is arriving).
+        if req.session_id and req.user_node_id:
+            try:
+                from api import chat_nodes
+                chat_nodes.save_nodes(db, req.session_id, [{
+                    "id": req.user_node_id,
+                    "parentId": req.parent_node_id,
+                    "role": "user",
+                    "content": req.message,
+                    "children": [req.assistant_node_id] if req.assistant_node_id else [],
+                    "createdAt": int(time.time() * 1000),
+                }])
+                chat_nodes.set_active_node(db, req.session_id, req.user_node_id)
+            except Exception as e:
+                print(f"  [chat] early turn store failed (turn continues): {e!r}", flush=True)
         try:
             from agent.chat import load_turn_digest
             prior = load_turn_digest(db, req.session_id)
