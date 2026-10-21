@@ -400,6 +400,23 @@ function collectSubtree(nodes: MsgNode[], rootId: string): Set<string> {
 
 const ChatContext = createContext<ChatContextValue | null>(null);
 
+/**
+ * Some models emit the whole answer, call their tools, then emit the same answer
+ * again verbatim. Concatenated, the bubble shows it twice. A block a model means
+ * to repeat is never the exact second half of its own message, so collapse only
+ * that shape and leave everything else alone.
+ */
+function collapseDoubledAnswer(text: string): string {
+	const t = text.trim();
+	if (t.length < 400) return text;
+	for (const i of [Math.floor(t.length / 2), Math.ceil(t.length / 2)]) {
+		const a = t.slice(0, i).trim();
+		const b = t.slice(i).trim();
+		if (a.length > 200 && a === b) return a;
+	}
+	return text;
+}
+
 export function ChatProvider({ children }: { children: ReactNode }) {
 	const [sessions, setSessions] = useState<ChatSession[]>(loadSessions);
 	const [activeMap, setActiveMap] = useState<Record<number, string>>(() => {
@@ -1110,17 +1127,29 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 						// call invisible until the final answer began
 						const id = ensureAssistant();
 						closeThought();
-						// content streamed before this tool call is the model's visible
-						// narration — pull it OUT of the (future) final answer and record
-						// it as a step so it shows in the order it was said
+						// content streamed before this tool call is either the
+						// model's visible narration or, quite often, the ANSWER
+						// itself ("here is the analysis — now let me apply it").
+						// Cutting that out of the bubble and folding it into the
+						// collapsed steps pill hid the answer: the message showed
+						// only the closing line after the edits. Only short,
+						// pointer-like preamble moves into the steps.
 						if (narrationBuf.trim()) {
 							const seg = narrationBuf;
-							narrationBuf = "";
-							steps = [...steps, { kind: "narration", text: seg }];
-							patchNode(sid, id, (n) => ({
-								...n,
-								content: n.content.slice(0, Math.max(0, n.content.length - seg.length)),
-							}));
+							const looksLikeAnswer =
+								seg.trim().length > 200 ||
+								/(^|\n)\s*(#{1,6}\s|[-*+]\s|\d+\.\s|>|\||```)/.test(seg);
+							if (looksLikeAnswer) {
+								// keep it in the bubble; nothing to move
+								narrationBuf = "";
+							} else {
+								narrationBuf = "";
+								steps = [...steps, { kind: "narration", text: seg }];
+								patchNode(sid, id, (n) => ({
+									...n,
+									content: n.content.slice(0, Math.max(0, n.content.length - seg.length)),
+								}));
+							}
 						}
 						steps = [
 							...steps,
@@ -1216,6 +1245,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 							const doneCites = (d.citations as Citation[] | undefined) ?? [];
 							patchNode(sid, assistantId, (n) => ({
 								...n,
+								content: collapseDoubledAnswer(n.content),
 								streaming: false,
 								thinkingDone: true,
 								intermediate: false,

@@ -595,6 +595,25 @@ def build_attachment_manifest(files: list[dict]) -> str:
             "extract_file(path) to read one) ---" + "".join(lines))
 
 
+def collapse_doubled_answer(text: str) -> str:
+    """Collapse an answer the model emitted twice around its tool calls.
+
+    Real case: the model writes the answer, calls file-edit tools, then writes the
+    same answer again verbatim. Concatenated, the bubble shows it twice and the
+    stored node keeps both copies — which then beats the client's corrected copy
+    on write, because assistant content is append-only. A block a model intends to
+    repeat is never the exact second half of its own message.
+    """
+    t = text.strip()
+    if len(t) < 400:
+        return text
+    for i in (len(t) // 2, (len(t) + 1) // 2):
+        a, b = t[:i].strip(), t[i:].strip()
+        if len(a) > 200 and a == b:
+            return a
+    return text
+
+
 def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = None,
              model: str | None = None, history: list[dict] | None = None,
              verbose: bool = True, emit=None, attachments: list[dict] | None = None,
@@ -768,7 +787,7 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
             if msg.get("reasoning"):
                 final["reasoning"] = msg["reasoning"]
             messages.append(final)
-            answer = text
+            answer = collapse_doubled_answer(text)
             if emit:
                 emit("done", {
                     "answer": answer,

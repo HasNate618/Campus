@@ -969,7 +969,9 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 				// live while streaming; collapsed into one pill once done (expandable)
 				const stepsOpen = !!node.streaming || !!expandedSteps[node.id];
 				const nThoughts = steps.filter((s) => s.kind === "thought").length;
-				const nTools = steps.length - nThoughts;
+				const nTools = steps.filter(
+					(s) => s.kind !== "thought" && s.kind !== "narration",
+				).length;
 				out.push(
 					<motion.div
 						key={key}
@@ -1014,15 +1016,19 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 										}}
 									/>
 								</button>
-								{stepsOpen &&
-									steps.map((s, i) =>
-										renderStepRow(
-											node,
-											s,
-											i,
-											`${session.id}-step-${node.id}-${i}`,
-										),
-									)}
+								{steps.map((s, i) =>
+									// narration is ALWAYS visible: it is prose the model
+									// actually wrote, and collapsing it once hid a real
+									// answer that happened to precede its file edits
+									s.kind === "narration" || stepsOpen
+										? renderStepRow(
+												node,
+												s,
+												i,
+												`${session.id}-step-${node.id}-${i}`,
+											)
+										: null,
+								)}
 							</div>
 						)}
 						<div
