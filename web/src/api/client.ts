@@ -213,6 +213,13 @@ export const api = {
 		},
 	) => put(`/chat/sessions/${id}`, body),
 	chatSessionDelete: (id: number) => del(`/chat/sessions/${id}`),
+	/**
+	 * Queue a message for the turn that is already streaming. It is read at the
+	 * next step boundary, so the user can redirect work in progress instead of
+	 * stopping it and starting over.
+	 */
+	chatSteer: (sessionId: number, text: string) =>
+		post<{ ok: boolean; queued: number }>("/chat/steer", { session_id: sessionId, text }),
 	// pinned models — persisted server-side (cross-device)
 	chatPinnedGet: () => get<{ pinned: string[] }>("/chat/pinned"),
 	chatPinnedPut: (pinned: string[]) =>
