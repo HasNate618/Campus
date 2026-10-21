@@ -320,6 +320,27 @@ def rebuild(cfg, db) -> dict:
             "pruned_refs": pruned_refs}
 
 
+# Static SQL for the lexical pre-filter. The term list is padded to a fixed
+# number of placeholders because the alternative, joining one OR clause per
+# term, assembles SQL from a variable — which is what the injection scanners
+# (correctly) refuse to allow, and what makes the query impossible to review.
+_TERM_SLOTS = 6
+_TERM_SENTINEL = "\u0000"  # never appears in course text; '' would match all
+_TERM_ANY_SQL = (
+    "SELECT id FROM chunks WHERE ("
+    + " OR ".join(["instr(lower(text), lower(?)) > 0"] * _TERM_SLOTS)
+    + ") LIMIT ?")
+_TERM_ANY_SQL_COURSE = (
+    "SELECT id FROM chunks WHERE course_id=? AND ("
+    + " OR ".join(["instr(lower(text), lower(?)) > 0"] * _TERM_SLOTS)
+    + ") LIMIT ?")
+_PHRASE_SQL = (
+    "SELECT id FROM chunks WHERE instr(lower(text), lower(?)) > 0 LIMIT ?")
+_PHRASE_SQL_COURSE = (
+    "SELECT id FROM chunks WHERE course_id=? "
+    "AND instr(lower(text), lower(?)) > 0 LIMIT ?")
+
+
 def _lexical_hits(db, course_id: int | None, query: str, limit: int = 8
                   ) -> tuple[set[int], set[int]]:
     """Exact-substring pre-filter. Returns (phrase_ids, term_ids):
@@ -330,24 +351,26 @@ def _lexical_hits(db, course_id: int | None, query: str, limit: int = 8
     SQLite instr() — LIKE has no default escape."""
     query = query.strip().strip('"\'“”`').strip()
     phrase = query.lower()
-    terms = [t for t in re.split(r"\s+", query) if len(t) >= 3][:6]
+    terms = [t.lower() for t in re.split(r"\s+", query) if len(t) >= 3][:6]
     if not terms:
         return set(), set()
-    conds = " OR ".join(["instr(lower(text), lower(?)) > 0"] * len(terms))
-    args = [t.lower() for t in terms]
-    sql = f"SELECT id FROM chunks WHERE {conds}"
+    # Static statements with fixed placeholder counts: the term list is padded
+    # to _TERM_SLOTS with a sentinel that cannot occur in text, so no SQL is
+    # ever assembled from a variable. (An empty string would match everything:
+    # SQLite's instr(x, '') is 1.)
+    slots = (terms + [_TERM_SENTINEL] * _TERM_SLOTS)[:_TERM_SLOTS]
+    term_ids = {r[0] for r in db.conn.execute(_TERM_ANY_SQL, slots + [limit])}
     if course_id is not None:
-        sql = f"SELECT id FROM chunks WHERE course_id=? AND ({conds})"
-        args = [course_id] + args
-    term_ids = {r[0] for r in db.conn.execute(sql + " LIMIT ?", args + [limit])}
+        term_ids = {r[0] for r in db.conn.execute(
+            _TERM_ANY_SQL_COURSE, [course_id] + slots + [limit])}
     phrase_ids: set[int] = set()
     if len(phrase) >= 3:
-        sql2 = "SELECT id FROM chunks WHERE instr(lower(text), lower(?)) > 0"
-        args2 = [course_id] if course_id is not None else []
         if course_id is not None:
-            sql2 = ("SELECT id FROM chunks WHERE course_id=? "
-                    "AND instr(lower(text), lower(?)) > 0")
-        for r in db.conn.execute(sql2 + " LIMIT ?", args2 + [phrase, limit]):
+            rows = db.conn.execute(_PHRASE_SQL_COURSE,
+                                   (course_id, phrase, limit))
+        else:
+            rows = db.conn.execute(_PHRASE_SQL, (phrase, limit))
+        for r in rows:
             phrase_ids.add(r[0])
     return phrase_ids, term_ids
 
@@ -386,15 +409,23 @@ def _hit(r, query: str, score: float) -> dict:
 
 
 def search(cfg, db, query: str, course_id: int | None = None,
-           top_k: int = TOP_K) -> list[dict]:
+           top_k: int = TOP_K, phrase_boost: bool = True) -> list[dict]:
+    """Rank chunks for `query`.
+
+    `phrase_boost` controls the exact-substring ``instr()`` promotion that puts
+    verbatim matches at the front of the results. It is on by default; the eval
+    harness turns it off to measure what it is worth.
+    """
     # models often pass the user's quoted phrase verbatim — strip the
     # quote chars so lexical phrase matching still works
     query = query.strip().strip('"\'\u201c\u201d`').strip()
-    q = db.conn.execute(
-        "SELECT id, course_id, ref, text, embedding FROM chunks"
-        + (" WHERE course_id=?" if course_id else ""),
-        (course_id,) if course_id else (),
-    ).fetchall()
+    if course_id:
+        q = db.conn.execute(
+            "SELECT id, course_id, ref, text, embedding FROM chunks "
+            "WHERE course_id=?", (course_id,)).fetchall()
+    else:
+        q = db.conn.execute(
+            "SELECT id, course_id, ref, text, embedding FROM chunks").fetchall()
     if not q:
         return []
     # Lexical mode (no embed_model, or /embeddings unavailable): rank by the
@@ -433,7 +464,8 @@ def search(cfg, db, query: str, course_id: int | None = None,
     # would then be empty and the user would see "no matches" for every query
     # that is not a verbatim phrase. Degrade to the lexical ranker instead.
     if not scored:
-        return _lexical_rank(db, q, query, course_id, top_k)
+        return _lexical_rank(db, q, query, course_id, top_k,
+                             phrase_boost=phrase_boost)
     docs = [r["text"] for _, r in scored]
     # Rerank best-effort; on 404/error keep cosine order.
     try:
@@ -451,7 +483,7 @@ def search(cfg, db, query: str, course_id: int | None = None,
     # reranker can still bury a long/noisy chunk below unrelated noise, so
     # force them to the FRONT of the result set (append-then-slice would
     # drop them: they'd sit beyond the top_k cut).
-    if phrase_ids:
+    if phrase_boost and phrase_ids:
         have = {r["id"] for _, r in ranked}
         phrase_hits = [(1.0, r) for r in q
                        if r["id"] in phrase_ids and r["id"] not in have]
@@ -485,14 +517,17 @@ def search(cfg, db, query: str, course_id: int | None = None,
     ]
 
 
-def _lexical_rank(db, q, query: str, course_id: int | None, top_k: int) -> list[dict]:
+def _lexical_rank(db, q, query: str, course_id: int | None, top_k: int,
+                  phrase_boost: bool = True) -> list[dict]:
     """Rank chunks by lexical signal only (no embeddings/rerank).
 
     Phrase matches (whole query verbatim) go first, then term-overlap count,
-    then insertion order. This is the deployment-agnostic path.
+    then insertion order. This is the deployment-agnostic path. With
+    `phrase_boost` off the phrase promotion is skipped and everything ranks by
+    term overlap, which is what the eval compares against.
     """
     phrase_ids, term_ids = _lexical_hits(db, course_id, query)
-    if phrase_ids:
+    if phrase_boost and phrase_ids:
         hits = [r for r in q if r["id"] in phrase_ids]
         return [
             _hit(r, query, 1.0)

@@ -12,7 +12,14 @@
 WEB_DIR := web
 ROOT := $(dir $(lastword $(MAKEFILE_LIST)))
 
-.PHONY: build-web build up
+.PHONY: build-web build up eval
+
+# Retrieval metrics, plus answer metrics when an LLM endpoint is configured.
+# Results land in eval/results/, which is gitignored. See eval/README.md.
+EVAL_QUESTIONS ?= eval/questions.example.yaml
+
+eval:
+	.venv/bin/python eval/run.py --questions $(EVAL_QUESTIONS)
 
 build-web:
 	@bash $(ROOT)scripts/build-web.sh
