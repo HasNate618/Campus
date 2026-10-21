@@ -17,6 +17,11 @@
  *    and the cache silently froze at some old snapshot.
  */
 
+export interface MergeCitation {
+	id?: number | string;
+	fileId?: number | null;
+}
+
 export interface MergeNode {
 	id: string;
 	parentId?: string | null;
@@ -25,6 +30,7 @@ export interface MergeNode {
 	content?: string;
 	streaming?: boolean;
 	steps?: unknown;
+	citations?: MergeCitation[];
 }
 
 export interface CacheSession {
@@ -52,6 +58,17 @@ export function unionNodes<T extends MergeNode>(
 			continue;
 		}
 		const merged: T = { ...n };
+		// Citations are derived metadata, not user content: the server's copy is
+		// authoritative for where a chip points. A citation's file target can be
+		// repaired server-side (a deck that gained a PDF now points at the PDF),
+		// and a browser holding the old target would otherwise keep opening a file
+		// that no longer matches the page number on the chip.
+		if (Array.isArray(s.citations) && s.citations.length) {
+			const byCiteId = new Map<string, MergeCitation>();
+			for (const c of n.citations ?? []) byCiteId.set(String(c?.id), c);
+			for (const c of s.citations) byCiteId.set(String(c?.id), c);
+			(merged as MergeNode).citations = [...byCiteId.values()];
+		}
 		// Local keeps its richer copy (steps, tokens, live flags) — but not when
 		// the server's is further along. An assistant message only ever GROWS
 		// while it streams, so a longer server copy is the same turn finished by

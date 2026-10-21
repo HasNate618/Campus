@@ -159,3 +159,28 @@ describe('capForCache', () => {
 		assert.equal(capForCache(s, 10_000_000).length, 2)
 	})
 })
+
+describe('stale citation targets', () => {
+	it('takes the server file target when a chip was repaired there', () => {
+		// The same citation id, but the server now points it at the PDF that was
+		// generated for the deck while the browser still holds the markdown id.
+		const local = [
+			{
+				id: 'a1',
+				role: 'assistant',
+				content: 'the answer',
+				citations: [{ id: 6, fileId: 232 }],
+			},
+		] as unknown as MergeNode[];
+		const server = [
+			{
+				id: 'a1',
+				role: 'assistant',
+				content: 'the answer',
+				citations: [{ id: 6, fileId: 386 }],
+			},
+		] as MergeNode[];
+		const merged = unionNodes(local, server);
+		assert.equal(merged[0].citations?.[0].fileId, 386);
+	});
+});
