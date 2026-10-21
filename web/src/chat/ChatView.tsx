@@ -969,9 +969,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 				// live while streaming; collapsed into one pill once done (expandable)
 				const stepsOpen = !!node.streaming || !!expandedSteps[node.id];
 				const nThoughts = steps.filter((s) => s.kind === "thought").length;
-				const nTools = steps.filter(
-					(s) => s.kind !== "thought" && s.kind !== "narration",
-				).length;
+				const nTools = steps.length - nThoughts;
 				out.push(
 					<motion.div
 						key={key}
@@ -1016,30 +1014,15 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 										}}
 									/>
 								</button>
-								{steps.map((s, i) => {
-									// A narration row that just repeats the message is a
-									// leftover: earlier turns folded the whole answer into
-									// the steps, and rendering both shows the answer twice.
-									const stext = (s.text ?? "").trim();
-									if (
-										s.kind === "narration" &&
-										stext.length > 80 &&
-										(node.content ?? "").includes(stext)
-									) {
-										return null;
-									}
-									// narration is ALWAYS visible: it is prose the model
-									// actually wrote, and collapsing it once hid a real
-									// answer that happened to precede its file edits
-									return s.kind === "narration" || stepsOpen
-										? renderStepRow(
-												node,
-												s,
-												i,
-												`${session.id}-step-${node.id}-${i}`,
-											)
-										: null;
-								})}
+								{stepsOpen &&
+									steps.map((s, i) =>
+										renderStepRow(
+											node,
+											s,
+											i,
+											`${session.id}-step-${node.id}-${i}`,
+										),
+									)}
 							</div>
 						)}
 						<div

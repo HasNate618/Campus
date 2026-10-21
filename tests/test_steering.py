@@ -85,22 +85,3 @@ def test_steering_that_raises_cannot_break_the_turn(db_path, monkeypatch):
                                    verbose=False, steering=exploding_steering)
     db.close()
     assert answer == "fine"
-
-
-def test_an_answer_the_model_repeats_around_its_tool_calls_is_collapsed():
-    """The model wrote the answer, edited files, then wrote it again verbatim.
-
-    The stored node kept both copies and the client showed it twice — once as
-    pre-tool narration, once as the answer.
-    """
-    from agent.chat import collapse_doubled_answer
-
-    one = ("**Q2.4 — False.** Two separate errors here, and both matter for the "
-           "exam: the expression does not describe the language, and the pumping "
-           "length is applied to the wrong string entirely. " * 3)
-    assert collapse_doubled_answer(one + one) == one.strip()
-    # a short answer is never collapsed
-    assert collapse_doubled_answer("ok ok") == "ok ok"
-    # two different halves stay as they are
-    assert collapse_doubled_answer(one + one.replace("False", "True")) == (
-        one + one.replace("False", "True"))

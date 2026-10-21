@@ -202,14 +202,52 @@ def _legacy_tree(db, session_id: int) -> dict:
     return tree if isinstance(tree, dict) else {}
 
 
+def _repoint_citations(db, session_id: int, nodes: list[dict]) -> None:
+    """Point each citation's fileId at the PDF a .md ref now has, on read.
+
+    A citation to an extracted deck keeps the file id it was minted with. When the
+    deck later gains a real PDF (generated from the .pptx), that id points at
+    markdown and the chip's "p.12" opens a file with no pages. Repairing the stored
+    rows is not enough on its own: a browser holding the old copy saves it back and
+    undoes the repair. Doing it on read makes the server the authority, whatever the
+    client believes.
+    """
+    try:
+        from agent.citations import _pdf_file_id
+        row = db.conn.execute("SELECT course_id FROM chat_sessions WHERE id=?",
+                              (session_id,)).fetchone()
+        course_id = row[0] if row else None
+        cache: dict[str, int | None] = {}
+        for n in nodes:
+            cites = n.get("citations")
+            if not isinstance(cites, list) or not cites:
+                continue
+            for c in cites:
+                if not isinstance(c, dict):
+                    continue
+                ref = c.get("ref") or ""
+                if not ref.lower().endswith(".md"):
+                    continue
+                if ref not in cache:
+                    cache[ref] = _pdf_file_id(db, course_id, ref)
+                pdf_id = cache[ref]
+                if pdf_id and pdf_id != c.get("fileId"):
+                    c["fileId"] = pdf_id
+    except Exception:
+        pass  # a citation's target must never break loading a conversation
+
+
 def load_tree(db, session_id: int) -> dict:
     """The tree the client renders. Falls back to the old blob for a session the
     migration has not reached yet, so the API stays correct during a rollout."""
     nodes = load_nodes(db, session_id)
     if nodes:
+        _repoint_citations(db, session_id, nodes)
         return {"nodes": nodes, "activeNodeId": active_node_id(db, session_id)}
     tree = _legacy_tree(db, session_id)
-    return {"nodes": tree.get("nodes", []), "activeNodeId": tree.get("activeNodeId")}
+    legacy_nodes = tree.get("nodes", [])
+    _repoint_citations(db, session_id, legacy_nodes)
+    return {"nodes": legacy_nodes, "activeNodeId": tree.get("activeNodeId")}
 
 
 def write_snapshot(db, session_id: int) -> None:

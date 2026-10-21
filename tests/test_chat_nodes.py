@@ -264,3 +264,42 @@ def test_the_compatibility_snapshot_tracks_the_rows(db):
         "SELECT nodes_json FROM chat_sessions WHERE id=?", (s,)).fetchone()[0])
     assert [n["id"] for n in snapshot["nodes"]] == ["a", "b"]
     assert snapshot["nodes"][0]["children"] == ["b"]
+
+
+def test_a_citation_is_served_with_the_pdf_that_now_exists(db_path):
+    """A stored chip must open the page the label promises.
+
+    Citations minted before a deck had a PDF point at the extracted markdown, so
+    "p.12" opened a file with no pages. Repairing the rows is not enough — a
+    browser holding the old copy saves it back — so the target is corrected when
+    the conversation is read.
+    """
+    from api import chat_nodes
+    from sync.db import DB
+
+    db = DB(str(db_path))
+    cur = db.conn.execute(
+        "INSERT INTO chat_sessions (course_id, title) VALUES (1, 'cite test')")
+    sid = cur.lastrowid
+    for path in ("2026F/CS1100A/content/Week 1/deck.md",
+                 "2026F/CS1100A/content/Week 1/deck.pdf"):
+        db.conn.execute(
+            "INSERT INTO files (course_id, content_node_id, path, kind, source, sha256, "
+            "size, synced_at, processed, created_at) VALUES "
+            "(1, NULL, ?, 'slide', 'manual', ?, 10, datetime('now'), 1, datetime('now'))",
+            (path, path))
+    db.conn.commit()
+    pdf_id = db.conn.execute(
+        "SELECT id FROM files WHERE path LIKE '%.pdf'").fetchone()[0]
+
+    chat_nodes.save_nodes(db, sid, [{
+        "id": "a1", "parentId": None, "role": "assistant", "content": "answer",
+        "children": [], "createdAt": 1,
+        "citations": [{"id": 1, "ref": "2026F/CS1100A/content/Week 1/deck.md",
+                       "page": 12, "fileId": 999999}],
+    }])
+    tree = chat_nodes.load_tree(db, sid)
+    cite = tree["nodes"][0]["citations"][0]
+    assert cite["page"] == 12
+    assert cite["fileId"] == pdf_id
+    db.close()
