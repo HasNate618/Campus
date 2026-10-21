@@ -196,9 +196,16 @@ RULES:
    alongside the chip. Wrong: "It's in Solutions.md on page 2 [cite:1]."
    Right: "You need 48 hours notice [cite:1]."
 2b. The citation system attributes pages automatically (see the `page` field in
-    tool "sources") and the chip renders source + page itself. NEVER write page
-    numbers in prose — no "[cite:1, p.59]", no "on page 59". State the fact with
-    a bare [cite:N] chip only.
+   tool "sources") and the chip renders source + page itself. NEVER write page
+   numbers in prose — no "[cite:1, p.59]", no "on page 59". State the fact with
+   a bare [cite:N] chip only.
+2b-ii. A page marker inside a file read carries its own id:
+   "<!-- page 18 [cite:9] -->" means text below it is page 18, whose id is 9.
+   Cite THE PAGE THE FACT COMES FROM, not the first id of the read: a read that
+   spanned pages 14-20 gives each of those pages a different id, and quoting page
+   18 with page 14's id renders the wrong page on every chip in the answer. If a
+   fact comes from a page whose marker carries no id, fetch that page (pages="18")
+   rather than borrowing a neighbour's id.
 2c. A file in the workspace (anything under uploads/, notes/ or work/ — including
     a file you just wrote) is NOT a citation. Reference it as
     [[file:<path relative to data_root>]], copying the exact path from the tool

@@ -55,6 +55,23 @@ def read_window(
     return window, total, page_index
 
 
+def page_segments(text: str) -> list[tuple[int, str]]:
+    """Split content into (page, text) segments at <!-- page N --> markers.
+
+    A single read can span several pages. Registering one citation for the whole
+    read gives the model a single id whose page is wherever the read started, so
+    every statement drawn from later pages in that read cites the first page and
+    the page number looks wrong for most of the answer. One segment per page is
+    what makes a per-page citation possible.
+    """
+    out: list[tuple[int, str]] = []
+    matches = list(PAGE_RE.finditer(text))
+    for i, m in enumerate(matches):
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        out.append((int(m.group(1)), text[m.start():end]))
+    return out
+
+
 def page_from_chunk_text(text: str) -> int | None:
     """Last <!-- page N --> marker inside a search snippet/chunk."""
     pages = [int(m.group(1)) for m in PAGE_RE.finditer(text)]
@@ -381,14 +398,28 @@ class CitationRegistry:
             page = result.get("currentPage")
             if page is None:
                 page = self._page_for_path(ref, offset, content)
-            cite = self.register(
-                ref,
-                excerpt=content[:240],
-                page=page,
-                line=offset if chunk_lines else None,
-            )
-            if cite:
-                out.append(cite)
+            # One id per page in the returned text, so a statement about page 18
+            # can cite page 18 rather than the page the read happened to start on.
+            segments = page_segments(content)
+            if len(segments) > 1:
+                for pg, seg in segments:
+                    cite = self.register(
+                        ref,
+                        excerpt=seg,
+                        page=pg,
+                        line=offset if chunk_lines else None,
+                    )
+                    if cite:
+                        out.append(cite)
+            else:
+                cite = self.register(
+                    ref,
+                    excerpt=content[:240],
+                    page=page,
+                    line=offset if chunk_lines else None,
+                )
+                if cite:
+                    out.append(cite)
 
         elif tool == "content_grep":
             for m in result.get("matches") or []:
@@ -417,6 +448,18 @@ class CitationRegistry:
              **({"page": c["page"]} if c.get("page") else {})}
             for c in new_cites
         ]
+        # Put the id ON the page marker. The model reads "<!-- page 18 [cite:9] -->"
+        # exactly where page 18 begins, so citing the passage it is quoting is a
+        # copy of what it can see instead of a mapping it has to reconstruct from a
+        # list — which is how nine different pages ended up cited as page 1.
+        if tool in ("content_read_file", "extract_file"):
+            content = annotated.get("content")
+            by_page = {c["page"]: c["id"] for c in new_cites if c.get("page")}
+            if isinstance(content, str) and by_page:
+                for pg, cid in by_page.items():
+                    content = content.replace(
+                        f"<!-- page {pg} -->", f"<!-- page {pg} [cite:{cid}] -->")
+                annotated["content"] = content
         return annotated
 
 

@@ -258,3 +258,46 @@ def test_read_window_strips_only_line_endings():
     window, total, _ = read_window(["a\r\n", "b\n"], 0, 2)
     assert window == ["a", "b"]
     assert total == 2
+
+
+def test_a_read_spanning_pages_registers_one_citation_per_page():
+    """Statements from different pages must not all cite the first page.
+
+    One id per read — at the page the read started on — meant every later claim in
+    the answer inherited that page, so nine passages from nine pages all rendered
+    as page 1 (or whichever page the read began at).
+    """
+    from agent.citations import CitationRegistry
+
+    class FakeConn:
+        def execute(self, *a, **k):
+            return self
+
+        def fetchone(self):
+            return None
+
+    class FakeDb:
+        conn = FakeConn()
+
+    reg = CitationRegistry(FakeDb(), type("Cfg", (), {"data_root": "/tmp"})(), 3)  # type: ignore[arg-type]
+    content = ("<!-- page 14 -->\nsection alpha\n<!-- page 15 -->\nsection beta\n"
+               "<!-- page 18 -->\nsection gamma")
+    cites = reg.register_from_tool("content_read_file", {
+        "path": "2026F/CS1100A/content/notes.md", "offset": 0,
+        "content": content, "currentPage": 14})
+
+    assert [c["page"] for c in cites] == [14, 15, 18]
+    assert len({c["id"] for c in cites}) == 3
+
+    # the marker the model reads carries the id it should be citing
+    annotated = reg.annotate_result("content_read_file",
+                                    {"path": "x", "content": content}, cites)
+    last = cites[-1]["id"]
+    assert f"<!-- page 18 [cite:{last}] -->" in annotated["content"]
+    assert "<!-- page 18 -->" not in annotated["content"]
+
+
+def test_page_segments_drops_the_preamble_and_handles_markerless_files():
+    from agent.citations import page_segments
+    assert page_segments("preamble\n<!-- page 2 -->\nbody") == [(2, "<!-- page 2 -->\nbody")]
+    assert page_segments("no markers at all") == []
