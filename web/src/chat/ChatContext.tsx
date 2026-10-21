@@ -154,6 +154,13 @@ interface ChatContextValue {
 		text: string,
 		attachments?: ChatAttachment[],
 	) => boolean;
+	/**
+	 * Send typed text into the turn that is already running instead of starting
+	 * a new one. Returns false when there is nothing to steer into.
+	 */
+	steer: (text: string) => boolean;
+	/** What has been steered into the current turn, for the composer to show. */
+	steers: { text: string; delivered: boolean }[];
 	stop: () => void;
 	regenerate: (sessionId: string, nodeId: string) => void;
 	editMessage: (sessionId: string, nodeId: string, newText: string) => void;
@@ -406,6 +413,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 		}
 	});
 	const [busy, setBusy] = useState(false);
+	// Messages steered into the running turn. `delivered` flips when the server
+	// echoes the steering event back, which means the model has actually read it.
+	const [steers, setSteers] = useState<{ text: string; delivered: boolean }[]>([]);
+	// Server id of the turn currently streaming: a steer has to reach that exact
+	// conversation, and it is the only handle the server needs.
+	const liveTurnServerId = useRef<number | null>(null);
 	const [lastCourseId, setLastCourseId] = useState<number | null>(() => {
 		try {
 			const v = Number(localStorage.getItem(LAST_COURSE_KEY));
@@ -645,6 +658,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			window.removeEventListener("focus", maybeRefetch);
 		};
 	}, []);
+
+	// Once the turn is over the steered texts live on the answer node, so the
+	// composer's transient list has done its job.
+	useEffect(() => {
+		if (!busy) {
+			liveTurnServerId.current = null;
+			if (steers.length) setSteers([]);
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [busy]);
 
 	// Debounced save: every change pushes the tree to the server.
 	useEffect(() => {
@@ -1040,6 +1063,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				});
 				assistantId = assistantNodeId;
 			}
+			// remember which server conversation this turn belongs to, so the
+			// composer can steer it while it streams
+			liveTurnServerId.current = serverId ?? null;
 			void streamChat(
 				message,
 				courseId,
@@ -1073,6 +1099,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 							intermediate: false,
 							steps,
 						}));
+					} else if (event === "steering") {
+						// the running turn has picked this up: the model will see it on
+						// its next step, so mark it delivered in the composer
+						const txt = (d.text as string) ?? "";
+						setSteers((p) => p.map((x) => (x.text === txt ? { ...x, delivered: true } : x)));
 					} else if (event === "tool_start") {
 						// keep the assistant node VISIBLE (its tool chips render live as
 						// each tool starts: running → done) — hiding it made every tool
@@ -1354,6 +1385,27 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				});
 		},
 		[sessions, patchNode, setActiveNode],
+	);
+
+	/**
+	 * Steer the turn that is already running. This is not a new question: the
+	 * running turn reads it at its next step boundary, so the work done so far
+	 * is kept and redirected rather than thrown away and restarted.
+	 */
+	const steer = useCallback(
+		(text: string): boolean => {
+			const t = text.trim();
+			if (!t) return false;
+			const serverId = liveTurnServerId.current;
+			if (!serverId) return false;
+			setSteers((p) => [...p, { text: t, delivered: false }]);
+			void api.chatSteer(serverId, t).catch(() => {
+				// the turn finished before it could be read
+				setSteers((p) => p.filter((x) => x.text !== t || x.delivered));
+			});
+			return true;
+		},
+		[],
 	);
 
 	const send = useCallback(
@@ -1679,6 +1731,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			renameSession,
 			deleteSession,
 			send,
+			steer,
+			steers,
 			stop,
 			regenerate,
 			editMessage,
@@ -1706,6 +1760,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			renameSession,
 			deleteSession,
 			send,
+			steer,
+			steers,
 			regenerate,
 			editMessage,
 			deleteMessage,

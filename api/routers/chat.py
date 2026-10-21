@@ -581,12 +581,31 @@ def _do_turn(req: ChatRequest, emit) -> None:
         conversation_id = sanitize_session_id(req.client_session_id)
         if conversation_id is None and req.session_id is not None:
             conversation_id = f"campus-chat-{req.session_id}"
+        # Steering: what the user typed while this turn was already streaming.
+        # The queue is drained by run_turn at a step boundary, so the next model
+        # call sees it; each drained text is echoed to the client so the UI can
+        # mark it delivered, and attached to the answer node so a reload shows it.
+        steered: list[str] = []
+
+        def _drain_steering() -> list[str]:
+            if not req.session_id:
+                return []
+            pending = _STEERING.pop(req.session_id, [])
+            for t in pending:
+                steered.append(t)
+                try:
+                    emit("steering", {"text": t})
+                except Exception:
+                    pass
+            return pending
+
         answer, full_history = run_turn(cfg, db, req.message, course_id=req.course_id,
                                         model=req.model, history=history,
                                         verbose=False, emit=emit, attachments=attachments,
                                         conversation_id=conversation_id,
                                         prior_context=prior,
-                                        view=req.view.model_dump() if req.view else None)
+                                        view=req.view.model_dump() if req.view else None,
+                                        steering=_drain_steering)
         _store_reasoning(full_history, key)
         if req.session_id:
             try:
@@ -633,14 +652,17 @@ def _do_turn(req: ChatRequest, emit) -> None:
                         "createdAt": now_ms,
                     }])
                 if req.assistant_node_id:
-                    chat_nodes.save_nodes(db, req.session_id, [{
+                    row = {
                         "id": req.assistant_node_id,
                         "parentId": req.user_node_id,
                         "role": "assistant",
                         "content": answer,
                         "children": [],
                         "createdAt": now_ms,
-                    }])
+                    }
+                    if steered:
+                        row["steering"] = steered
+                    chat_nodes.save_nodes(db, req.session_id, [row])
                     chat_nodes.set_active_node(db, req.session_id, req.assistant_node_id)
             except Exception as e:
                 print(f"  [chat] node store failed (turn continues): {e!r}", flush=True)
@@ -667,6 +689,32 @@ def _do_turn(req: ChatRequest, emit) -> None:
                 print(f"  [chat] title generation failed (turn continues): {e!r}", flush=True)
     finally:
         db.close()
+
+
+# Steering: a message typed while a turn is already streaming. Keyed by session
+# (there is one in-flight turn per conversation) and drained by that turn at a
+# step boundary. Deliberately in memory — a steer whose turn has already ended
+# has nowhere to go — and the text is persisted onto the answer node once it has
+# actually been consumed, so a reload still shows what was said.
+_STEERING: dict[int, list[str]] = {}
+
+
+class SteerRequest(BaseModel):
+    session_id: int
+    text: str = ""
+
+
+@router.post("/steer")
+def steer(req: SteerRequest) -> dict:
+    """Queue a message for the turn that is currently running."""
+    text = (req.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="empty steering message")
+    queue = _STEERING.setdefault(req.session_id, [])
+    if len(queue) >= 20:
+        raise HTTPException(status_code=429, detail="too many pending steering messages")
+    queue.append(text[:4000])
+    return {"ok": True, "queued": len(queue)}
 
 
 @router.post("")

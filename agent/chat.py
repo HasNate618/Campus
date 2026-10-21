@@ -596,7 +596,8 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
              verbose: bool = True, emit=None, attachments: list[dict] | None = None,
              conversation_id: str | None = None,
              prior_context: str = "",
-             view: dict | None = None) -> tuple[str, list[dict]]:
+             view: dict | None = None,
+             steering=None) -> tuple[str, list[dict]]:
     """Run one user turn. Returns (final_answer, full_message_history).
 
     emit(event, data) is called for SSE streaming:
@@ -670,6 +671,17 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
     on_token = (lambda t: emit("token", {"text": t})) if emit else None
     on_reasoning = (lambda t: emit("reasoning", {"text": t})) if emit else None
     for i in range(MAX_ITERATIONS):
+        # Steering: text the user sent while this turn was already running is
+        # picked up here, at the step boundary, so the next model call sees it.
+        # That is the difference between "stop the turn and start over" and
+        # "wrong direction — do X instead" without losing the work so far.
+        if steering is not None:
+            try:
+                for _extra in steering() or []:
+                    if isinstance(_extra, str) and _extra.strip():
+                        messages.append({"role": "user", "content": _extra})
+            except Exception:
+                pass  # steering must never break the turn
         if i >= NUDGE_AT and not any(m.get("role") == "user" and "must answer now" in m.get("content", "") for m in messages):
             messages.append({"role": "user", "content": (
                 "You have used many tool calls. Answer now based on what you "

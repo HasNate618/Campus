@@ -126,6 +126,8 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		: undefined;
 	const {
 		busy,
+		steer,
+		steers,
 		sessionsFor,
 		activeFor,
 		serverReady,
@@ -1114,7 +1116,8 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 	const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
 		if (e.key === "Enter" && !e.shiftKey) {
 			e.preventDefault();
-			void submit();
+			if (busy) steerInput();
+			else void submit();
 		}
 		if (e.key === "Escape") {
 			// single-Esc exit: close popovers here; the provider's typing
@@ -1135,6 +1138,13 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 	 *  it at the grown height, so the box stays tall after sending). */
 	const resetInputHeight = () => {
 		if (inputRef.current) inputRef.current.style.height = "auto";
+	};
+
+	/** While a turn is running, Enter and the send button steer it instead. */
+	const steerInput = () => {
+		const t = input.trim();
+		if (!t) return;
+		if (steer(t)) setInput("");
 	};
 
 	const submit = async () => {
@@ -1484,10 +1494,29 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 									addFiles(pasted);
 								}
 							}}
-							placeholder={`Ask ${course ? course.code : "about this course"}…`}
+							placeholder={
+								busy
+									? "Steer this answer — it is read at the next step…"
+									: `Ask ${course ? course.code : "about this course"}…`
+							}
 							rows={1}
-							disabled={busy || uploading}
-						/>
+							disabled={uploading}
+							/>
+							{steers.length > 0 && (
+							<div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "6px 2px" }}>
+								{steers.map((s, i) => (
+									<div
+										key={i}
+										style={{ fontSize: 12, fontStyle: "italic", opacity: s.delivered ? 0.55 : 1 }}
+									>
+										↳ {s.text}{" "}
+										<span style={{ opacity: 0.6 }}>
+											— {s.delivered ? "read by the model" : "queued"}
+										</span>
+									</div>
+								))}
+							</div>
+							)}
 						{selectedFiles.length > 0 && (
 							<div className="attachment-strip">
 								{selectedFiles.map((file, i) =>
@@ -1652,15 +1681,27 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 						</div>
 					</div>
 					<button
-						className={`send-btn${busy ? " stopping" : ""}`}
-						onClick={busy ? stop : submit}
+						className={`send-btn${busy && !input.trim() ? " stopping" : ""}`}
+						onClick={
+							busy
+								? input.trim()
+									? steerInput
+									: stop
+								: submit
+						}
 						disabled={
 							uploading || (!busy && !input.trim() && !selectedFiles.length)
 						}
-						aria-label={busy ? "Stop generating" : "Send"}
-						title={busy ? "Stop generating" : "Send"}
+						aria-label={busy ? (input.trim() ? "Steer this answer" : "Stop generating") : "Send"}
+						title={
+							busy
+								? input.trim()
+									? "Send into the running answer (read at the next step)"
+									: "Stop generating"
+								: "Send"
+						}
 					>
-						{busy ? (
+						{busy && !input.trim() ? (
 							<Square size={13} fill="currentColor" />
 						) : (
 							<ArrowUp size={16} />
