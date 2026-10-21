@@ -163,6 +163,20 @@ Open assignments: {open_asgn} · announcements (14d): {ann}
     ) or "  (none in the next 7 days)"
 
     institution = getattr(cfg, "institution", "") or "your university"
+    # terminal_run is opt-in. When it is off the tool is not in the schema list
+    # sent to the model, so the prompt must not describe it: a rule about a
+    # tool the model cannot call invites a wasted call and an error result.
+    # Rule numbers after it shift down, so the list stays contiguous.
+    if getattr(cfg, "terminal_enabled", False):
+        terminal_rule = """10. terminal_run is ONLY for file/workspace operations the user explicitly
+   asked for (create/edit/move files, run scripts). NEVER use it to read or
+   search course content — use content_read_file / content_grep. After
+   course_map you know the file layout; do not call content_list_files again.
+"""
+        decisive_no = 11
+    else:
+        terminal_rule = ""
+        decisive_no = 10
     # ORDER MATTERS for prefix caching (DeepSeek/OpenAI-style): stable content
     # (identity, rules, scope, memory card) leads; the only tokens that change
     # per turn (clock, upcoming events) go last. The cache breaks at the first
@@ -212,11 +226,7 @@ RULES:
 9. Start with course_map to see the whole course structure (modules, topics,
    files, extraction status) before reading or grepping — it tells you where
    the real content is and avoids blind reads.
-10. terminal_run is ONLY for file/workspace operations the user explicitly
-   asked for (create/edit/move files, run scripts). NEVER use it to read or
-   search course content — use content_read_file / content_grep. After
-   course_map you know the file layout; do not call content_list_files again.
-11. Be decisive on open-ended questions ("explain a concept", "summarize"):
+{terminal_rule}{decisive_no}. Be decisive on open-ended questions ("explain a concept", "summarize"):
    course_map + at most 2-3 targeted reads, then answer. Do NOT exhaustively
    survey the corpus — 5+ tool calls per question is too many.
 

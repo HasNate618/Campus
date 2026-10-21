@@ -11,7 +11,6 @@ import json
 import re
 import time
 import uuid
-from pathlib import Path
 
 import httpx
 
@@ -21,7 +20,7 @@ from sync.db import DB
 from .citations import CitationRegistry
 from .context import build_system_prompt
 from .view import render_view_block
-from .tools import TOOL_SCHEMAS, execute_tool
+from .tools import execute_tool, tool_schemas
 
 MAX_ITERATIONS = 10
 NUDGE_AT = 6  # after this many rounds, tell the model to stop calling tools
@@ -94,6 +93,10 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
         raise RuntimeError("no LLM endpoint configured")
     headers = {**llm_headers(cfg), **llm_session_headers(session_id)}
     last_err: Exception | None = None
+    # Opt-in tools (terminal_run) are filtered here rather than in TOOLS so a
+    # single registry still drives name de-confliction and execute_tool's
+    # refusal path.
+    tools = tool_schemas(cfg)
     _normalize_messages(messages)
     for url in endpoints:
         try:
@@ -104,7 +107,7 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
                 json={
                     "model": model or cfg.llm_model,
                     "messages": messages,
-                    **({"tools": TOOL_SCHEMAS} if allow_tools else {}),
+                    **({"tools": tools} if allow_tools else {}),
                     **(({"tool_choice": cfg.llm_tool_choice}
                         if cfg.llm_tool_choice is not None else {})
                        if allow_tools else {"tool_choice": "none"}),
@@ -206,19 +209,20 @@ def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
                         for m in messages
                     ]
                     print(f"  [model_call] 400 payload model={model or cfg.llm_model!r} "
-                          f"n={len(messages)} tools={len(TOOL_SCHEMAS)} "
+                          f"n={len(messages)} tools={len(tools)} "
                           f"roles=[{', '.join(shape)}]", flush=True)
                 except Exception:
                     pass
                 # Full-payload capture: bifrost's envelope 400s return no
                 # useful body, so save the exact request for offline replay.
                 try:
-                    import time as _t, pathlib as _p
+                    import pathlib as _p
+                    import time as _t
                     dump = _p.Path("/tmp") / f"campus-400-{int(_t.time())}.json"
                     dump.write_text(json.dumps({
                         "model": model or cfg.llm_model,
                         "messages": messages,
-                        "tools": TOOL_SCHEMAS,
+                        "tools": tools,
                         "url": url,
                         "status": e.response.status_code,
                         "response_body": body,
@@ -747,8 +751,6 @@ def chat_repl(cfg: Config, db: DB, course_code: str | None = None,
 
 def main() -> int:
     import argparse
-
-    from sync.token_store import TokenStore
 
     ap = argparse.ArgumentParser(description="Campus agent chat")
     ap.add_argument("--one", help="single question, no REPL")

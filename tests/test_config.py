@@ -405,3 +405,23 @@ def test_settings_file_cannot_relocate_itself(tmp_path, monkeypatch):
     (tmp_path / "settings.yaml").write_text("settings_path: /tmp/evil.yaml\n")
     cfg = Config.load()
     assert not hasattr(cfg, "settings_path")
+
+
+def test_terminal_enabled_is_off_by_default():
+    from sync.config import Config
+
+    assert Config().terminal_enabled is False
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("1", True), ("true", True), ("TRUE", True), ("yes", True), ("on", True),
+    ("0", False), ("false", False), ("no", False), ("", False),
+])
+def test_terminal_enabled_env_parsing(monkeypatch, raw, expected):
+    """Env values are strings, so a bare `if val` would make CAMPUS_TERMINAL_ENABLED=0
+    truthy and silently turn the shell tool ON."""
+    from sync.config import Config
+
+    monkeypatch.setenv("CAMPUS_TERMINAL_ENABLED", raw)
+    cfg = Config.load()
+    assert cfg.terminal_enabled is expected

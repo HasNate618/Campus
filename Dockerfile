@@ -32,7 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && mkdir -p /usr/lib/libreoffice/user \
     && chown -R 1000:100 /usr/lib/libreoffice/user
 
-RUN useradd -u 1000 -g 100 -m -s /bin/bash nate || true
+RUN useradd -u 1000 -g 100 -m -s /bin/bash campus || true
 
 WORKDIR /app
 COPY requirements.txt ./
@@ -51,6 +51,15 @@ COPY api/ ./api/
 COPY agent/ ./agent/
 COPY sync/ ./sync/
 COPY --from=web-build /app/web/dist ./web/dist
+
+# Run as uid 1000, the owner of the mounted data/token paths. cap-drop ALL
+# (docker-compose.yml) strips CAP_DAC_OVERRIDE, so root inside the container
+# could not write the mounted volume anyway; starting as root only widened the
+# blast radius for no benefit. /app/data is created and owned here so a fresh
+# named volume inherits uid 1000 instead of root. The Playwright browsers are
+# written as root during install and must stay readable and executable.
+RUN mkdir -p /app/data && chown -R 1000:100 /app/data /opt/ms-playwright
+USER 1000:100
 
 ENV CAMPUS_DB=/app/data/harness.db
 EXPOSE 8000

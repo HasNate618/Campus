@@ -631,3 +631,68 @@ def test_extract_file_is_registered():
     from agent.tools import TOOLS
 
     assert "extract_file" in TOOLS
+
+
+# ---------------------------------------------------------------------------
+# terminal_run is opt-in (T6).
+#
+# The shell tool is the one tool that runs arbitrary commands, so the model is
+# not told it exists unless `terminal_enabled` is set, and a call to it is
+# refused anyway. Both halves matter: hiding the schema without refusing would
+# leave a model that guesses the name a way in.
+# ---------------------------------------------------------------------------
+
+
+def test_terminal_run_hidden_from_model_by_default():
+    from agent.tools import tool_schemas
+    from sync.config import Config
+
+    names = [s["function"]["name"] for s in tool_schemas(Config())]
+    assert "terminal_run" not in names
+    # exactly one tool is gated, so the count drops by one
+    from agent.tools import TOOL_SCHEMAS
+    assert len(names) == len(TOOL_SCHEMAS) - 1
+
+
+def test_terminal_run_listed_when_enabled():
+    from agent.tools import tool_schemas
+    from sync.config import Config
+
+    names = [s["function"]["name"]
+             for s in tool_schemas(Config(terminal_enabled=True))]
+    assert "terminal_run" in names
+
+
+def test_terminal_run_refuses_calls_when_disabled(page_cfg, page_db):
+    from agent.tools import execute_tool
+
+    assert page_cfg.terminal_enabled is False
+    out = execute_tool("terminal_run", {"command": "echo hi"}, page_db, page_cfg)
+    assert "error" in out
+    assert "disabled" in out["error"]
+    assert "terminal_enabled" in out["error"]
+
+
+def test_terminal_run_still_blocks_dangerous_commands_when_enabled(page_cfg, page_db):
+    """Enabling the tool must not bypass the blocklist it already had."""
+    from agent.tools import execute_tool
+
+    page_cfg.terminal_enabled = True
+    out = execute_tool("terminal_run", {"command": "sudo rm -rf /"}, page_db, page_cfg)
+    assert "error" in out
+    assert "blocked" in out["error"]
+
+
+def test_prompt_rule_dropped_when_terminal_disabled(page_cfg, page_db):
+    from agent.context import build_system_prompt
+
+    off = build_system_prompt(page_cfg, page_db)
+    assert "terminal_run is ONLY" not in off
+    # the rule that followed it is renumbered so the list stays contiguous
+    assert "\n10. Be decisive" in off
+    assert "\n11. Be decisive" not in off
+
+    page_cfg.terminal_enabled = True
+    on = build_system_prompt(page_cfg, page_db)
+    assert "\n10. terminal_run is ONLY" in on
+    assert "\n11. Be decisive" in on
