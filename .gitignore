@@ -53,3 +53,8 @@ config.yaml.bak*
 config.yaml.bak*
 web/dist-bak*/
 /backups/
+
+# Eval — real questions, prices and results stay local
+eval/questions.local.yaml
+eval/prices.yaml
+eval/results/

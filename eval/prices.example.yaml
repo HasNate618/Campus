@@ -1,0 +1,12 @@
+# Per-million-token prices, keyed by the model name the endpoint reports.
+# Copy to eval/prices.yaml (gitignored) and fill in what your provider charges.
+# No prices are committed: they change, they differ per provider, and a stale
+# number in a results table is worse than no cost column at all.
+#
+# Without this file the harness still reports prompt and completion tokens, and
+# says plainly that cost was not computed.
+#
+# "<model-name>":
+#   input_per_million: 0.00
+#   output_per_million: 0.00
+{}

@@ -1,0 +1,36 @@
+# Example eval questions. Copy to questions.local.yaml (gitignored) and replace
+# these with real questions from your own courses; the examples point only at
+# the fictional demo course so `make eval` runs on a fresh checkout.
+- id: q001
+  course: "DEMO 101"
+  question: "What is the late penalty?"
+  kind: exact_phrase
+  expected:
+    files: ["2026F/DEMO101/content/syllabus.md"]
+    pages: [1]
+    answer_contains: ["10 percent"]
+
+- id: q002
+  course: "DEMO 101"
+  question: "When are office hours?"
+  kind: paraphrase
+  expected:
+    files: ["2026F/DEMO101/content/syllabus.md"]
+    answer_contains: ["Tuesday"]
+
+- id: q003
+  course: "DEMO 101"
+  question: "What does the project proposal need to contain?"
+  kind: deadline
+  expected:
+    files: ["2026F/DEMO101/content/assignment-01.md"]
+    answer_contains: ["diagram"]
+
+- id: q004
+  course: "DEMO 101"
+  question: "Which two design patterns does the course cover?"
+  kind: multi_hop
+  expected:
+    files:
+      - "2026F/DEMO101/content/lecture-01.md"
+      - "2026F/DEMO101/content/lecture-02.md"

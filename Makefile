@@ -12,7 +12,7 @@
 WEB_DIR := web
 ROOT := $(dir $(lastword $(MAKEFILE_LIST)))
 
-.PHONY: build-web build up dev
+.PHONY: build-web build up dev eval
 
 # Local run without Docker: venv, built web UI, sample data, then uvicorn on
 # :8000. Mirrors the "Without Docker" steps in README.md. The seed and the
@@ -30,6 +30,13 @@ dev:
 	cd web && (test -d node_modules || npm ci)
 	cd web && npm run build
 	.venv/bin/python -m uvicorn api.main:app --port 8000
+
+# Retrieval metrics, plus answer metrics when an LLM endpoint is configured.
+# Results land in eval/results/, which is gitignored. See eval/README.md.
+EVAL_QUESTIONS ?= eval/questions.example.yaml
+
+eval:
+	.venv/bin/python eval/run.py --questions $(EVAL_QUESTIONS)
 
 build-web:
 	@bash $(ROOT)scripts/build-web.sh
