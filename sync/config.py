@@ -40,6 +40,7 @@ ENV_OVERRIDES: list[tuple[str, str]] = [
     ("CAMPUS_MCP_URL", "mcp_url"),
     ("CAMPUS_MCP_URLS", "mcp_urls"),
     ("CAMPUS_TERMINAL_ENABLED", "terminal_enabled"),
+    ("CAMPUS_DEMO", "demo"),
     ("CAMPUS_EMBED_MODEL", "embed_model"),
     ("CAMPUS_RERANK_MODEL", "rerank_model"),
     ("CAMPUS_BRIGHTSPACE_BASE_URL", "brightspace_base_url"),
@@ -48,7 +49,7 @@ ENV_OVERRIDES: list[tuple[str, str]] = [
 
 # Env values arrive as strings, so a boolean flag needs parsing: without this
 # CAMPUS_TERMINAL_ENABLED=0 would set the string "0", which is truthy.
-_BOOL_ENV_ATTRS = frozenset({"terminal_enabled"})
+_BOOL_ENV_ATTRS = frozenset({"terminal_enabled", "demo"})
 
 # Comma-separated in the environment, lists on Config.
 _ENV_CSV_ATTRS = frozenset({"llm_urls", "mcp_urls"})
@@ -210,6 +211,11 @@ class Config:
     # optional single-password web auth; empty = open (demo)
     web_password: str = ""
 
+    # Demo mode: seed one clearly fictional course and say so in the UI, so a
+    # stranger can look around without a Brightspace account. On by default in
+    # docker-compose.yml and off everywhere else. Env: CAMPUS_DEMO.
+    demo: bool = False
+
     # services (docker network names; host-mapped ports when run on host)
     # LLM endpoint(s): ANY OpenAI-compatible /v1 base URL (OpenAI, OpenRouter,
     # Together, a local gateway like Ollama, ...). `llm_api_key` is sent as a
@@ -298,6 +304,7 @@ class Config:
         data, _err = read_settings_layer(settings_path(cfg))
         _merge_layer(cfg, data)
         _coerce_paths(cfg)
+        _apply_mode_constraints(cfg)
         return cfg
 
     @classmethod
@@ -308,6 +315,7 @@ class Config:
         _merge_layer(cfg, _read_config_file(path or DEFAULT_CONFIG_PATH))
         _apply_env(cfg)
         _coerce_paths(cfg)
+        _apply_mode_constraints(cfg)
         return cfg
 
     # ── resolved endpoint lists ──────────────────────────────────────────
@@ -394,3 +402,15 @@ def _coerce_paths(cfg: "Config") -> None:
         if isinstance(val, Path):
             val = Path(os.path.expanduser(str(val)))
         setattr(cfg, name, val)
+
+
+def _apply_mode_constraints(cfg: "Config") -> None:
+    """Rules that hold no matter which layer set a value.
+
+    Demo mode must never expose the shell tool. The demo container is the one
+    deployment a stranger runs, and terminal_run is arbitrary command
+    execution, so forcing it off here means no env var or settings.yaml entry
+    can switch it back on while demo mode is on.
+    """
+    if cfg.demo:
+        cfg.terminal_enabled = False

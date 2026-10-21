@@ -932,6 +932,28 @@ def search_index_summary(cfg) -> dict:
             "stale": stored_model != want}
 
 
+def search_corpus(q: str, course_id: int | None = None,
+                  top_k: int = 8) -> dict:
+    """Ranked corpus search over the indexed chunks.
+
+    The agent reaches the same ranker through its ``search_corpus`` tool; this
+    is the HTTP surface for everything that is not a model call: the demo (no
+    endpoint configured), scripts, and citation links. Read-only.
+    """
+    from sync.search import search as _search
+
+    class _View:
+        """sync.search only touches ``.conn``; this keeps the request on the
+        pooled connection from get_conn() instead of opening a second one."""
+
+        def __init__(self, conn: sqlite3.Connection) -> None:
+            self.conn = conn
+
+    with get_conn() as conn:
+        hits = _search(cfg, _View(conn), q, course_id=course_id, top_k=top_k)
+    return {"query": q, "hits": hits}
+
+
 # ── auth ────────────────────────────────────────────────────────────────────
 _auth_lock = threading.Lock()
 _auth_in_progress = False

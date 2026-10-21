@@ -27,6 +27,9 @@ services:
     environment:
       CAMPUS_DB: /app/data/harness.db
       CAMPUS_DATA_ROOT: /app/data/school
+      # Seed one clearly fictional course and show the demo banner in the UI.
+      # Demo mode also forces the agent's shell tool off, whatever else is set.
+      CAMPUS_DEMO: "1"
       # OpenAI-compatible chat backend (optional for the demo):
       # OPENAI_ENDPOINT: https://api.openai.com/v1
       # OPENAI_MODEL: gpt-4o-mini
