@@ -19,12 +19,25 @@ export default function App() {
   // (demo) mode, so the login screen only appears when the server actually
   // requires a password.
   const [authed, setAuthed] = useState<boolean | null>(null)
+  // /api/health carries the two capability flags the UI needs before it can
+  // render honestly: demo mode (banner) and whether an LLM endpoint is set
+  // (chat panel). A failed probe leaves both at their safe defaults.
+  const [demo, setDemo] = useState(false)
+  const [chatReady, setChatReady] = useState(true)
 
   useEffect(() => {
     api.auth
       .me()
       .then(({ authenticated }) => setAuthed(authenticated))
       .catch(() => setAuthed(true)) // API unreachable — render and let pages surface errors
+    api.health()
+      .then((h) => {
+        setDemo(Boolean(h.demo))
+        setChatReady(h.chat_ready !== false)
+      })
+      .catch(() => {
+        /* keep the quiet defaults: no banner, chat stays available */
+      })
   }, [])
 
   if (authed === null) return null // one fast fetch — no flash of the login form
@@ -41,7 +54,12 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<AppShell onLogout={logout} />}>
+        <Route
+          path="/"
+          element={
+            <AppShell onLogout={logout} demo={demo} chatReady={chatReady} />
+          }
+        >
           <Route index element={<TodayPage />} />
           <Route path="settings" element={<SettingsPage onLogout={logout} />} />
           <Route path="today" element={<Navigate to="/" replace />} />

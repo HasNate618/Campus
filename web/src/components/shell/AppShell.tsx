@@ -15,7 +15,15 @@ const MOBILE_TABS = [
 	{ to: "/schedule", label: "Schedule", icon: CalendarDays, end: true },
 ];
 
-function ShellInner({ onLogout }: { onLogout: () => void }) {
+function ShellInner({
+	onLogout,
+	demo,
+	chatReady,
+}: {
+	onLogout: () => void;
+	demo: boolean;
+	chatReady: boolean;
+}) {
 	const location = useLocation();
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	// Animate TOP-LEVEL navigation only: slice(0,2) keeps '/courses' stable
@@ -32,6 +40,12 @@ function ShellInner({ onLogout }: { onLogout: () => void }) {
 			<div className="shell">
 				<Sidebar onOpenSettings={() => setSettingsOpen(true)} />
 				<main className="main" data-kbd-zone="course">
+					{demo && (
+						<div className="demo-banner" role="status">
+							Demo mode: fictional sample course, no Brightspace
+							connection.
+						</div>
+					)}
 					{/* Keyed remount → exactly ONE entrance animation per navigation.
               Deliberately no AnimatePresence/exit animation: exit + enter
               back-to-back read as the slide-in playing twice (and course
@@ -48,7 +62,7 @@ function ShellInner({ onLogout }: { onLogout: () => void }) {
 							minHeight: 0,
 						}}
 					>
-						<Outlet />
+						<Outlet context={{ chatReady }} />
 					</motion.div>
 				</main>
 
@@ -86,10 +100,18 @@ function ShellInner({ onLogout }: { onLogout: () => void }) {
 	);
 }
 
-export function AppShell({ onLogout }: { onLogout: () => void }) {
+export function AppShell({
+	onLogout,
+	demo,
+	chatReady,
+}: {
+	onLogout: () => void;
+	demo: boolean;
+	chatReady: boolean;
+}) {
 	return (
 		<KeyNavProvider>
-			<ShellInner onLogout={onLogout} />
+			<ShellInner onLogout={onLogout} demo={demo} chatReady={chatReady} />
 		</KeyNavProvider>
 	);
 }

@@ -37,7 +37,10 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
 }
 
 export const api = {
-	health: () => get<{ status: string; db: boolean }>("/health"),
+	health: () =>
+		get<{ status: string; db: boolean; demo?: boolean; chat_ready?: boolean }>(
+			"/health",
+		),
 	// single-password web auth — login returns {ok, status} instead of throwing
 	// so the login screen can tell "wrong password" (401) from success. Cookies
 	// ride along automatically on same-origin fetches.

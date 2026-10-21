@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from api.auth import require_auth
 from api.auth import router as auth_router
+from api.config import cfg
 from api.db import db_available, ensure_wal
 from api.routers import chat, courses, data, digest, search, settings, sync
 from api.version import VERSION
@@ -18,10 +19,15 @@ ensure_wal()  # WAL so API readers never block the sync writer
 
 app = FastAPI(title="Campus", version=VERSION)
 
+# No CORS by default. Production serves web/dist from this same app, and the
+# Vite dev server proxies /api, so every request in this repo is same-origin and
+# CORS never comes into play. Add explicit origins here only if a UI is ever
+# served from a different origin than the API; a wildcard is not used because it
+# would let any website reach the API, and nothing needs that.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=[],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -46,7 +52,19 @@ app.include_router(search.router, dependencies=[Depends(require_auth)])
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "db": db_available()}
+    """Liveness plus the two capability flags the SPA needs at boot.
+
+    `demo` drives the "fictional sample course" banner, and `chat_ready` lets
+    the chat panel explain that an OpenAI-compatible endpoint is required
+    instead of failing on the first message. Kept here rather than on
+    /api/auth/me so that endpoint stays purely about the session.
+    """
+    return {
+        "status": "ok",
+        "db": db_available(),
+        "demo": cfg.demo,
+        "chat_ready": bool(cfg.llm_endpoints()),
+    }
 
 
 # ── SPA serving ─────────────────────────────────────────────────────────

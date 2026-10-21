@@ -1,5 +1,11 @@
-"""Search-index rebuild. Enabling semantic search only takes effect after the
-index is rebuilt — sync.search.rebuild is incremental, so repeat runs are cheap.
+"""Corpus search and the index rebuild.
+
+GET /api/search ranks the indexed chunks; the agent reaches the same ranker
+through its search_corpus tool, and this route is what the UI, scripts and the
+no-model demo use.
+
+Enabling semantic search only takes effect after the index is rebuilt —
+sync.search.rebuild is incremental, so repeat runs are cheap.
 
 Mirrors the sync trigger's shape (api/services.py::trigger_sync): a
 module-level lock, an atomic check-and-set, a daemon thread, and a status the
@@ -11,7 +17,7 @@ import datetime
 import logging
 import threading
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 
@@ -23,6 +29,21 @@ _state: dict = {"status": "idle", "result": None, "error": None,
 def _finish(**kw) -> None:
     with _lock:
         _state.update(**kw)
+
+
+@router.get("")
+def search_corpus(
+    q: str = Query(..., min_length=1, description="query text"),
+    course_id: int | None = None,
+    top_k: int = Query(8, ge=1, le=50),
+):
+    """Ranked hits over the synced corpus.
+
+    Works in lexical mode, so it needs no embedding or rerank model.
+    """
+    from api import services
+
+    return services.search_corpus(q, course_id=course_id, top_k=top_k)
 
 
 @router.post("/rebuild")
