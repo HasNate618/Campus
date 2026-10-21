@@ -76,10 +76,99 @@ def llm_headers(cfg: Config) -> dict:
     return headers
 
 
+def _retryable_model_error(err: Exception) -> bool:
+    """Is this failure the kind that clears up on its own?
+
+    bifrost answers "Upstream request failed: Endpoint is unavailable." with a
+    plain 400 when the provider blips, which is indistinguishable from a payload
+    complaint by status alone — and it recovers within seconds (live logs show
+    error at 00:26:07, success at 00:26:10). Retrying a genuinely malformed
+    payload costs a few seconds and fails the same way; not retrying a blip ends
+    the user's turn. Timeouts, transport errors, 408/425/429 and 5xx all qualify.
+    """
+    if isinstance(err, (httpx.TransportError, httpx.TimeoutException)):
+        return True
+    if isinstance(err, httpx.HTTPStatusError):
+        st = err.response.status_code
+        if st in (400, 408, 425, 429) or st >= 500:
+            return True
+        return False
+    text = str(err).lower()
+    return any(k in text for k in ("endpoint is unavailable", "upstream request failed",
+                                  "timed out", "connection reset", "temporarily"))
+
+
+def _drop_empty_messages(messages: list[dict]) -> None:
+    """Remove messages carrying no content and no tool traffic.
+
+    An empty ``{"role": "user", "content": ""}`` reached a live payload and
+    stayed in the tree, so every later turn in that session re-sent it (the saved
+    400 dumps all carry one at index 50). Providers reject empty content, and a
+    turn that contributes nothing is costing context for no reason. Tool-call and
+    tool-result messages are kept: empty content is normal for them.
+    """
+    keep: list[dict] = []
+    for m in messages:
+        if m.get("tool_calls") or m.get("tool_call_id"):
+            keep.append(m)
+            continue
+        c = m.get("content")
+        if c is None:
+            continue
+        if isinstance(c, str):
+            if not c.strip():
+                continue
+        elif isinstance(c, list):
+            # A part carries content outside "text" too (image_url, input_image,
+            # file) — only a part that is a blank text block is empty.
+            def part_has_content(p) -> bool:
+                if not isinstance(p, dict):
+                    return bool(p)
+                if "text" in p:
+                    return bool((p.get("text") or "").strip())
+                return True
+            if not any(part_has_content(p) for p in c):
+                continue
+        keep.append(m)
+    if len(keep) != len(messages):
+        dropped = len(messages) - len(keep)
+        print(f"  [model_call] dropped {dropped} empty message(s)", flush=True)
+        messages[:] = keep
+
+
 def _model_call(cfg: Config, messages: list[dict], model: str | None = None,
                 on_token=None, on_reasoning=None,
                 session_id: str | None = None,
                 allow_tools: bool = True) -> tuple[dict, dict | None]:
+    """Streaming chat completion, retried across a briefly unavailable provider.
+
+    A single blip used to end the turn: one attempt per endpoint and then raise.
+    Between retries nothing streams, so a retry is safe — the accumulated content
+    is discarded and the caller sees only the successful attempt.
+    """
+    attempts = max(1, int(getattr(cfg, "llm_retry_attempts", 3) or 3))
+    last: Exception | None = None
+    for i in range(attempts):
+        _drop_empty_messages(messages)
+        try:
+            return _model_call_once(cfg, messages, model, on_token, on_reasoning,
+                                    session_id, allow_tools)
+        except Exception as e:
+            last = e
+            if i + 1 >= attempts or not _retryable_model_error(e):
+                raise
+            wait = 2 * (i + 1)
+            print(f"  [model_call] {type(e).__name__} on attempt {i + 1}/{attempts}, "
+                  f"retrying in {wait}s", flush=True)
+            import time as _time
+            _time.sleep(wait)
+    raise last or RuntimeError("model call failed")
+
+
+def _model_call_once(cfg: Config, messages: list[dict], model: str | None = None,
+                     on_token=None, on_reasoning=None,
+                     session_id: str | None = None,
+                     allow_tools: bool = True) -> tuple[dict, dict | None]:
     """Streaming chat completion with LLM failover.
 
     Tries each URL in ``cfg.llm_endpoints()`` (llm_urls / OPENAI_ENDPOINTS,
