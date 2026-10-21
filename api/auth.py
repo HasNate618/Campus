@@ -90,7 +90,7 @@ def login(body: LoginBody, response: Response):
         path="/",
         httponly=True,
         samesite="lax",
-        # secure=False: the deployment is plain HTTP behind Tailscale by design
+        # secure=False: the deployment is plain HTTP behind a private network by design
     )
     return {"ok": True}
 
