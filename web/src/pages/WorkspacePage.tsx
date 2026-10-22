@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import {
-  Bot, ChevronRight, Download, FileText, FileCode2, FileType,
-  Folder, FolderLock, FolderPlus, Lock, Pencil, Plus, RefreshCw, Trash2, Upload,
+  Bot, ChevronRight, Download, Eye, FileAudio, FileCode2, FileImage,
+  FileText, FileType, FileVideo, Folder, FolderLock, FolderPlus, Lock,
+  Pencil, Plus, RefreshCw, Trash2, Upload,
 } from 'lucide-react'
 import { api } from '@/api/client'
 import { listKeys, useListCursor, useZoneKeys } from '@/lib/keynav'
@@ -15,8 +16,16 @@ const TEXT_KINDS = new Set(['md', 'txt', 'html', 'htm', 'json', 'yaml', 'yml', '
 // Kinds where the rendered view is markdown; the rest get a plain read-only
 // view (running a .py file through a markdown renderer mangles it).
 const PROSE_KINDS = new Set(['md', 'txt', 'html', 'htm'])
+// Formats the browser can display directly from the asset URL.
+const IMAGE_KINDS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'ico'])
+const AUDIO_KINDS = new Set(['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus'])
+const VIDEO_KINDS = new Set(['mp4', 'webm', 'ogv', 'mov', 'm4v'])
 
 function kindIcon(kind?: string) {
+  if (!kind) return <FileCode2 size={13} />
+  if (IMAGE_KINDS.has(kind)) return <FileImage size={13} />
+  if (AUDIO_KINDS.has(kind)) return <FileAudio size={13} />
+  if (VIDEO_KINDS.has(kind)) return <FileVideo size={13} />
   if (kind === 'md' || kind === 'txt') return <FileText size={13} />
   if (kind === 'pdf' || kind === 'doc' || kind === 'docx') return <FileType size={13} />
   return <FileCode2 size={13} />
@@ -50,8 +59,8 @@ export function WorkspacePage() {
   const [current, setCurrent] = useState<WorkspaceNode | null>(null)
   const [text, setText] = useState('')
   const [savedText, setSavedText] = useState('')
-  // Editable text files open in the RENDERED view; clicking the body switches
-  // to the editor and Escape goes back — there is no Edit/Preview toggle.
+  // Editable text files open in the RENDERED view. The header's View/Edit
+  // control switches modes; Escape goes back to View.
   const [preview, setPreview] = useState(true)
   const [assetUrl, setAssetUrl] = useState<string | null>(null)
   // The server now returns `asset` for EVERY file (the Download control needs it
@@ -76,15 +85,32 @@ export function WorkspacePage() {
   const pendingRef = useRef<{ path: string; text: string } | null>(null)
   const saveTimer = useRef<number | null>(null)
   const taRef = useRef<HTMLTextAreaElement | null>(null)
+  const previewRef = useRef<HTMLDivElement | null>(null)
   const uploadInputRef = useRef<HTMLInputElement | null>(null)
   const openPathRef = useRef<string | null>(null)
   openPathRef.current = openPath
-  // set on a click-to-edit; the focus effect below consumes it
+  // set when the Edit control is pressed; the focus effect below consumes it
   const focusOnEdit = useRef(false)
+  // Serialized last tree. The poll runs every 8s even when nothing changed;
+  // adopting an identical tree used to re-render the whole page and (via the
+  // old innerHTML prop) reset the preview. Skip the state write instead.
+  const treeKeyRef = useRef('')
+
+  const applyTree = useCallback((next: WorkspaceTree | null) => {
+    if (!next) {
+      treeKeyRef.current = ''
+      setTree(null)
+      return
+    }
+    const key = JSON.stringify(next)
+    if (key === treeKeyRef.current) return
+    treeKeyRef.current = key
+    setTree(next)
+  }, [])
 
   const loadTree = useCallback(() => {
-    api.workspaceTree(cid).then(setTree).catch(() => setTree(null)).finally(() => setLoading(false))
-  }, [cid])
+    api.workspaceTree(cid).then(applyTree).catch(() => applyTree(null)).finally(() => setLoading(false))
+  }, [cid, applyTree])
 
   useEffect(() => { loadTree() }, [loadTree])
 
@@ -114,7 +140,7 @@ export function WorkspacePage() {
         setExternalChange(false)
       }
       const t = await api.workspaceTree(cid)
-      setTree(t)
+      applyTree(t)
       const node = findNode(t.nodes, p.path)
       if (p.path === openPathRef.current) mtimeRef.current = node?.mtime ?? null
     } catch {
@@ -157,7 +183,7 @@ export function WorkspacePage() {
     exitEdit()
   }
 
-  // click-to-edit focuses the box, caret at the end
+  // entering edit mode focuses the box, caret at the end
   useEffect(() => {
     if (preview || !focusOnEdit.current) return
     focusOnEdit.current = false
@@ -270,10 +296,10 @@ export function WorkspacePage() {
   useEffect(() => {
     const iv = setInterval(async () => {
       const cur = current
-      if (!cur || cur.type !== 'file') return
+      if (!cur || cur.type !== 'file' || document.hidden) return
       try {
         const t = await api.workspaceTree(cid)
-        setTree(t)
+        applyTree(t)
         const node = findNode(t.nodes, cur.path)
         if (!node || node.type !== 'file' || !node.mtime) return
         if (node.mtime === mtimeRef.current) return
@@ -286,10 +312,16 @@ export function WorkspacePage() {
           // preview, which wipes the injected diagram/code decorations and
           // re-adds them, i.e. a visible flash for no reason.
           if (r.viewable && r.text !== null && r.text !== textRef.current) {
+            // Keep the reader where they were when the file changes under
+            // them; replacing the preview DOM otherwise jumps to the top.
+            const top = previewRef.current?.scrollTop ?? 0
             setText(r.text)
             setSavedText(r.text)
             setSavedAt('updated')
             setExternalChange(false)
+            requestAnimationFrame(() => {
+              if (previewRef.current) previewRef.current.scrollTop = top
+            })
           }
         } else {
           setExternalChange(true)
@@ -396,12 +428,16 @@ export function WorkspacePage() {
     try {
       const r = await api.workspaceRead(cid, current.path)
       if (r.viewable && r.text !== null) {
+        const top = previewRef.current?.scrollTop ?? 0
         setText(r.text)
         setSavedText(r.text)
         setSavedAt('updated')
+        requestAnimationFrame(() => {
+          if (previewRef.current) previewRef.current.scrollTop = top
+        })
       }
       const t = await api.workspaceTree(cid)
-      setTree(t)
+      applyTree(t)
       const node = findNode(t.nodes, current.path)
       mtimeRef.current = node?.mtime ?? null
       setExternalChange(false)
@@ -414,6 +450,12 @@ export function WorkspacePage() {
   const canEdit = !!current && current.type === 'file' && !!current.writable && isText
   // prose renders as markdown; other text kinds get a plain read-only view
   const prosePreview = !!current?.kind && PROSE_KINDS.has(current.kind)
+  const kind = current?.kind ?? ''
+  const isImage = IMAGE_KINDS.has(kind)
+  const isPdf = kind === 'pdf'
+  const isAudio = AUDIO_KINDS.has(kind)
+  const isVideo = VIDEO_KINDS.has(kind)
+  const hasInlineViewer = isImage || isPdf || isAudio || isVideo
 
   // Flat visible rows for j/k navigation (children of collapsed dirs are
   // hidden, matching the recursive render).
@@ -466,7 +508,7 @@ export function WorkspacePage() {
   return (
     <div className="ws-wrap">
       <div
-        className="card ws-tree"
+        className="ws-tree"
         onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) e.preventDefault() }}
         onDrop={(e) => {
           if (e.dataTransfer.files.length) {
@@ -475,10 +517,10 @@ export function WorkspacePage() {
           }
         }}
       >
-        <p className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'space-between' }}>
-          <span><Folder size={13} style={{ verticalAlign: -2 }} /> Workspace</span>
+        <div className="ws-tree-head">
+          <span className="ws-tree-title"><Folder size={13} /> Workspace</span>
           <button className="icon-btn" onClick={loadTree} title="Refresh"><RefreshCw size={12} /></button>
-        </p>
+        </div>
         <div className="ws-tree-scroll">
           {loading && <div className="empty compact">Loading…</div>}
           {!loading && tree && flatNodes.map(({ node, depth }, i) => {
@@ -489,7 +531,7 @@ export function WorkspacePage() {
               <button
                 key={node.path}
                 ref={wsCursor.setRef(i)}
-                className={`ws-node${active ? ' active' : ''}${node.writable && !isDir ? '' : ' ro'}${wsCursor.cursor === i ? ' kbd-cursor' : ''}`}
+                className={`ws-node${isDir ? ' dir' : ''}${active ? ' active' : ''}${node.writable && !isDir ? '' : ' ro'}${wsCursor.cursor === i ? ' kbd-cursor' : ''}`}
                 style={{ paddingLeft: 10 + depth * 14 }}
                 onClick={() => (isDir
                   ? setOpenDirs((prev) => { const next = new Set(prev); if (next.has(node.path)) next.delete(node.path); else next.add(node.path); return next })
@@ -546,17 +588,40 @@ export function WorkspacePage() {
       </div>
 
       {/* Escape anywhere in the editor returns to the rendered view — the
-          handler sits on the card so it still works once focus has left the box */}
-      <div className="card ws-editor" onKeyDown={onEditorKeyDown}>
+          handler sits on the pane so it still works once focus has left the box */}
+      <div className="ws-editor" onKeyDown={onEditorKeyDown}>
         {!current && <div className="empty compact" style={{ margin: 'auto' }}>Select a file from the tree — notes/, work/ and uploads/ are editable.</div>}
         {current && (
           <>
             <div className="ws-editor-head">
               <span className="ws-editor-path" title={current.path}>
-                <FolderLock size={12} style={{ verticalAlign: -2 }} /> {current.path}
+                <FolderLock size={12} />
+                <span className="ws-editor-path-text">{current.path}</span>
                 {!current.writable && <Lock size={10} className="ws-badge" />}
               </span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div className="ws-editor-actions">
+                {canEdit && (
+                  <div className="ws-mode" role="group" aria-label="File mode">
+                    <button
+                      type="button"
+                      className={`ws-mode-btn${preview ? ' active' : ''}`}
+                      onClick={() => setPreview(true)}
+                      aria-pressed={preview}
+                      title="View rendered file"
+                    >
+                      <Eye size={12} /> View
+                    </button>
+                    <button
+                      type="button"
+                      className={`ws-mode-btn${!preview ? ' active' : ''}`}
+                      onClick={startEdit}
+                      aria-pressed={!preview}
+                      title="Edit file"
+                    >
+                      <Pencil size={12} /> Edit
+                    </button>
+                  </div>
+                )}
                 {assetUrl && (
                   <a
                     className="icon-btn"
@@ -576,7 +641,7 @@ export function WorkspacePage() {
                     <button className="icon-btn" onClick={remove} disabled={busy} title="Delete"><Trash2 size={12} /></button>
                   </>
                 )}
-                {(!current.writable || !isText) && current.kind && (
+                {!current.writable && current.kind && (
                   <span className="chip">read-only</span>
                 )}
               </div>
@@ -591,16 +656,42 @@ export function WorkspacePage() {
             {(saving || savedAt) && (
               <p className="ws-saved">{saving ? 'saving…' : `saved ${savedAt}`}</p>
             )}
-            {!viewable ? (
-              <a className="empty compact" style={{ margin: 'auto', textDecoration: 'none' }} href={assetUrl ?? '#'} target="_blank" rel="noreferrer noopener">
-                Open in viewer (read-only) →
-              </a>
+            {hasInlineViewer && assetUrl ? (
+              isImage ? (
+                <div className="ws-media">
+                  <img src={assetUrl} alt={current.name} />
+                </div>
+              ) : isPdf ? (
+                <iframe className="ws-media-frame" src={assetUrl} title={current.path} />
+              ) : isVideo ? (
+                <div className="ws-media">
+                  <video src={assetUrl} controls />
+                </div>
+              ) : (
+                <div className="ws-media">
+                  <audio src={assetUrl} controls />
+                </div>
+              )
+            ) : !viewable ? (
+              <div className="ws-file-fallback">
+                <FileType size={30} />
+                <p className="ws-file-fallback-name">{current.name}</p>
+                <p className="ws-file-fallback-note">This file type can't be previewed here.</p>
+                <div className="ws-file-fallback-actions">
+                  {assetUrl && (
+                    <a className="btn btn-outline btn-sm" href={assetUrl} target="_blank" rel="noreferrer noopener">
+                      <Eye size={12} /> Open in new tab
+                    </a>
+                  )}
+                  {assetUrl && (
+                    <a className="btn btn-outline btn-sm" href={assetUrl} download={current.name}>
+                      <Download size={12} /> Download
+                    </a>
+                  )}
+                </div>
+              </div>
             ) : preview ? (
-              <div
-                className={`ws-preview${canEdit ? ' editable' : ''}`}
-                onClick={canEdit ? startEdit : undefined}
-                title={canEdit ? 'Click to edit' : undefined}
-              >
+              <div className="ws-preview" ref={previewRef}>
                 {prosePreview ? (
                   // HTML (semi-trusted Brightspace output) goes through the
                   // sanitizer. Markdown/text must NOT: sanitizeHtml rebuilds the

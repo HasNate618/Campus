@@ -1862,29 +1862,55 @@
     padding-right: 8px;
   }
 
-  /* workspace: file tree + audited text editor */
+  /* workspace: one border-only shell; tree and viewer share the frame */
   .ws-wrap {
     flex: 1;
     min-height: 0;
     display: flex;
-    gap: 12px;
-    padding: 12px;
+    gap: 0;
+    margin: 12px;
+    background: transparent;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-card);
     overflow: hidden;
   }
 
   .ws-tree {
-    width: 250px;
-    min-width: 200px;
+    width: 260px;
+    min-width: 220px;
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    border-right: 1px solid var(--glass-border);
   }
+
+  .ws-tree-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 48px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--glass-border);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-2);
+  }
+
+  .ws-tree-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .ws-tree-title svg { flex-shrink: 0; }
 
   .ws-tree-scroll {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: 4px 2px;
+    padding: 4px 6px;
   }
 
   .ws-node {
@@ -1895,18 +1921,18 @@
     padding: 7px 8px 7px 10px;
     background: none;
     border: none;
-    border-radius: 8px;
+    border-radius: 0;
     color: var(--text-2);
     font-size: 13.5px;
     cursor: pointer;
     text-align: left;
     white-space: nowrap;
     overflow: hidden;
-    transition: background 120ms ease, color 120ms ease;
+    transition: color 120ms ease, box-shadow 120ms ease;
   }
 
-  .ws-node:hover { background: var(--glass-bg-strong); color: var(--text-1); }
-  .ws-node.active { background: var(--violet-soft); color: var(--violet); }
+  .ws-node:hover { color: var(--text-1); }
+  .ws-node.active { color: var(--violet); box-shadow: inset 2px 0 0 var(--violet); }
   .ws-node.dir { font-weight: 700; }
   .ws-node.ro { opacity: 0.8; }
   .ws-node .ws-chevron {
@@ -1925,13 +1951,13 @@
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    padding: 8px;
+    padding: 10px 12px;
     border-top: 1px solid var(--glass-border);
   }
 
   /* "New in" label and the directory select each claim a full row; the two
      buttons then share the row below at flex:1 so the group spans the tree's
-     inner width instead of overflowing the 250px card. */
+     inner width instead of overflowing the tree column. */
   .ws-new-label {
     flex: 0 0 100%;
     font-size: 10.5px;
@@ -1944,7 +1970,7 @@
   .ws-new select {
     flex: 0 0 100%;
     min-width: 0;
-    background: var(--glass-bg-strong);
+    background: transparent;
     border: 1px solid var(--glass-border);
     border-radius: 6px;
     color: var(--text-1);
@@ -1973,19 +1999,61 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    padding: 8px 10px;
+    min-height: 48px;
+    padding: 10px 12px;
     border-bottom: 1px solid var(--glass-border);
   }
 
   .ws-editor-path {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
     font-size: 15px;
     font-weight: 700;
     letter-spacing: -0.01em;
     color: var(--text-1);
+  }
+
+  .ws-editor-path > svg { flex-shrink: 0; }
+
+  .ws-editor-path-text {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+
+  .ws-editor-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .ws-mode {
+    display: inline-flex;
+    align-items: stretch;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .ws-mode-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border: 0;
+    background: transparent;
+    color: var(--text-2);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .ws-mode-btn + .ws-mode-btn { border-left: 1px solid var(--glass-border); }
+  .ws-mode-btn:hover { color: var(--text-1); }
+  .ws-mode-btn.active { color: var(--violet); }
 
   .ws-textarea {
     flex: 1;
@@ -1999,20 +2067,82 @@
     font-family: var(--font-sans);
     font-size: 13.5px;
     line-height: 1.6;
-    padding: 12px;
+    padding: 14px 16px;
   }
 
   .ws-preview {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: 12px 16px;
+    padding: 14px 18px;
   }
 
-  /* click-to-edit target: a text cursor + faint hover tint carry the
-     affordance, so no permanent hint text is needed */
-  .ws-preview.editable { cursor: text; }
-  .ws-preview.editable:hover { background: rgba(255, 255, 255, 0.02); }
+  /* inline viewers for formats the browser can display from the asset URL */
+  .ws-media {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: auto;
+    padding: 16px;
+  }
+
+  .ws-media img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 8px;
+  }
+
+  .ws-media video { max-width: 100%; max-height: 100%; }
+  .ws-media audio { width: min(560px, 100%); }
+
+  .ws-media-frame {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    border: 0;
+    background: transparent;
+  }
+
+  /* unsupported binary formats: clear open/download fallback, no fake viewer */
+  .ws-file-fallback {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 24px;
+    text-align: center;
+    color: var(--text-2);
+  }
+
+  .ws-file-fallback > svg { color: var(--text-3); }
+
+  .ws-file-fallback-name {
+    margin: 4px 0 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-1);
+    overflow-wrap: anywhere;
+  }
+
+  .ws-file-fallback-note {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--text-3);
+  }
+
+  .ws-file-fallback-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 6px;
+  }
 
   /* non-markdown text kinds (py/ts/json/…): plain, un-rendered, and in the
      SAME font as the editor so switching modes doesn't change the typeface */
@@ -2028,6 +2158,35 @@
 
   .ws-notice { color: var(--danger, #f87171); font-size: 12px; padding: 6px 12px 0; }
   .ws-saved { color: var(--text-3, #94a3b8); font-size: 11px; padding: 4px 12px 0; text-align: right; }
+
+  @media (max-width: 860px) {
+    .ws-wrap {
+      flex-direction: column;
+      margin: 8px;
+    }
+
+    .ws-tree {
+      width: 100%;
+      min-width: 0;
+      max-height: 42%;
+      border-right: 0;
+      border-bottom: 1px solid var(--glass-border);
+    }
+
+    .ws-editor-head {
+      flex-wrap: wrap;
+    }
+
+    .ws-editor-path {
+      width: 100%;
+    }
+
+    .ws-editor-actions {
+      width: 100%;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+  }
 
   /* assignments: the list scrolls internally, the viewport never scrolls */
   .assign-card {

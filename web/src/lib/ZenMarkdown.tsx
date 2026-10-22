@@ -35,12 +35,17 @@ export function ZenMarkdown({
     () => parseMarkdown(content ?? '', citations, assetBase),
     [content, citations, assetBase],
   )
+  // Keep the dangerouslySetInnerHTML object identity stable. React compares
+  // that prop by reference, so a fresh `{ __html }` on every parent re-render
+  // makes it rewrite innerHTML — wiping injected mermaid/code decorations and
+  // resetting the scroll position even when the markdown did not change.
+  const inner = useMemo(() => ({ __html: html }), [html])
   useZenPostProcess(ref, [html], frozen)
   return (
     <div
       ref={ref}
       className={`md${className ? ` ${className}` : ''}`}
-      dangerouslySetInnerHTML={{ __html: html }}
+      dangerouslySetInnerHTML={inner}
     />
   )
 }
