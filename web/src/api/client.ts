@@ -14,10 +14,17 @@ import type {
 
 const BASE = "/api";
 
-async function get<T>(path: string): Promise<T> {
-	const res = await fetch(`${BASE}${path}`);
-	if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-	return res.json();
+async function get<T>(path: string, timeoutMs?: number): Promise<T> {
+	const ctrl = timeoutMs ? new AbortController() : undefined;
+	const timer =
+		ctrl && timeoutMs ? setTimeout(() => ctrl.abort(), timeoutMs) : undefined;
+	try {
+		const res = await fetch(`${BASE}${path}`, ctrl ? { signal: ctrl.signal } : undefined);
+		if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+		return res.json();
+	} finally {
+		if (timer) clearTimeout(timer);
+	}
 }
 
 async function post<T>(path: string, body?: unknown): Promise<T> {
@@ -192,10 +199,18 @@ export const api = {
 		return res.json();
 	},
 	// server-side chat sessions (the message tree lives in the DB)
-	chatSessions: (courseId?: number) =>
-		get<ChatServerSession[]>(
-			`/chat/sessions${courseId != null ? `?course_id=${courseId}` : ""}`,
-		),
+	chatSessions: (courseId?: number, since?: number) => {
+		const q: string[] = [];
+		if (courseId != null) q.push(`course_id=${courseId}`);
+		if (since) q.push(`since=${since}`);
+		// A stalled download must fail rather than hang: the chat refetch holds a
+		// lock while this is in flight, so a promise that never settles stops the
+		// device syncing for as long as the tab lives.
+		return get<ChatServerSession[]>(
+			`/chat/sessions${q.length ? `?${q.join("&")}` : ""}`,
+			45_000,
+		);
+	},
 	chatSessionCreate: (courseId: number | null, title: string) =>
 		post<ChatServerSession>("/chat/sessions", { course_id: courseId, title }),
 	chatSessionGet: (id: number) =>

@@ -153,3 +153,28 @@ export function capForCache<T extends CacheSession>(
 	}
 	return kept;
 }
+
+/**
+ * The `since` value to send when syncing the session list: the newest local change
+ * minus a short overlap, in epoch seconds.
+ *
+ * Without it the server returns every session with its whole tree — ~27 MB once
+ * a few long conversations exist. A phone cannot reliably pull that on a mobile
+ * connection, so it would fall behind by days while the desktop stayed current.
+ * The overlap covers a session the server stamped moments after our newest local
+ * timestamp; skipping it would hide that turn until something newer arrived.
+ */
+export function sinceForSync(
+	sessions: { updatedAt?: number }[],
+	nowMs: number = Date.now(),
+): number | undefined {
+	let newest = 0;
+	for (const s of sessions) {
+		const t = s.updatedAt || 0;
+		// Ignore future stamps: they used to be inflated by a UTC-parse bug, and a
+		// future value would ask the server for nothing ever again.
+		if (t > newest && t <= nowMs + 60_000) newest = t;
+	}
+	if (!newest) return undefined;
+	return Math.max(0, Math.floor(newest / 1000) - 300);
+}

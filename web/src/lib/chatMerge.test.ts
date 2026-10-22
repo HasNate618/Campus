@@ -5,6 +5,7 @@ import {
 	capForCache,
 	removedIds,
 	sessionSignature,
+	sinceForSync,
 	unionNodes,
 	type MergeNode,
 } from './chatMerge.ts'
@@ -182,5 +183,30 @@ describe('stale citation targets', () => {
 		] as MergeNode[];
 		const merged = unionNodes(local, server);
 		assert.equal(merged[0].citations?.[0].fileId, 386);
+	});
+});
+
+describe('sinceForSync', () => {
+	it('asks for nothing when the device holds no history', () => {
+		assert.equal(sinceForSync([]), undefined)
+	});
+
+	it('asks from the newest local change, minus an overlap', () => {
+		const t = Date.UTC(2026, 9, 22, 12, 0, 0);
+		assert.equal(
+			sinceForSync([{ updatedAt: t - 60_000 }], t),
+			Math.floor((t - 60_000) / 1000) - 300,
+		);
+	});
+
+	it('ignores a timestamp in the future', () => {
+		// Inflated stamps came from a UTC-parse bug; trusting one would ask the
+		// server for nothing ever again.
+		const t = Date.UTC(2026, 9, 22, 12, 0, 0);
+		const bad = t + 86_400_000;
+		assert.equal(
+			sinceForSync([{ updatedAt: bad }, { updatedAt: t - 60_000 }], t),
+			Math.floor((t - 60_000) / 1000) - 300,
+		);
 	});
 });

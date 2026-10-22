@@ -262,8 +262,15 @@ def _session_attachment_files(db, session_id: int) -> list[dict[str, Any]]:
 
 
 @router.get("/sessions")
-def list_sessions(course_id: int | None = None):
-    """Session list with full trees (the client restores chats from this)."""
+def list_sessions(course_id: int | None = None, since: int | None = None):
+    """Session list with full trees (the client restores chats from this).
+
+    `since` (epoch seconds) returns only the sessions touched after that moment,
+    so a device that already holds the history transfers a delta instead of every
+    tree. The whole list is ~27 MB once a few long conversations exist; a phone on
+    a mobile connection cannot reliably pull that, and would sit behind for days
+    while the desktop stayed current.
+    """
     from sync.db import DB
     from sync.config import Config
     from api import chat_nodes
@@ -271,13 +278,19 @@ def list_sessions(course_id: int | None = None):
     cfg = Config.load()
     db = DB(cfg.db_path)
     try:
+        where: list[str] = []
+        args: list = []
         if course_id:
-            rows = db.conn.execute(
-                "SELECT id, course_id, title, nodes_json, model, updated_at FROM chat_sessions WHERE course_id=? ORDER BY updated_at DESC",
-                (course_id,)).fetchall()
-        else:
-            rows = db.conn.execute(
-                "SELECT id, course_id, title, nodes_json, model, updated_at FROM chat_sessions ORDER BY updated_at DESC").fetchall()
+            where.append("course_id=?")
+            args.append(course_id)
+        if since:
+            where.append("updated_at > datetime(?, 'unixepoch')")
+            args.append(int(since))
+        sql = ("SELECT id, course_id, title, nodes_json, model, updated_at "
+               "FROM chat_sessions"
+               + (" WHERE " + " AND ".join(where) if where else "")
+               + " ORDER BY updated_at DESC")
+        rows = db.conn.execute(sql, tuple(args)).fetchall()
         out = []
         seen: dict = {}
         for r in rows:

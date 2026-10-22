@@ -19,6 +19,7 @@ import {
 	capForCache,
 	removedIds,
 	sessionSignature,
+	sinceForSync,
 	unionNodes,
 } from "@/lib/chatMerge";
 
@@ -600,7 +601,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 	useEffect(() => {
 		let cancelled = false;
 		api
-			.chatSessions()
+			.chatSessions(undefined, sinceForSync(sessionsRef.current))
 			.then((list) => {
 				if (cancelled) return;
 				setSessions((prev) => mergeServerSessions(prev, list));
@@ -637,7 +638,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			lastRefetchRef.current = Date.now();
 			refetchInFlight.current = true;
 			api
-				.chatSessions()
+				.chatSessions(undefined, sinceForSync(sessionsRef.current))
 				.then((list) => {
 					setSessions((prev) => mergeServerSessions(prev, list));
 				})
