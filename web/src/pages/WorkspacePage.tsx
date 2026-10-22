@@ -6,6 +6,7 @@ import {
   Pencil, Plus, RefreshCw, Trash2, Upload,
 } from 'lucide-react'
 import { api } from '@/api/client'
+import { ZenPdfFrame } from '@/components/ZenPdfFrame'
 import { listKeys, useListCursor, useZoneKeys } from '@/lib/keynav'
 import { WORKSPACE_OPEN_EVENT, ancestorDirs } from '@/lib/refs'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
@@ -633,11 +634,13 @@ export function WorkspacePage() {
                     <Download size={12} />
                   </a>
                 )}
-                {current.writable && isText && (
+                {current.writable && (
                   <>
-                    <button className="btn btn-outline btn-sm" onClick={askAi} title="Ask the AI about this file — it can also edit it">
-                      <Bot size={12} /> Ask AI
-                    </button>
+                    {isText && (
+                      <button className="btn btn-outline btn-sm" onClick={askAi} title="Ask the AI about this file — it can also edit it">
+                        <Bot size={12} /> Ask AI
+                      </button>
+                    )}
                     <button className="icon-btn" onClick={remove} disabled={busy} title="Delete"><Trash2 size={12} /></button>
                   </>
                 )}
@@ -662,7 +665,7 @@ export function WorkspacePage() {
                   <img src={assetUrl} alt={current.name} />
                 </div>
               ) : isPdf ? (
-                <iframe className="ws-media-frame" src={assetUrl} title={current.path} />
+                <ZenPdfFrame rawUrl={assetUrl} fileId={current.path} filename={current.name} />
               ) : isVideo ? (
                 <div className="ws-media">
                   <video src={assetUrl} controls />

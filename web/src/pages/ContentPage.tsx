@@ -8,6 +8,7 @@ import { useChat } from '@/chat/ChatContext'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { getBrightspaceBaseUrl } from '@/lib/appConfig'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
+import { ZenPdfFrame } from '@/components/ZenPdfFrame'
 import type { ContentNode, FileContent, FileFormat, FileRecord } from '@/types'
 
 const CODE_EXTS = new Set([
@@ -74,48 +75,6 @@ function EmptyFile({ rawUrl, filename }: { rawUrl: string | null; filename: stri
       </a>
     </div>
   )
-}
-
-/**
- * The REAL zen-pdf-viewer (github.com/HasNate618/zen-pdf-viewer), served
- * statically from /zen-pdf/viewer.html and embedded full-bleed. The viewer
- * is driven entirely by URL params: ?file= (absolute same-origin raw pdf),
- * zen=1 (per-pixel luma inversion, paper detection → transparent pages),
- * pageless=1 (continuous scroll, visible-page rendering, MRU page cache),
- * embed=1 (postMessage Escape/Tab handoff + cookie auth for raw PDF URL),
- * plus its own text layer, zoom, rotation and keyboard nav. Rendering
- * happens inside the iframe via pdf.js (canvas/SVG), so this works on
- * Android too — an iframe pointing at the RAW pdf would trigger a download
- * there; this points at an HTML page instead.
- */
-function ZenPdfFrame({
-  rawUrl,
-  fileId,
-  filename,
-  frameRef,
-  startPage,
-}: {
-  rawUrl: string
-  fileId: number
-  filename: string
-  frameRef?: Ref<HTMLIFrameElement>
-  startPage?: number | null
-}) {
-  const src = useMemo(() => {
-    const abs = `${window.location.origin}${rawUrl}`
-    const q = new URLSearchParams({
-      file: abs,
-      zen: '1',
-      pageless: '1',
-      embed: '1',
-      t: String(fileId),
-    })
-    if (startPage != null && startPage >= 1) q.set('page', String(startPage))
-    return `/zen-pdf/viewer.html?${q.toString()}`
-  }, [rawUrl, fileId, startPage])
-  // key remounts the frame per file so switching PDFs never reuses stale
-  // viewer state (scroll position, loaded pages).
-  return <iframe key={fileId} ref={frameRef} className="zen-pdf-frame" src={src} title={filename} allow="fullscreen" />
 }
 
 /** Render just the banner images from a module's Unit Introduction topic

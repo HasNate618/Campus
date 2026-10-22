@@ -2098,12 +2098,12 @@
   .ws-media video { max-width: 100%; max-height: 100%; }
   .ws-media audio { width: min(560px, 100%); }
 
-  .ws-media-frame {
+  /* the zen viewer iframe fills the editor pane instead of its content-page
+     default height */
+  .ws-editor > .zen-pdf-frame {
     flex: 1;
     min-height: 0;
-    width: 100%;
-    border: 0;
-    background: transparent;
+    height: auto;
   }
 
   /* unsupported binary formats: clear open/download fallback, no fake viewer */
