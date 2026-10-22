@@ -623,13 +623,62 @@ def _do_turn(req: ChatRequest, emit) -> None:
                     pass
             return pending
 
-        answer, full_history = run_turn(cfg, db, req.message, course_id=req.course_id,
+        # Persist the answer AS IT STREAMS.
+        #
+        # The node was written only after run_turn returned. A provider that stalls
+        # for ten minutes (bifrost logged 599-second calls) and then a restart, a
+        # closed tab, or a crashed worker lost the entire answer while the tool
+        # steps — which are written at their own boundaries — survived. A lab-report
+        # turn ended up in the database as ten tool rows and no report.
+        #
+        # Flush on a timer, on growth, and unconditionally when the turn dies, so
+        # what the model produced is readable even if the turn never finishes.
+        _part = {"text": "", "at": 0.0, "saved": 0}
+
+        def _flush_partial(force: bool = False) -> None:
+            if not (req.session_id and req.assistant_node_id):
+                return
+            text = _part["text"]
+            if not text or (len(text) == _part["saved"] and not force):
+                return
+            now = time.monotonic()
+            if not force and now - _part["at"] < 2.5 and len(text) - _part["saved"] < 500:
+                return
+            _part["at"], _part["saved"] = now, len(text)
+            try:
+                from api import chat_nodes
+                chat_nodes.save_nodes(db, req.session_id, [{
+                    "id": req.assistant_node_id,
+                    "parentId": req.user_node_id,
+                    "role": "assistant",
+                    "content": text,
+                    # (no `streaming` flag: it is UI-only and never persisted, so a
+                    # reload simply sees a shorter answer rather than a marker)
+                    "children": [],
+                    "createdAt": int(time.time() * 1000),
+                }])
+            except Exception as e:
+                print(f"  [chat] partial answer save failed (turn continues): {e!r}",
+                      flush=True)
+
+        def emit_and_flush(event: str, data) -> None:
+            if event == "token":
+                _part["text"] += (data or {}).get("text") or ""
+                _flush_partial()
+            emit(event, data)
+
+        try:
+            answer, full_history = run_turn(cfg, db, req.message, course_id=req.course_id,
                                         model=req.model, history=history,
-                                        verbose=False, emit=emit, attachments=attachments,
+                                        verbose=False, emit=emit_and_flush,
+                                        attachments=attachments,
                                         conversation_id=conversation_id,
                                         prior_context=prior,
                                         view=req.view.model_dump() if req.view else None,
                                         steering=_drain_steering)
+        except BaseException:
+            _flush_partial(force=True)
+            raise
         _store_reasoning(full_history, key)
         if req.session_id:
             try:
