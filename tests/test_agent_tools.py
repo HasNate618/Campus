@@ -696,3 +696,48 @@ def test_prompt_rule_dropped_when_terminal_disabled(page_cfg, page_db):
     on = build_system_prompt(page_cfg, page_db)
     assert "\n10. terminal_run is ONLY" in on
     assert "\n11. Be decisive" in on
+
+
+# ---------------------------------------------------------------------------
+# The shell terminal_run executes in.
+#
+# `subprocess.run(shell=True)` uses /bin/sh, which is dash on the image. The agent
+# writes bash — process substitution and [[ ]] — and under dash those are a syntax
+# error or, worse, a silently false test that falls through to the `||` branch, so
+# the answer looks wrong rather than the shell.
+# ---------------------------------------------------------------------------
+
+
+def test_terminal_run_uses_bash_so_process_substitution_works(page_cfg, page_db):
+    from agent.tools import execute_tool
+
+    page_cfg.terminal_enabled = True
+    out = execute_tool(
+        "terminal_run",
+        {"command": "diff <(printf 'a\\n') <(printf 'a\\n') && echo SAME"},
+        page_db, page_cfg)
+    assert out.get("exit") == 0, out
+    assert "SAME" in out["output"]
+    assert "Syntax error" not in out["output"]
+
+
+def test_terminal_run_understands_bash_conditionals(page_cfg, page_db):
+    """`[[ ]]` under dash prints "[[: not found" and then runs the else branch."""
+    from agent.tools import execute_tool
+
+    page_cfg.terminal_enabled = True
+    out = execute_tool(
+        "terminal_run",
+        {"command": "[[ -d / ]] && echo DOUBLE-BRACKET-OK || echo FAILED"},
+        page_db, page_cfg)
+    assert "DOUBLE-BRACKET-OK" in out["output"]
+    assert "[[: not found" not in out["output"]
+
+
+def test_the_tool_description_names_the_shell(page_cfg):
+    """The model should not have to discover the shell by failing."""
+    from agent.tools import TOOL_SCHEMAS
+
+    desc = [s for s in TOOL_SCHEMAS if s["function"]["name"] == "terminal_run"][0][
+        "function"]["description"]
+    assert "bash" in desc.lower()

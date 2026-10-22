@@ -21,6 +21,14 @@ from pathlib import Path
 from sync.config import Config
 from sync.db import DB
 
+# The shell terminal_run executes in. `subprocess.run(shell=True)` uses /bin/sh,
+# which is dash on this image, so a command written with bash syntax failed in ways
+# that were hard to read: `diff <(sed ...) file` exited 2 with "Syntax error", and
+# `[[ -d x ]] && a || b` printed "[[: not found" and then ran the b branch, which
+# looks like a wrong answer rather than a shell problem. bash is in the image, so
+# use it when present and fall back to /bin/sh only if it is ever absent.
+_SHELL = "/bin/bash" if Path("/bin/bash").exists() else None
+
 MAX_READ_BYTES = 200_000
 # Byte budget for one page-addressed read. Sized so a targeted page range is
 # always a single call, and so the largest document in the corpus (82 KB, ECE4436
@@ -1101,8 +1109,8 @@ def terminal_run(db: DB, cfg: Config, args: dict) -> dict:
     timeout = min(_coerce_int(args.get("timeout_s"), TERMINAL_DEFAULT_TIMEOUT),
                    TERMINAL_MAX_TIMEOUT)
     try:
-        p = subprocess.run(cmd, shell=True, cwd=wd, capture_output=True,
-                       text=True, timeout=timeout)
+        p = subprocess.run(cmd, shell=True, executable=_SHELL, cwd=wd,
+                           capture_output=True, text=True, timeout=timeout)
         out = (p.stdout or "") + (("\n[stderr]\n" + p.stderr) if p.stderr else "")
         out = out[-TERMINAL_MAX_OUTPUT:]
         _audit(db, "run", {"command": cmd, "cwd": str(wd), "exit": p.returncode})
@@ -1340,7 +1348,7 @@ TOOLS = {
     ),
     "terminal_run": _tool(
         "terminal_run",
-        "Run a shell command ONLY for file/workspace operations the user explicitly requested (create, edit, move files, run a script in work/, git in work/; uploaded files live in uploads/). NEVER use this to read or search course content — use content_read_file / content_grep for that. cwd defaults to data_root; blocklist + audit enforced; content/ is read-only; 30s default, max 120s.",
+        "Run a bash command ONLY for file/workspace operations the user explicitly requested (create, edit, move files, run a script in work/, git in work/; uploaded files live in uploads/). NEVER use this to read or search course content — use content_read_file / content_grep for that. Runs under bash (bash syntax, process substitution and [[ ]] work). cwd defaults to data_root; blocklist + audit enforced; content/ is read-only; 30s default, max 120s.",
         terminal_run,
         required=["command"],
         command={"type": "string"},
