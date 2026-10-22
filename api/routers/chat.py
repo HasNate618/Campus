@@ -284,8 +284,19 @@ def list_sessions(course_id: int | None = None, since: int | None = None):
             where.append("course_id=?")
             args.append(course_id)
         if since:
-            where.append("updated_at > datetime(?, 'unixepoch')")
-            args.append(int(since))
+            # `updated_at` is 'YYYY-MM-DD HH:MM:SS' holding UTC (sqlite's
+            # datetime('now')). Compare as a STRING against the cutoff rendered in
+            # the same format and the same zone: lexicographic order is chronological
+            # for this format, and it needs no date function whose timezone
+            # behaviour differs between builds. (strftime('%s', ...) reads a naive
+            # string as LOCAL — on this host it turned 2026-10-22 10:00:00Z into
+            # 14:00:00Z, shifting the cutoff by the UTC offset so a phone was told
+            # it was up to date when it was a day behind.)
+            from datetime import datetime, timezone
+            cutoff = datetime.fromtimestamp(int(since), timezone.utc).strftime(
+                "%Y-%m-%d %H:%M:%S")
+            where.append("updated_at > ?")
+            args.append(cutoff)
         sql = ("SELECT id, course_id, title, nodes_json, model, updated_at "
                "FROM chat_sessions"
                + (" WHERE " + " AND ".join(where) if where else "")

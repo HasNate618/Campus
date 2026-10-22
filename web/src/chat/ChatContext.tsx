@@ -601,7 +601,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 	useEffect(() => {
 		let cancelled = false;
 		api
-			.chatSessions(undefined, sinceForSync(sessionsRef.current))
+			// NO `since` here. The localStorage mirror is capped by size, so a reload
+			// restores only the newest conversations; this request is the only thing
+			// that brings the rest back. Asking for a delta on mount made every chat
+			// that had been evicted from the cache vanish from the list.
+			.chatSessions()
 			.then((list) => {
 				if (cancelled) return;
 				setSessions((prev) => mergeServerSessions(prev, list));

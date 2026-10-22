@@ -6,6 +6,7 @@ import {
 	removedIds,
 	sessionSignature,
 	sinceForSync,
+	serverTimeToEpochSeconds,
 	unionNodes,
 	type MergeNode,
 } from './chatMerge.ts'
@@ -208,5 +209,31 @@ describe('sinceForSync', () => {
 			sinceForSync([{ updatedAt: bad }, { updatedAt: t - 60_000 }], t),
 			Math.floor((t - 60_000) / 1000) - 300,
 		);
+	});
+});
+
+describe('serverTimeToEpochSeconds', () => {
+	it('reads a naive DB datetime as UTC', () => {
+		// Session 194's real stamp. Parsed as local this would be 08:35:38Z on a
+		// Toronto clock and every delta sync would be shifted by the UTC offset.
+		assert.equal(
+			serverTimeToEpochSeconds('2026-10-22 04:35:38'),
+			Date.UTC(2026, 9, 22, 4, 35, 38) / 1000,
+		);
+	});
+
+	it('accepts an ISO form and returns null for junk', () => {
+		assert.equal(
+			serverTimeToEpochSeconds('2026-10-22T04:35:38Z'),
+			Date.UTC(2026, 9, 22, 4, 35, 38) / 1000,
+		);
+		assert.equal(serverTimeToEpochSeconds(''), null);
+		assert.equal(serverTimeToEpochSeconds('not a date'), null);
+	});
+
+	it('never sends a cutoff in the future', () => {
+		// A stamp ahead of now would ask the server for nothing, ever again.
+		const t = Date.UTC(2026, 9, 22, 12, 0, 0);
+		assert.equal(sinceForSync([{ updatedAt: t + 86_400_000 }], t), undefined);
 	});
 });

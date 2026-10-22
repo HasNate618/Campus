@@ -195,7 +195,14 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 	const modelRef = useRef<HTMLDivElement>(null);
 
 	const session = activeFor(courseId);
-	const courseSessions = sessionsFor(courseId);
+	// Most recent first. sessionsFor filters in state order, which after a server
+	// merge is the order the sessions arrived in — so the history read as though it
+	// had been shuffled. Both the sidebar and this popover sort their own copy,
+	// which is why one looked right and the other did not.
+	const courseSessions = useMemo(
+		() => [...sessionsFor(courseId)].sort((a, b) => b.updatedAt - a.updatedAt),
+		[sessionsFor, courseId],
+	);
 	// Effective model that will actually be used for the next turn (session
 	// stamp wins over global picker, matching ChatContext.resolveTurnModel)
 	const effectiveModel = useMemo(() => {

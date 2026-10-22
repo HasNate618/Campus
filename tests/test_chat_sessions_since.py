@@ -86,14 +86,41 @@ def test_since_cannot_hide_a_session_renamed_after_the_cutoff(two_sessions):
     from api.routers.chat import list_sessions
 
     old, new = two_sessions
-    cutoff = _epoch(2026, 10, 20)
+    cutoff = _epoch(2026, 10, 22, 10)
+    # The list collapses byte-identical trees, and both fixtures carry the same
+    # tree, so the older row is deliberately absent from the payload.
     assert old not in [s["id"] for s in list_sessions(since=cutoff)]
 
     from sync.config import Config
     conn = sqlite3.connect(Config.load().db_path)
-    conn.execute("UPDATE chat_sessions SET updated_at='2026-10-22 11:00:00' WHERE id=?",
-                 (old,))
+    # Renaming bumps updated_at, so the delta picks it up like any other change —
+    # and the new tree no longer collides with the newer row's.
+    conn.execute(
+        "UPDATE chat_sessions SET updated_at='2026-10-22 11:00:00', nodes_json=? "
+        "WHERE id=?",
+        (json.dumps({"nodes": [{"id": "n-old", "role": "assistant",
+                                "content": "changed"}], "activeNodeId": "n-old"}), old),
+    )
     conn.commit()
     conn.close()
 
     assert old in [s["id"] for s in list_sessions(since=cutoff)]
+
+
+def test_the_cutoff_is_read_as_naive_utc_not_local(two_sessions):
+    """The comparison must use the same clock on both sides.
+
+    sqlite's `datetime('now')` is UTC, and the client parses the same string with
+    Date.UTC. Comparing a local-time reading against a UTC epoch shifted the cutoff
+    by the UTC offset — on a Toronto clock that moved it backwards and made the
+    delta return everything, so a phone never learned it was behind.
+    """
+    from api.routers.chat import list_sessions
+
+    _, new = two_sessions
+    # The row's stamp is '2026-10-22 10:00:00', read as UTC.
+    stamp = _epoch(2026, 10, 22, 10)
+    # The cutoff is exclusive: this session IS the cutoff, so it is not resent.
+    assert new not in [s["id"] for s in list_sessions(since=stamp)]
+    # One second earlier and it is back in the delta.
+    assert new in [s["id"] for s in list_sessions(since=stamp - 1)]

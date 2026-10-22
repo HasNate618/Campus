@@ -154,12 +154,31 @@ export function capForCache<T extends CacheSession>(
 	return kept;
 }
 
+/** Epoch seconds for a "YYYY-MM-DD HH:MM:SS" string, which is what the DB stores
+ *  as a NAIVE UTC value (`datetime('now')`).
+ *
+ *  `Date.parse` has to treat a string with no offset as LOCAL time, which is wrong
+ *  here: parsing these as local inflated every session timestamp by the UTC offset,
+ *  and the delta sync compares the server's value against what the client last saw,
+ *  so a phone could hold a stamp a day in the future and receive nothing back.
+ *  Verified against the real database: session 194's `2026-10-22 04:35:38` parses to
+ *  2026-10-22T04:35:38Z. */
+export function serverTimeToEpochSeconds(s: string | null | undefined): number | null {
+	if (!s) return null;
+	const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/.exec(String(s));
+	if (!m) return null;
+	const [, y, mo, d, h, mi, se] = m;
+	return Math.floor(
+		Date.UTC(+y, +mo - 1, +d, +h, +mi, +se) / 1000,
+	);
+}
+
 /**
  * The `since` value to send when syncing the session list: the newest local change
  * minus a short overlap, in epoch seconds.
  *
- * Without it the server returns every session with its whole tree — ~27 MB once
- * a few long conversations exist. A phone cannot reliably pull that on a mobile
+ * Without it the server returns every session with its whole tree — ~27 MB once a
+ * few long conversations exist. A phone cannot reliably pull that on a mobile
  * connection, so it would fall behind by days while the desktop stayed current.
  * The overlap covers a session the server stamped moments after our newest local
  * timestamp; skipping it would hide that turn until something newer arrived.
@@ -171,9 +190,9 @@ export function sinceForSync(
 	let newest = 0;
 	for (const s of sessions) {
 		const t = s.updatedAt || 0;
-		// Ignore future stamps: they used to be inflated by a UTC-parse bug, and a
-		// future value would ask the server for nothing ever again.
-		if (t > newest && t <= nowMs + 60_000) newest = t;
+		// Ignore future stamps: a stamp ahead of now would ask the server for
+		// nothing, ever again.
+		if (t > newest && t <= nowMs) newest = t;
 	}
 	if (!newest) return undefined;
 	return Math.max(0, Math.floor(newest / 1000) - 300);
