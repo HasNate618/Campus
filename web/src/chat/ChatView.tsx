@@ -530,6 +530,13 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 				}),
 			);
 
+			// When the same document is already on screen, the event above is the
+			// whole action: it posts the requested page to the already-loaded
+			// viewer. Calling navigate() as well re-runs the route's effects and
+			// re-opens the PDF from scratch, which is the reload the user sees.
+			const alreadyOpen = cid === courseId && fileId != null;
+			if (alreadyOpen) return;
+
 			if (nodeId != null) {
 				const q = new URLSearchParams();
 				if (fileId != null) q.set("file", String(fileId));
