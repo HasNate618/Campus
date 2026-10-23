@@ -530,12 +530,16 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 				}),
 			);
 
-			// When the same document is already on screen, the event above is the
-			// whole action: it posts the requested page to the already-loaded
-			// viewer. Calling navigate() as well re-runs the route's effects and
-			// re-opens the PDF from scratch, which is the reload the user sees.
-			const alreadyOpen = cid === courseId && fileId != null;
-			if (alreadyOpen) return;
+		// When the same document is already on screen, the event above is the
+		// whole action: it posts the requested page to the already-loaded viewer.
+		// Calling navigate() as well re-runs the route's effects and re-opens
+		// the PDF from scratch, which is the reload the user sees.
+		// Only skip navigation for the genuinely-same document, otherwise a
+		// citation to a different file would silently do nothing.
+		const currentFile = Number(new URLSearchParams(window.location.search).get("file"));
+		const sameDoc =
+			cid === courseId && fileId != null && fileId === currentFile;
+		if (sameDoc) return;
 
 			if (nodeId != null) {
 				const q = new URLSearchParams();
