@@ -12,7 +12,7 @@ import {
 import { CampusLogo } from "@/components/CampusLogo";
 import { api } from "@/api/client";
 import { useChat } from "@/chat/ChatContext";
-import { listKeys, useListCursor, useZoneKeys } from "@/lib/keynav";
+import { listKeys, useKeyNav, useListCursor, useZoneKeys } from "@/lib/keynav";
 import { courseColor } from "@/lib/courses";
 import { entryRoute } from "@/lib/courseTabs";
 import { fmtRelative } from "@/lib/format";
@@ -116,11 +116,14 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
 	}, [recentChats, courses]);
 
 	const cursor = useListCursor(rows.length);
+	const { zone } = useKeyNav();
 
 	// Collapsed sidebar: mirror the hover tooltips for j/k navigation — the
 	// cursor row announces itself exactly where the mouse tooltip appears.
+	// The hint belongs to keyboard navigation in THIS pane, so it disappears
+	// the moment the zone moves elsewhere (2 = course, 3 = chat, or a click).
 	useEffect(() => {
-		if (!collapsed) {
+		if (!collapsed || zone !== "sidebar") {
 			setTip(null);
 			return;
 		}
@@ -143,10 +146,10 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
 					? `${c?.code ?? "Course"} — ${chat?.title ?? ""}`
 					: `${c?.code ?? ""} — ${c?.name ?? ""}`;
 		setTip({ label, x: r.right + 10, y: r.top + r.height / 2 });
-		// rows/sessions/courseById are stable per render; cursor position and
-		// collapse state drive the tooltip
+		// rows/sessions/courseById are stable per render; cursor position,
+		// collapse state and the active zone drive the tooltip
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [collapsed, cursor.cursor]);
+	}, [collapsed, cursor.cursor, zone]);
 
 	useZoneKeys("sidebar", (key) => {
 		// 'c' (collapse) is handled globally in the provider via campus:toggle-pane
