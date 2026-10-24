@@ -12,7 +12,7 @@ import {
 import { CampusLogo } from "@/components/CampusLogo";
 import { api } from "@/api/client";
 import { useChat } from "@/chat/ChatContext";
-import { listKeys, useKeyNav, useListCursor, useZoneKeys } from "@/lib/keynav";
+import { listKeys, useListCursor, useZoneKeys } from "@/lib/keynav";
 import { courseColor } from "@/lib/courses";
 import { entryRoute } from "@/lib/courseTabs";
 import { fmtRelative } from "@/lib/format";
@@ -115,8 +115,7 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
 		return r;
 	}, [recentChats, courses]);
 
-	const { zone } = useKeyNav();
-const cursor = useListCursor(rows.length);
+	const cursor = useListCursor(rows.length);
 
 	// Collapsed sidebar: mirror the hover tooltips for j/k navigation — the
 	// cursor row announces itself exactly where the mouse tooltip appears.
@@ -208,9 +207,9 @@ const cursor = useListCursor(rows.length);
 							ref={cursor.setRef(navIdx)}
 							onMouseEnter={(e) => showTip(e, label)}
 							onMouseLeave={hideTip}
-														className={({ isActive }) =>
-															`nav-item${isActive ? " active" : ""}${zone === "sidebar" && cursor.cursor === navIdx ? " kbd-cursor" : ""}`
-														}
+							className={({ isActive }) =>
+								`nav-item${isActive ? " active" : ""}${cursor.cursor === navIdx ? " kbd-cursor" : ""}`
+							}
 						>
 							<Icon size={17} />
 							<span className="side-label">{label}</span>
@@ -230,7 +229,7 @@ const cursor = useListCursor(rows.length);
 										key={s.id}
 										ref={cursor.setRef(i + NAV.length)}
 										data-navrow
-										className={`session-item${active ? " active" : ""}${zone === "sidebar" && cursor.cursor === i + NAV.length ? " kbd-cursor" : ""}`}
+										className={`session-item${active ? " active" : ""}${cursor.cursor === i + NAV.length ? " kbd-cursor" : ""}`}
 										style={
 											c
 												? {
@@ -332,7 +331,7 @@ const cursor = useListCursor(rows.length);
 							onMouseEnter={(e) => showTip(e, `${c.code} — ${c.name}`)}
 							onMouseLeave={hideTip}
 							className={({ isActive }) =>
-								`nav-item${isActive ? " active" : ""}${zone === "sidebar" && cursor.cursor === i + NAV.length + recentChats.length ? " kbd-cursor" : ""}`
+								`nav-item${isActive ? " active" : ""}${cursor.cursor === i + NAV.length + recentChats.length ? " kbd-cursor" : ""}`
 							}
 							style={{
 								borderLeft: `3px solid ${courseColor(c)}`,
