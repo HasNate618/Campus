@@ -116,6 +116,7 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
 	}, [recentChats, courses]);
 
 	const { zone } = useKeyNav();
+const sidebarActive = zone === 'sidebar';
 const cursor = useListCursor(rows.length);
 
 	// Collapsed sidebar: mirror the hover tooltips for j/k navigation — the
@@ -209,7 +210,7 @@ const cursor = useListCursor(rows.length);
 							onMouseEnter={(e) => showTip(e, label)}
 							onMouseLeave={hideTip}
 														className={({ isActive }) =>
-															`nav-item${isActive ? " active" : ""}${zone === "sidebar" && cursor.cursor === navIdx ? " kbd-cursor" : ""}`
+															`nav-item${isActive ? " active" : ""}${sidebarActive && cursor.cursor === navIdx ? " kbd-cursor" : ""}`
 														}
 						>
 							<Icon size={17} />
@@ -230,7 +231,7 @@ const cursor = useListCursor(rows.length);
 										key={s.id}
 										ref={cursor.setRef(i + NAV.length)}
 										data-navrow
-										className={`session-item${active ? " active" : ""}${zone === "sidebar" && cursor.cursor === i + NAV.length ? " kbd-cursor" : ""}`}
+										className={`session-item${active ? " active" : ""}${sidebarActive && cursor.cursor === i + NAV.length ? " kbd-cursor" : ""}`}
 										style={
 											c
 												? {
@@ -332,7 +333,7 @@ const cursor = useListCursor(rows.length);
 							onMouseEnter={(e) => showTip(e, `${c.code} — ${c.name}`)}
 							onMouseLeave={hideTip}
 							className={({ isActive }) =>
-								`nav-item${isActive ? " active" : ""}${zone === "sidebar" && cursor.cursor === i + NAV.length + recentChats.length ? " kbd-cursor" : ""}`
+								`nav-item${isActive ? " active" : ""}${sidebarActive && cursor.cursor === i + NAV.length + recentChats.length ? " kbd-cursor" : ""}`
 							}
 							style={{
 								borderLeft: `3px solid ${courseColor(c)}`,
