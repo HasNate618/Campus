@@ -3994,12 +3994,6 @@ pre code.hljs {
 .kbd-cursor {
   box-shadow: inset 0 0 0 1.5px rgba(167, 139, 250, 0.6);
 }
-/* Hide the sidebar cursor ring unless the sidebar zone is actually active.
-   The class is gated on zone === 'sidebar' in Sidebar.tsx too, but React's
-   re-render is not always synchronous with the provider's zone state (the
-   provider lives above the Sidebar), so the CSS rule is the source of truth. */
-.sidebar .kbd-cursor { box-shadow: none; }
-.sidebar .kbd-cursor { box-shadow: none !important; }
 
 /* ? help overlay */
 .kbd-help-backdrop {
