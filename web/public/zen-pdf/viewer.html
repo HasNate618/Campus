@@ -2167,6 +2167,15 @@ input[type="range"] { accent-color: #4ade7f; }
         return;
       }
 
+      // Embed: 1/2/3 and Alt+1/2/3 belong to the host app (zone switching and
+      // pane toggles), so they must not be swallowed by the bookmark slots.
+      // Slots 4-9 stay local to the viewer.
+      if (isEmbedded && /^[123]$/.test(e.key) && !e.ctrlKey && !e.metaKey) {
+        notifyParent(e.altKey ? 'zenpdf-pane' : 'zenpdf-zone', { key: e.key });
+        e.preventDefault();
+        return;
+      }
+
       // Toggle keybind viewer on Escape or ?
       if (e.key === 'Escape' || e.key === '?') {
         toggleKeybinds();

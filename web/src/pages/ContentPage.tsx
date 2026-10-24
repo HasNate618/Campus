@@ -324,6 +324,21 @@ export function ContentPage() {
       } else if (e.data?.type === 'zenpdf-tab') {
         setViewerFocus(false)
         pdfFrameRef.current?.blur()
+      } else if (e.data?.type === 'zenpdf-zone') {
+        // The viewer forwards 1/2/3 so zone switching works while the PDF has
+        // keyboard focus. Landing on the course pane keeps the viewer focused.
+        const next = e.data.key === '1' ? 'sidebar' : e.data.key === '2' ? 'course' : 'chat'
+        setZone(next)
+        if (next === 'course') {
+          pdfFrameRef.current?.focus()
+          setViewerFocus(true)
+        } else {
+          pdfFrameRef.current?.blur()
+        }
+      } else if (e.data?.type === 'zenpdf-pane') {
+        // Alt+1/2/3 = pane toggles, same as the app-wide binding.
+        const pane = e.data.key === '1' ? 'sidebar' : e.data.key === '2' ? 'course' : 'chat'
+        window.dispatchEvent(new CustomEvent('campus:toggle-pane', { detail: { pane } }))
       } else if (e.data?.type === 'zenpdf-page') {
         const page = Number(e.data.page)
         const total = Number(e.data.pageCount)
@@ -451,6 +466,19 @@ export function ContentPage() {
       setViewerFocus(true)
     }
   }, [contentInfo?.format, selectedFile?.id, showMd])
+
+  // Pressing 2 (the course-zone key) while the PDF is on screen hands keyboard
+  // control back to the viewer, so its keys work without clicking it first.
+  useEffect(() => {
+    const onZoneKey = (e: Event) => {
+      if ((e as CustomEvent).detail?.zone !== 'course') return
+      if (contentInfo?.format !== 'pdf' || showMd || !pdfFrameRef.current) return
+      pdfFrameRef.current.focus()
+      setViewerFocus(true)
+    }
+    window.addEventListener('campus:zone-key', onZoneKey)
+    return () => window.removeEventListener('campus:zone-key', onZoneKey)
+  }, [contentInfo?.format, showMd])
 
   useEffect(() => {
     if (!selectedFile) {

@@ -281,7 +281,11 @@ export function KeyNavProvider({ children }: { children: ReactNode }) {
       }
 
       if (e.key === '1' || e.key === '2' || e.key === '3') {
-        setZone(e.key === '1' ? 'sidebar' : e.key === '2' ? 'course' : 'chat')
+        const next = e.key === '1' ? 'sidebar' : e.key === '2' ? 'course' : 'chat'
+        setZone(next)
+        // Announce the switch so a pane can reclaim keyboard focus (the PDF
+        // viewer takes focus back when you land on the course pane).
+        window.dispatchEvent(new CustomEvent('campus:zone-key', { detail: { zone: next } }))
         e.preventDefault()
         return
       }
