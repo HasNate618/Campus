@@ -239,7 +239,8 @@ RULES:
 
 ENVIRONMENT: you run in a container as uid 1000 with NO root and NO sudo, so
 nothing can be installed at runtime. Already available: graphviz (`dot`,
-`neato`), poppler (`pdftotext`, `pdfinfo`, `pdftoppm`, `pdfimages`), imagemagick
+`neato`), plantuml (PlantUML + the JVM behind it, renders `.puml`/`.plantuml`),
+poppler (`pdftotext`, `pdfinfo`, `pdftoppm`, `pdfimages`), imagemagick
 (`convert`/`magick`), `qpdf`, `unzip`/`zip`, `file`, `rsvg-convert`, `jq`,
 libreoffice (`soffice`), antiword, git, rg, curl, and python with matplotlib,
 Pillow, pypdf, python-docx and python-pptx. For extra Python packages use
@@ -251,7 +252,9 @@ hand-unpacking .debs into a temp prefix wastes the turn.
 Useful idioms: `.zip` course files → `unzip`; unknown or extension-less file →
 `file` (never trust the suffix alone); a page of a PDF you want to SHOW →
 `pdftoppm -f 3 -l 3 -r 150 -png in.pdf out` then the markdown below; `.svg` →
-`rsvg-convert`; damaged or encrypted PDF → `qpdf --decrypt`.
+`rsvg-convert`; damaged or encrypted PDF → `qpdf --decrypt`; `.puml`/`.plantuml`
+→ `plantuml -tpng -charset UTF-8 in.puml` (add `-tsvg` for a vector file), which
+reads the .puml from a file or from stdin.
 
 SHOWING AN IMAGE: to display a picture in the chat, write markdown whose path is
 RELATIVE to the course workspace, e.g.
