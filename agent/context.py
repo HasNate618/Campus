@@ -8,10 +8,97 @@ This is what makes answers grounded instead of guessed.
 from __future__ import annotations
 
 import datetime
+import os
+import shutil
 from pathlib import Path
 
 from sync.config import Config
 from sync.db import DB
+
+
+# ── environment / toolbelt ───────────────────────────────────────────────────
+# The agent's world is whatever is on PATH. Two of those directories come from
+# the host instead of the image: a curated read-only Nix toolbelt and a
+# writable persisted directory. Describe what is ACTUALLY there rather than a
+# hand-maintained list — a tool the prompt never names is a tool the model
+# never uses, and a tool the prompt names but the filesystem lacks burns a turn
+# on `command not found`.
+
+# Names worth mentioning from the base image / system PATH.
+_SYSTEM_PROBES = (
+    "git", "rg", "curl", "file", "bash", "python3", "soffice", "antiword",
+    "unzip", "zip", "qpdf", "jq", "dot", "neato", "convert", "magick",
+    "pdftotext", "pdfinfo", "pdftoppm", "pdfimages", "rsvg-convert",
+    "plantuml", "pandoc", "xxd",
+)
+
+
+def _dir_tools(path: Path) -> list[str]:
+    """Executable names in a bin directory, sorted; missing dir is not an error."""
+    try:
+        return sorted(p.name for p in path.iterdir() if p.is_file() or p.is_symlink())
+    except OSError:
+        return []
+
+
+def environment_block() -> str:
+    mytools = Path(os.environ.get("CAMPUS_MYTOOLS", "/opt/mytools"))
+    toolbelt = Path(os.environ.get("CAMPUS_TOOLBELT", "/opt/toolbelt"))
+    curated = _dir_tools(toolbelt / "bin")
+    mine = _dir_tools(mytools / "bin")
+    provided = set(curated) | set(mine)
+    system = [n for n in _SYSTEM_PROBES if shutil.which(n) and n not in provided]
+    have = provided | set(system)
+
+    lines = [
+        "ENVIRONMENT: you run in a container as uid 1000 with NO root and NO sudo.",
+        "Never attempt apt-get, dpkg or sudo — they fail for lack of permissions, and",
+        "hand-unpacking .debs into a temp prefix wastes the turn.",
+    ]
+    if curated:
+        notable = [n for n in _SYSTEM_PROBES if n in set(curated)]
+        extra = len(curated) - len(notable)
+        more = f" (+{extra} helper binaries: graphviz/imagemagick/poppler internals)" if extra else ""
+        lines.append(f"Curated toolbelt ({toolbelt}/bin, read-only, provisioned by Nix): "
+                     f"{', '.join(notable)}{more}")
+    if mine:
+        lines.append(f"Your own tools ({mytools}/bin, writable, survives image rebuilds): "
+                     f"{', '.join(mine)}")
+    else:
+        lines.append(f"Your own tools ({mytools}/bin, writable, survives image rebuilds): "
+                     f"empty — put static binaries here")
+    if system:
+        lines.append(f"Also on PATH: {', '.join(system)}")
+    lines.append("Python libraries available: matplotlib, Pillow, pypdf, python-docx, "
+                 "python-pptx.")
+    lines.append(f"Extra Python packages: `pip install --target {mytools}/pylib <pkg>` "
+                 f"(already on PYTHONPATH, survives a rebuild). `pip install --user` writes "
+                 f"into the container and is lost on the next image build, so do not use it "
+                 f"for anything you need later.")
+    lines.append("If a binary you need is missing, say so and keep working — do not try to "
+                 "install one.")
+
+    idioms = []
+    if "unzip" in have:
+        idioms.append("`.zip` course files → `unzip`")
+    if "file" in have:
+        idioms.append("unknown or extension-less file → `file` (never trust the suffix alone)")
+    if "pdftoppm" in have:
+        idioms.append("a page of a PDF you want to SHOW → `pdftoppm -f 3 -l 3 -r 150 -png in.pdf out` "
+                      "then the markdown below")
+    if "rsvg-convert" in have:
+        idioms.append("`.svg` → `rsvg-convert`")
+    if "qpdf" in have:
+        idioms.append("damaged or encrypted PDF → `qpdf --decrypt`")
+    if "plantuml" in have:
+        idioms.append("`.puml`/`.plantuml` → `plantuml -tpng -charset UTF-8 in.puml` "
+                      "(`-tsvg` for vector)")
+    if "pandoc" in have:
+        idioms.append("`.md` ⇄ `.docx`/`.html`/`.pdf` → `pandoc`")
+    if idioms:
+        lines.append("Useful idioms: " + "; ".join(idioms) + ".")
+    return "\n".join(lines)
+
 
 def _tz(cfg: Config | None = None) -> str:
     """System local time when unset; empty default avoids leaking a
@@ -237,24 +324,7 @@ RULES:
    course_map + at most 2-3 targeted reads, then answer. Do NOT exhaustively
    survey the corpus — 5+ tool calls per question is too many.
 
-ENVIRONMENT: you run in a container as uid 1000 with NO root and NO sudo, so
-nothing can be installed at runtime. Already available: graphviz (`dot`,
-`neato`), plantuml (PlantUML + the JVM behind it, renders `.puml`/`.plantuml`),
-poppler (`pdftotext`, `pdfinfo`, `pdftoppm`, `pdfimages`), imagemagick
-(`convert`/`magick`), `qpdf`, `unzip`/`zip`, `file`, `rsvg-convert`, `jq`,
-libreoffice (`soffice`), antiword, git, rg, curl, and python with matplotlib,
-Pillow, pypdf, python-docx and python-pptx. For extra Python packages use
-`pip install --user <pkg>` — that works, but it dies with the container: if you
-need something permanently, say so instead of assuming it will still be there.
-Do NOT attempt apt-get, dpkg or sudo: they fail for lack of permissions, and
-hand-unpacking .debs into a temp prefix wastes the turn.
-
-Useful idioms: `.zip` course files → `unzip`; unknown or extension-less file →
-`file` (never trust the suffix alone); a page of a PDF you want to SHOW →
-`pdftoppm -f 3 -l 3 -r 150 -png in.pdf out` then the markdown below; `.svg` →
-`rsvg-convert`; damaged or encrypted PDF → `qpdf --decrypt`; `.puml`/`.plantuml`
-→ `plantuml -tpng -charset UTF-8 in.puml` (add `-tsvg` for a vector file), which
-reads the .puml from a file or from stdin.
+{environment_block()}
 
 SHOWING AN IMAGE: to display a picture in the chat, write markdown whose path is
 RELATIVE to the course workspace, e.g.

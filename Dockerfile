@@ -14,16 +14,19 @@ RUN npm run build
 
 # ── Stage 2: runtime ────────────────────────────────────────────────────
 FROM python:3.12-slim
-# playwright chromium system deps + general-purpose tooling the agent is
-# expected to reach for. The agent's tools have to be baked in: the container
-# runs as uid 1000 with cap-drop ALL and no sudo, so a missing binary cannot be
-# installed at runtime. Without graphviz, "render a diagram" became a 12-step
-# fight with dpkg-deb that still failed on a missing libgd.
+# Runtime + the infrastructure the APP needs: the Playwright chromium for the
+# Brightspace auth flow, poppler for extraction, and the handful of utilities
+# every sync/agent path touches. AGENT TOOLING does NOT belong here — it is
+# provisioned on the host and mounted in (see modules/server/ai/campus.nix):
+#   /opt/toolbelt  read-only Nix buildEnv, curated per deployment
+#   /opt/mytools   writable, persisted, for per-user additions
+# Baking tooling into this image makes every user pay for every other user's
+# diagrams and costs a full rebuild per addition, so extend the toolbelt list
+# instead of this RUN.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git ripgrep curl ca-certificates antiword \
         graphviz poppler-utils jq imagemagick \
         unzip zip file qpdf librsvg2-bin xxd \
-        plantuml default-jre-headless \
         libreoffice-impress libreoffice-writer \
         libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
         libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
