@@ -262,14 +262,24 @@ def _session_attachment_files(db, session_id: int) -> list[dict[str, Any]]:
 
 
 @router.get("/sessions")
-def list_sessions(course_id: int | None = None, since: int | None = None):
-    """Session list with full trees (the client restores chats from this).
+def list_sessions(course_id: int | None = None, since: int | None = None,
+                  summary: int = 0):
+    """Session list. `summary=1` returns metadata only (the index the client
+    boots from and refreshes); the default still returns full trees.
+
+    Measured on this database before the split: the full list was 42.6 MB for
+    75 sessions (3,693 nodes), and one course alone was 13.4 MB. A phone had to
+    pull a whole course's history before it could paint a single chat. The
+    metadata for the same 75 sessions is 15 KB, and the tree for one session is
+    fetched when it is actually opened.
+
+    Trees are also what made this endpoint slow in a way the client could not
+    see: 1.6 s of server time per full fetch, on a mobile link a stalled
+    download that the refetch lock then sat on.
 
     `since` (epoch seconds) returns only the sessions touched after that moment,
     so a device that already holds the history transfers a delta instead of every
-    tree. The whole list is ~27 MB once a few long conversations exist; a phone on
-    a mobile connection cannot reliably pull that, and would sit behind for days
-    while the desktop stayed current.
+    tree. It applies to both shapes.
     """
     from sync.db import DB
     from sync.config import Config
@@ -297,43 +307,74 @@ def list_sessions(course_id: int | None = None, since: int | None = None):
                 "%Y-%m-%d %H:%M:%S")
             where.append("updated_at > ?")
             args.append(cutoff)
-        sql = ("SELECT id, course_id, title, nodes_json, model, updated_at "
+        sql = ("SELECT id, course_id, title, nodes_json, model, updated_at, client_key "
                "FROM chat_sessions"
                + (" WHERE " + " AND ".join(where) if where else "")
                + " ORDER BY updated_at DESC")
         rows = db.conn.execute(sql, tuple(args)).fetchall()
+
+        # Identity is the SET OF MESSAGE IDS, not the bytes of the legacy blob.
+        # A device that loses its server id re-creates the same conversation on
+        # every load; this database accumulated THIRTY-FIVE rows of one chat
+        # that way, all holding the same nine node ids, and every device listed
+        # all thirty-five (their blobs differ only in key order, so a byte
+        # digest kept them all). The node ids are what actually identify a
+        # conversation, and they are one cheap grouped query instead of a
+        # per-row blob load — which also keeps the summary endpoint O(index).
+        digests: dict[int, str] = {}
+        per_session: dict[int, list[str]] = {}
+        for r in db.conn.execute("SELECT session_id, id FROM chat_nodes "
+                                 "ORDER BY session_id, id"):
+            per_session.setdefault(r["session_id"], []).append(r["id"])
+        for sid, ids in per_session.items():
+            digests[sid] = hashlib.md5("\x00".join(sorted(ids)).encode()).hexdigest()
+
         out = []
         seen: dict = {}
         for r in rows:
-            # Nodes are rows now; load_tree falls back to the old blob for any
-            # session the migration has not reached.
-            tree = chat_nodes.load_tree(db, r["id"])
-            # Collapse BYTE-IDENTICAL duplicates. An older client re-created the
-            # same chat on every load whenever its local session had lost its
-            # serverId, so one conversation accumulated ten identical rows and
-            # every device listed all ten. Rows arrive updated_at DESC, so the
-            # first of each group is the newest and wins. The duplicate ROWS are
-            # left in place — this only stops them being listed; nothing is
-            # deleted, and PUT/GET by id still work for a client holding one.
-            digest = hashlib.md5((r["nodes_json"] or "").encode()).hexdigest()
+            sid = r["id"]
+            # Sessions the row migration has not reached still only have the
+            # blob, so fall back to its digest for them.
+            digest = digests.get(sid) or hashlib.md5(
+                (r["nodes_json"] or "").encode()).hexdigest()
             key = (r["course_id"], r["title"], digest)
             if key in seen:
+                # Keep the NEWEST (rows arrive updated_at DESC). The duplicate
+                # ROWS are left in place: this only stops them being listed, and
+                # GET/PUT by id still work for a client holding one.
                 continue
             seen[key] = len(out)
-            out.append({
-                "id": r["id"], "courseId": r["course_id"], "title": r["title"],
+            item = {
+                "id": sid, "courseId": r["course_id"], "title": r["title"],
                 "model": r["model"],
                 "updatedAt": r["updated_at"],
-                "nodes": tree.get("nodes", []), "activeNodeId": tree.get("activeNodeId"),
-            })
+                "nodeCount": len(per_session.get(sid, [])),
+                "clientKey": r["client_key"],
+            }
+            if not summary:
+                # Nodes are rows now; load_tree falls back to the old blob for
+                # any session the migration has not reached.
+                tree = chat_nodes.load_tree(db, sid)
+                item["nodes"] = tree.get("nodes", [])
+                item["activeNodeId"] = tree.get("activeNodeId")
+            out.append(item)
         return out
     finally:
         db.close()
 
 
+
 class SessionCreate(BaseModel):
     course_id: int | None = None
     title: str = "New chat"
+    # Stable identity for THIS conversation as the client knows it. A device that
+    # loses its server id (a capped browser cache, a restored backup, a failed
+    # save that dropped the id) used to POST again on every load, and one chat
+    # accumulated thirty-five server rows holding the same nine messages, so
+    # every device showed a different copy of "the same" conversation. With the
+    # key, the create is idempotent: the second POST returns the row the first
+    # one made.
+    client_key: str | None = None
 
 
 class SessionUpdate(BaseModel):
@@ -371,21 +412,39 @@ def create_session(body: SessionCreate):
         course_id = body.course_id
         if course_id == 0:
             course_id = None
+        key = (body.client_key or "").strip() or None
+        if key:
+            # Idempotent create. Returning the existing row (rather than a
+            # conflict) is what lets the client keep its own uuid and simply
+            # adopt the server id it already has — the retry path that used to
+            # duplicate the conversation now converges on it.
+            existing = db.conn.execute(
+                "SELECT id, course_id, title, model, updated_at FROM chat_sessions "
+                "WHERE client_key=?", (key,)).fetchone()
+            if existing:
+                return {"id": existing["id"], "courseId": existing["course_id"],
+                        "title": existing["title"], "model": existing["model"],
+                        "updatedAt": existing["updated_at"],
+                        "nodes": [], "activeNodeId": None, "created": False}
         if course_id is not None:
             if not db.conn.execute("SELECT 1 FROM courses WHERE id=?",
                                    (course_id,)).fetchone():
                 raise HTTPException(
                     400, f"unknown course_id {course_id} — refresh the course list")
         cur = db.conn.execute(
-            "INSERT INTO chat_sessions (course_id, title, nodes_json) VALUES (?,?,?)",
-            (course_id, body.title, "{}"))
+            "INSERT INTO chat_sessions (course_id, title, nodes_json, client_key) "
+            "VALUES (?,?,?,?)",
+            (course_id, body.title, "{}", key))
         db.conn.commit()
         sid = cur.lastrowid
         row = db.conn.execute(
-            "SELECT id, course_id, title, model, updated_at FROM chat_sessions WHERE id=?", (sid,)).fetchone()
+            "SELECT id, course_id, title, model, updated_at FROM chat_sessions WHERE id=?",
+            (sid,)).fetchone()
         return {"id": row["id"], "courseId": row["course_id"], "title": row["title"],
                 "model": row["model"],
-                "updatedAt": row["updated_at"], "nodes": [], "activeNodeId": None}
+                "updatedAt": row["updated_at"], "nodes": [], "activeNodeId": None,
+                "created": True}
+
     finally:
         db.close()
 

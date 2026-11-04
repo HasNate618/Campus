@@ -52,6 +52,17 @@ class DB:
             self.conn.execute("ALTER TABLE chat_sessions ADD COLUMN model TEXT")
         if "active_node_id" not in scols:
             self.conn.execute("ALTER TABLE chat_sessions ADD COLUMN active_node_id TEXT")
+        # Stable client-side identity for a conversation, so a device that has
+        # lost its server id cannot create the same chat twice. Nullable: rows
+        # written before this exist and keep working (they are matched by node
+        # set at read time instead).
+        if "client_key" not in scols:
+            self.conn.execute("ALTER TABLE chat_sessions ADD COLUMN client_key TEXT")
+            self.conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_sessions_client_key "
+                "ON chat_sessions(client_key) WHERE client_key IS NOT NULL")
+            self.conn.commit()
+
         # Conversations used to be one JSON blob per session. Nodes are rows now
         # so that a save can only add or update the nodes it names — see
         # api/chat_nodes.py for why the blob replace lost messages.

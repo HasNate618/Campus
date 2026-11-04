@@ -213,9 +213,14 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     nodes_json  TEXT,                       -- full message tree (JSON blob)
     model       TEXT,                       -- per-session LLM model; NULL = inherit current selection
     active_node_id TEXT,                    -- which branch the client had open
+    client_key  TEXT,                       -- stable client uuid; makes create idempotent
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_sessions_client_key
+    ON chat_sessions(client_key) WHERE client_key IS NOT NULL;
+
 
 -- One row per message node: the storage of record for a conversation.
 -- chat_sessions.nodes_json is kept only as a compatibility snapshot (see

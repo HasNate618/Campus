@@ -19,7 +19,6 @@ import {
 	capForCache,
 	removedIds,
 	sessionSignature,
-	sinceForSync,
 	unionNodes,
 } from "@/lib/chatMerge";
 
@@ -101,7 +100,17 @@ export interface ChatSession {
 	updatedAt: number;
 	nodes: MsgNode[];
 	activeNodeId: string | null;
+	/** False when this entry came from the server INDEX and its message tree has
+	 *  not been fetched yet. Opening the session loads it. */
+	nodesLoaded?: boolean;
+	/** The server's `updatedAt` for this session as of the last index refresh,
+	 *  so an open can tell whether its stored tree is worth re-fetching. */
+	serverUpdatedAt?: number;
+	/** The index says the server has turns this device has not merged yet. The
+	 *  tree is still painted; it is re-fetched when the session is opened. */
+	nodesStale?: boolean;
 }
+
 
 export type ChatMsg = MsgNode;
 
@@ -142,6 +151,14 @@ interface ChatContextValue {
 	publishView: (view: ViewContext) => void;
 	sessionsFor: (courseId: number) => ChatSession[];
 	activeFor: (courseId: number) => ChatSession | null;
+	/** Ids whose message tree is being fetched (the list is an index now, so a
+	 *  session's messages arrive after it is opened). */
+	sessionsLoading: string[];
+	/** Ids whose tree fetch failed. The view offers a retry. */
+	sessionsFailed: string[];
+	/** Fetch a conversation's messages if this device does not hold them. Safe
+	 *  to call repeatedly; it no-ops when the tree is current. */
+	ensureSessionLoaded: (sessionId: string) => void;
 	/** True once the server session list has loaded (or failed). Until then the
 	 *  local cache is incomplete and callers should not guess. */
 	serverReady: boolean;
@@ -539,6 +556,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			updatedAt: Number.isFinite(ts) ? ts : Date.now(),
 			nodes: (srv.nodes ?? []) as MsgNode[],
 			activeNodeId: srv.activeNodeId ?? null,
+			// A summary response carries no tree; the caller decides whether the
+			// entry counts as loaded.
+			nodesLoaded: srv.nodes !== undefined,
+			serverUpdatedAt: Number.isFinite(ts) ? ts : undefined,
 		});
 	}
 
@@ -579,6 +600,26 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			// target it); reconcile numeric-id leftovers from the old
 			// uuid→server-id promotion to a fresh uuid + serverId.
 			const id = /^[0-9]+$/.test(local.id) ? makeUuid() : local.id;
+			// An INDEX entry carries no tree. Updating `nodes` from it would
+			// empty every chat that this device already holds, so the tree is
+			// left alone and only the metadata moves — the fetch that fills it
+			// happens when the session is opened.
+			if (srv.nodes === undefined) {
+				const srvTs = refreshed.serverUpdatedAt ?? 0;
+				const knownTs = local.serverUpdatedAt ?? local.updatedAt ?? 0;
+				return {
+					...local,
+					id,
+					title: serverNewer ? refreshed.title || local.title : local.title,
+					model: local.model ?? refreshed.model ?? null,
+					createdAt: local.createdAt || refreshed.createdAt,
+					updatedAt: Math.max(local.updatedAt || 0, refreshed.updatedAt || 0),
+					serverUpdatedAt: srvTs || local.serverUpdatedAt,
+					// The server has turns this device has not seen: re-fetch when
+					// it is opened, but keep painting what we have until then.
+					nodesStale: local.nodesStale || srvTs > knownTs + 2000,
+				};
+			}
 			return {
 				...local,
 				id,
@@ -590,28 +631,43 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				// The open branch is this device's UI state: never adopt the
 				// other device's and jump the reader somewhere else.
 				activeNodeId: local.activeNodeId ?? refreshed.activeNodeId ?? null,
+				nodesLoaded: true,
+				nodesStale: false,
+				serverUpdatedAt: Math.max(
+					local.serverUpdatedAt ?? 0,
+					refreshed.serverUpdatedAt ?? 0,
+				) || undefined,
 			};
 		});
-		for (const srv of byId.values()) merged.push(toLocalSession(srv));
+		for (const srv of byId.values()) {
+			const adopted = toLocalSession(srv);
+			// Unknown to this device. From the index it arrives as a title with
+			// no tree; opening it fetches the messages.
+			merged.push(
+				srv.nodes === undefined
+					? { ...adopted, nodes: [], nodesLoaded: false }
+					: { ...adopted, nodesLoaded: true },
+			);
+		}
 		return merged;
 	}
 
 	// Load server-side sessions once on mount (source of truth; localStorage is
 	// only an offline cache now).
+	// The INDEX, not the trees. Fetching every tree up front measured 42.6 MB
+	// for 75 sessions and 13.4 MB for a single course — a phone had to pull a
+	// whole course's history before it could paint one chat. The index is 15 KB
+	// and each session's messages are fetched when it is opened.
 	useEffect(() => {
 		let cancelled = false;
 		api
-			// NO `since` here. The localStorage mirror is capped by size, so a reload
-			// restores only the newest conversations; this request is the only thing
-			// that brings the rest back. Asking for a delta on mount made every chat
-			// that had been evicted from the cache vanish from the list.
-			.chatSessions()
+			.chatSessions(undefined, undefined, true)
 			.then((list) => {
 				if (cancelled) return;
 				setSessions((prev) => mergeServerSessions(prev, list));
 			})
 			.catch((e) => {
-				console.error("[chat-sync] load failed:", e);
+				console.error("[chat-sync] index load failed:", e);
 			})
 			.finally(() => {
 				if (!cancelled) {
@@ -627,11 +683,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 	const refetchInFlight = useRef(false);
 	const lastRefetchRef = useRef(0);
 
-	// Cross-device refetch: server sessions otherwise load once on mount, so
-	// progress made on another device is invisible until full page reload
-	// (and the local debounced save can PUT a stale tree over newer server
-	// work). Re-merge on return to the tab, throttled and never mid-stream.
-	// Background refresh: failures log only, never a user-facing banner.
+	// Cross-device refetch: the index is cheap enough to pull on every return to
+	// the tab, so a chat started on the phone shows up on the desktop within
+	// seconds instead of a page reload. Trees are NOT pulled here; the open
+	// session is refreshed separately when the index says it moved.
 	useEffect(() => {
 		const maybeRefetch = () => {
 			if (document.hidden) return;
@@ -641,13 +696,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			if (Date.now() - lastRefetchRef.current < 30_000) return;
 			lastRefetchRef.current = Date.now();
 			refetchInFlight.current = true;
+			// No `since` here any more: the index is 15 KB for the whole
+			// history, so the delta machinery (and its clock/zone pitfalls) buys
+			// nothing, while a missed delta silently pins a device to a stale
+			// list. The tree fetch is what the delta was protecting against.
 			api
-				.chatSessions(undefined, sinceForSync(sessionsRef.current))
+				.chatSessions(undefined, undefined, true)
 				.then((list) => {
 					setSessions((prev) => mergeServerSessions(prev, list));
 				})
 				.catch((e) => {
-					console.error("[chat-sync] refetch failed:", e);
+					console.error("[chat-sync] index refresh failed:", e);
 				})
 				.finally(() => {
 					refetchInFlight.current = false;
@@ -713,6 +772,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 		try {
 			for (const s of sessionsRef.current) {
 				if (s.nodes.length === 0) continue; // never persist empty drafts
+				// An index placeholder has no tree yet. Saving it would PUT an
+				// empty conversation over a real one, so a session whose messages
+				// were never fetched is not this device's to write.
+				if (s.nodesLoaded === false) continue;
 				// Only what actually changed goes up. This loop used to re-PUT
 				// every session on every tick, which is how a phone holding a
 				// nine-day-old copy rewrote chats it had never opened — five
@@ -742,6 +805,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				if (s.serverId != null) {
 					try {
 						await api.chatSessionSave(s.serverId, payload);
+						s.serverUpdatedAt = payload.updatedAt;
 						markSynced(s.serverId, s);
 					} catch (e) {
 						if (e instanceof Error && e.message.startsWith("404")) {
@@ -768,8 +832,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 					// ANOTHER server session; one chat accumulated ten identical
 					// rows that way. `courseId || null` also stops a no-course
 					// chat sending 0, which is not a valid course foreign key.
-					const created = await api.chatSessionCreate(s.courseId || null, s.title);
+					//
+					// `s.id` is the client uuid and it is the create's identity:
+					// the same key always resolves to the same server row, so a
+					// device that lost its server id (capped cache, restored
+					// backup, failed save) adopts the existing conversation
+					// instead of making a second copy of it.
+					const created = await api.chatSessionCreate(
+						s.courseId || null,
+						s.title,
+						s.id,
+					);
 					s.serverId = created.id;
+					s.serverUpdatedAt = payload.updatedAt;
 					sessionsRef.current = sessionsRef.current.map((x) =>
 						x.id === s.id ? { ...x, serverId: created.id } : x,
 					);
@@ -895,16 +970,129 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 		[sessions, activeMap, serverReady],
 	);
 
-	const openSession = useCallback((courseId: number, sessionId: string) => {
-		setActiveMap((m) => ({ ...m, [courseId]: sessionId }));
-		// Seed the selector with this session's stored model (or keep the
-		// current selection if it has none yet). Picking a different model
-		// updates the selector immediately but only writes to the session on
-		// send — so reopening a chat restores the model it was last sent with.
-		const s = sessionsRef.current.find((x) => x.id === sessionId);
-		if (s?.model) setModelState(s.model);
-		else if (s && s.model === null) setModelState((cur) => cur); // no-op; inherit current
+	// Which sessions have a tree fetch in flight, so the view can show "loading"
+	// instead of an empty chat while the messages arrive.
+	const [loadingIds, setLoadingIds] = useState<string[]>([]);
+	const [failedIds, setFailedIds] = useState<string[]>([]);
+	const loadingRef = useRef<Set<number>>(new Set());
+	const setLoading = useCallback((id: string, on: boolean) => {
+		setLoadingIds((prev) =>
+			on
+				? prev.includes(id)
+					? prev
+					: [...prev, id]
+				: prev.filter((x) => x !== id),
+		);
 	}, []);
+	const setFailed = useCallback((id: string, on: boolean) => {
+		setFailedIds((prev) =>
+			on
+				? prev.includes(id)
+					? prev
+					: [...prev, id]
+				: prev.filter((x) => x !== id),
+		);
+	}, []);
+
+	/**
+	 * Fetch one conversation's message tree.
+	 *
+	 * The list is an index now, so this is the ONLY thing that pulls messages.
+	 * It runs when a session is opened (click, restored active chat) and when
+	 * the index says the server has moved on. Cheap enough to call defensively:
+	 * it returns immediately for a session that is loaded and not stale.
+	 */
+	const ensureLoaded = useCallback(
+		async (sessionId: string) => {
+			const s = sessionsRef.current.find((x) => x.id === sessionId);
+			// A draft with no server row has nothing to fetch.
+			if (!s || s.serverId == null) return;
+			// Already have the tree and the index has not reported a newer one.
+			if (s.nodesLoaded !== false && !s.nodesStale) return;
+			if (loadingRef.current.has(s.serverId)) return;
+			loadingRef.current.add(s.serverId);
+			setLoading(sessionId, true);
+			setFailed(sessionId, false);
+			try {
+				const srv = await api.chatSessionGet(s.serverId);
+				const ts = parseServerTime(srv.updatedAt);
+				const fetched = (srv.nodes ?? []) as MsgNode[];
+				setSessions((ss) =>
+					ss.map((x) => {
+						if (x.id !== sessionId) return x;
+						// A live stream owns this tree; a fetch that lands mid-turn
+						// would paint over tokens the server has not stored yet.
+						if (x.nodes.some((n) => n.streaming)) return x;
+						return {
+							...x,
+							// Union, not replace: this device may hold turns the
+							// server has not been told about yet.
+							nodes:
+								x.nodesLoaded === false
+									? fetched
+									: unionNodes(x.nodes, fetched),
+							activeNodeId: x.activeNodeId ?? srv.activeNodeId ?? null,
+							title: srv.title || x.title,
+							model: x.model ?? srv.model ?? null,
+							updatedAt: Math.max(
+								x.updatedAt || 0,
+								Number.isFinite(ts) ? ts : 0,
+							),
+							nodesLoaded: true,
+							nodesStale: false,
+							serverUpdatedAt: Number.isFinite(ts)
+								? ts
+								: x.serverUpdatedAt,
+						};
+					}),
+				);
+			} catch (e) {
+				console.error("[chat-sync] session load failed:", e);
+				// Leave `nodesLoaded` alone so the next open retries rather than
+				// showing a permanently empty chat; the id is recorded so the
+				// view can offer a retry instead of spinning forever.
+				setFailed(sessionId, true);
+			} finally {
+				loadingRef.current.delete(s.serverId);
+				setLoading(sessionId, false);
+			}
+		},
+		[setLoading, setFailed],
+	);
+
+	// Load the tree for the chat that is on screen. The index paints the list
+	// immediately; this is what makes a reload land back on the conversation the
+	// user was reading, messages and all.
+	useEffect(() => {
+		if (!serverReady || lastCourseId == null) return;
+		const s = activeFor(lastCourseId);
+		if (s) void ensureLoaded(s.id);
+	}, [serverReady, lastCourseId, activeFor, ensureLoaded]);
+
+	// The index refresh runs on focus; if the OPEN chat moved on the server,
+	// pull its tree so the reader is not looking at a version that ended two
+	// turns ago.
+	useEffect(() => {
+		if (!serverReady || lastCourseId == null) return;
+		const s = activeFor(lastCourseId);
+		if (s?.nodesStale) void ensureLoaded(s.id);
+	}, [sessions, serverReady, lastCourseId, activeFor, ensureLoaded]);
+
+	const openSession = useCallback(
+		(courseId: number, sessionId: string) => {
+			setActiveMap((m) => ({ ...m, [courseId]: sessionId }));
+			// Opening a chat is what fetches its messages now.
+			void ensureLoaded(sessionId);
+			// Seed the selector with this session's stored model (or keep the
+			// current selection if it has none yet). Picking a different model
+			// updates the selector immediately but only writes to the session on
+			// send — so reopening a chat restores the model it was last sent with.
+			const s = sessionsRef.current.find((x) => x.id === sessionId);
+			if (s?.model) setModelState(s.model);
+			else if (s && s.model === null) setModelState((cur) => cur); // no-op; inherit current
+		},
+		[ensureLoaded],
+	);
 
 	const newChat = useCallback((courseId: number) => {
 		// Reset to the EMPTY chat state without creating a session — the session
@@ -1729,6 +1917,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			publishView,
 			sessionsFor,
 			activeFor,
+			sessionsLoading: loadingIds,
+			sessionsFailed: failedIds,
+			ensureSessionLoaded: ensureLoaded,
 			serverReady,
 			openSession,
 			setSessionModel,
@@ -1758,6 +1949,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			publishView,
 			sessionsFor,
 			activeFor,
+			loadingIds,
+			failedIds,
+			ensureLoaded,
 			serverReady,
 			openSession,
 			setSessionModel,

@@ -130,6 +130,8 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		steers,
 		sessionsFor,
 		activeFor,
+		sessionsFailed,
+		ensureSessionLoaded,
 		serverReady,
 		openSession,
 		newChat,
@@ -1405,7 +1407,10 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 
 			<div className="chat-scroll" ref={scrollRef}>
 				<div className="chat-col">
-					{!serverReady || !session || path.length === 0 ? (
+					{!serverReady ||
+					!session ||
+					path.length === 0 ||
+					session.nodesLoaded === false ? (
 						// Until the server list lands, `sessions` holds only this
 						// device's localStorage cache — and that cache is missing
 						// the LAST TURN, because persist() is skipped while a turn
@@ -1413,15 +1418,34 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 						// partway, anchored to a bottom that then grew as the rest
 						// arrived ("the rest of the chat had to load in"). Wait
 						// for the server tree instead of showing a partial chat.
-						!serverReady ? (
-							<div className="chat-empty">
-								<Loader2
-									size={26}
-									className="animate-spin"
-									style={{ color: "var(--violet)" }}
-									aria-label="Opening conversation"
-								/>
-							</div>
+						!serverReady || session?.nodesLoaded === false ? (
+							// The session list is an index now, so the messages for
+							// a chat arrive right after it is opened. A spinner
+							// says "loading"; the greeting screen would say "empty".
+							sessionsFailed.includes(session?.id ?? "") ? (
+								<div className="chat-empty">
+									<p className="page-sub" style={{ margin: 0 }}>
+										Couldn't load this conversation.
+									</p>
+									<button
+										className="suggestion"
+										onClick={() =>
+											session && ensureSessionLoaded(session.id)
+										}
+									>
+										Retry
+									</button>
+								</div>
+							) : (
+								<div className="chat-empty">
+									<Loader2
+										size={26}
+										className="animate-spin"
+										style={{ color: "var(--violet)" }}
+										aria-label="Loading conversation"
+									/>
+								</div>
+							)
 						) : (
 						<div className="chat-empty">
 							<div className="logo-mark campus-logo-mark">

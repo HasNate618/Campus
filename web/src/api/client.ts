@@ -199,10 +199,15 @@ export const api = {
 		return res.json();
 	},
 	// server-side chat sessions (the message tree lives in the DB)
-	chatSessions: (courseId?: number, since?: number) => {
+	chatSessions: (courseId?: number, since?: number, summary?: boolean) => {
 		const q: string[] = [];
 		if (courseId != null) q.push(`course_id=${courseId}`);
 		if (since) q.push(`since=${since}`);
+		// Metadata only: id, title, model, updatedAt, nodeCount. The full list
+		// carries every message tree and measured 42.6 MB (one course alone was
+		// 13.4 MB); the index for the same sessions is 15 KB. Sessions are
+		// fetched individually when they are opened.
+		if (summary) q.push("summary=1");
 		// A stalled download must fail rather than hang: the chat refetch holds a
 		// lock while this is in flight, so a promise that never settles stops the
 		// device syncing for as long as the tab lives.
@@ -211,8 +216,20 @@ export const api = {
 			45_000,
 		);
 	},
-	chatSessionCreate: (courseId: number | null, title: string) =>
-		post<ChatServerSession>("/chat/sessions", { course_id: courseId, title }),
+	chatSessionCreate: (
+		courseId: number | null,
+		title: string,
+		clientKey?: string,
+	) =>
+		post<ChatServerSession & { created?: boolean }>("/chat/sessions", {
+			course_id: courseId,
+			title,
+			// Makes the create idempotent: a device that lost its server id asks
+			// again with the same key and gets the row it already made back,
+			// instead of creating a second copy of the conversation.
+			client_key: clientKey,
+		}),
+
 	chatSessionGet: (id: number) =>
 		get<ChatServerSession>(`/chat/sessions/${id}`),
 	chatSessionSave: (
@@ -256,8 +273,13 @@ export interface ChatServerSession {
 	title: string;
 	model?: string | null;
 	updatedAt: string;
+	/** Absent on a summary (index) response — fetch the session to get them. */
 	nodes?: unknown[];
 	activeNodeId?: string | null;
+	/** Summary responses only. */
+	nodeCount?: number;
+	clientKey?: string | null;
+	created?: boolean;
 }
 
 async function put(
