@@ -109,6 +109,9 @@ export interface ChatSession {
 	/** The index says the server has turns this device has not merged yet. The
 	 *  tree is still painted; it is re-fetched when the session is opened. */
 	nodesStale?: boolean;
+	/** Message count from the index. Used to decide whether a conversation is
+	 *  cheap enough to prefetch (a 3 MB chat costs more than the spinner). */
+	nodeCount?: number;
 }
 
 
@@ -192,6 +195,20 @@ const ACTIVE_KEY = "hc.chat.active";
 const LAST_COURSE_KEY = "hc.chat.lastCourse";
 const MODEL_KEY = "hc.chat.model";
 const MAX_SESSIONS = 50;
+/** How many neighbouring conversations to warm after the open chat is on
+ *  screen. Small on purpose: the index exists so a device stops pulling history
+ *  it may never read. */
+const PREFETCH_MAX = 3;
+/** Skip prefetching a single conversation bigger than this (node count from the
+ *  index). Big chats are exactly the ones worth warming, but they are also the
+ *  ones that measured 2-3 MB each, and warming one of those on a phone costs
+ *  more than the spinner it saves. They load on open like any other.
+ *  Measured on this data: 202 nodes = 3.2 MB, 96 nodes = 0.7 MB, 17 nodes =
+ *  0.17 MB. A 300-node cap still admitted the 3.2 MB one. */
+const PREFETCH_MAX_NODES = 150;
+/** Total nodes warmed per view, so three medium chats cannot add up to a big
+ *  one. ~250 nodes of recent history is well under a megabyte. */
+const PREFETCH_TOTAL_NODES = 250;
 
 function makeUuid(): string {
 	if (typeof crypto !== "undefined" && crypto.randomUUID)
@@ -560,6 +577,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			// entry counts as loaded.
 			nodesLoaded: srv.nodes !== undefined,
 			serverUpdatedAt: Number.isFinite(ts) ? ts : undefined,
+			nodeCount: srv.nodeCount ?? (srv.nodes ? (srv.nodes as unknown[]).length : undefined),
 		});
 	}
 
@@ -975,6 +993,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 	const [loadingIds, setLoadingIds] = useState<string[]>([]);
 	const [failedIds, setFailedIds] = useState<string[]>([]);
 	const loadingRef = useRef<Set<number>>(new Set());
+	// Session ids whose tree is already in memory. `sessions` reaches this
+	// component on the next render, so two triggers (the click and the effect
+	// that follows the active-session change) both read the pre-load state and
+	// fetched the same chat twice — 373 KB twice in a measured run.
+	const loadedRef = useRef<Set<string>>(new Set());
 	const setLoading = useCallback((id: string, on: boolean) => {
 		setLoadingIds((prev) =>
 			on
@@ -1008,6 +1031,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			// A draft with no server row has nothing to fetch.
 			if (!s || s.serverId == null) return;
 			// Already have the tree and the index has not reported a newer one.
+			// `loadedRef` covers the render gap: state still says "not loaded"
+			// for a moment after a fetch resolves.
+			if (loadedRef.current.has(sessionId) && !s.nodesStale) return;
 			if (s.nodesLoaded !== false && !s.nodesStale) return;
 			if (loadingRef.current.has(s.serverId)) return;
 			loadingRef.current.add(s.serverId);
@@ -1017,13 +1043,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				const srv = await api.chatSessionGet(s.serverId);
 				const ts = parseServerTime(srv.updatedAt);
 				const fetched = (srv.nodes ?? []) as MsgNode[];
+				const fetchedIds = new Set(fetched.map((n) => n.id));
+				loadedRef.current.add(sessionId);
 				setSessions((ss) =>
 					ss.map((x) => {
 						if (x.id !== sessionId) return x;
 						// A live stream owns this tree; a fetch that lands mid-turn
 						// would paint over tokens the server has not stored yet.
 						if (x.nodes.some((n) => n.streaming)) return x;
-						return {
+						const next: ChatSession = {
 							...x,
 							// Union, not replace: this device may hold turns the
 							// server has not been told about yet.
@@ -1044,6 +1072,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 								? ts
 								: x.serverUpdatedAt,
 						};
+						// What we just downloaded is already ON the server, so do not
+						// hand it straight back: without this, opening a chat and
+						// every prefetched chat were each re-uploaded once (a 1.3 MB
+						// PUT for a chat nobody had edited). Only safe when the
+						// server's copy covers every local node — otherwise a turn
+						// this device has not managed to save would be treated as
+						// synced and never pushed.
+						if (s.serverId != null && x.nodes.every((n) => fetchedIds.has(n.id))) {
+							syncedRef.current.set(s.serverId, {
+								sig: sessionSignature(next),
+								ids: new Set(next.nodes.map((n) => n.id)),
+							});
+						}
+						return next;
 					}),
 				);
 			} catch (e) {
@@ -1068,6 +1110,78 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 		const s = activeFor(lastCourseId);
 		if (s) void ensureLoaded(s.id);
 	}, [serverReady, lastCourseId, activeFor, ensureLoaded]);
+
+	// Ids already prefetched (or being prefetched) in this tab, so the effect
+	// below does not re-queue them on every state change. The COUNT matters as
+	// much as the set: every completed prefetch changes `sessions`, which re-runs
+	// the effect, so a set alone let it walk the whole course — it warmed ten
+	// conversations (~15 MB) before this budget existed.
+	const prefetchedRef = useRef<Set<string>>(new Set());
+	const prefetchBudget = useRef<{ key: string; started: number }>({
+		key: "",
+		started: 0,
+	});
+
+	// PREFETCH the chats you are most likely to open next, so switching between
+	// conversations is instant instead of showing a spinner.
+	//
+	// Bounded on purpose: only the current course, only the few most recent
+	// conversations it has, only after the open chat is on screen, never while a
+	// turn is streaming, not at all when the browser says the connection is
+	// metered (`saveData`), and never a single oversized chat. The whole point of
+	// the index was to stop pulling history a device may never read; prefetching
+	// the likely-next few is the line between "instant" and eager loading again.
+	useEffect(() => {
+		if (!serverReady || busy || lastCourseId == null) return;
+		const active = activeFor(lastCourseId);
+		// Wait until the chat on screen has its messages: it is the one the user
+		// is looking at, and prefetch must never compete with it.
+		if (!active || active.nodesLoaded === false) return;
+		const conn = (navigator as unknown as { connection?: { saveData?: boolean } })
+			.connection;
+		if (conn?.saveData) return;
+
+		// The budget belongs to the chat being read: opening a different chat
+		// earns a fresh one, re-rendering the same one does not.
+		const key = `${lastCourseId}:${active.id}`;
+		if (prefetchBudget.current.key !== key) {
+			prefetchBudget.current = { key, started: 0 };
+		}
+		if (prefetchBudget.current.started >= PREFETCH_MAX) return;
+
+		let cancelled = false;
+		const PRE = 700; // let the open chat settle first
+		const timer = window.setTimeout(() => {
+			if (cancelled) return;
+			const budget = PREFETCH_MAX - prefetchBudget.current.started;
+			if (budget <= 0) return;
+			const queue = sessionsFor(lastCourseId)
+				.filter((s) => s.id !== active.id)
+				.filter((s) => s.serverId != null)
+				.filter((s) => s.nodesLoaded === false || s.nodesStale)
+				.filter((s) => !prefetchedRef.current.has(s.id))
+				.filter((s) => (s.nodeCount ?? 0) <= PREFETCH_MAX_NODES)
+				.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+				.slice(0, budget);
+			void (async () => {
+				let nodesBudget = PREFETCH_TOTAL_NODES;
+				for (const s of queue) {
+					if (cancelled) return;
+					const size = s.nodeCount ?? 0;
+					// Never let the sum of "small enough" chats add up to a big one.
+					if (size > nodesBudget) continue;
+					nodesBudget -= size;
+					prefetchedRef.current.add(s.id);
+					prefetchBudget.current.started += 1;
+					await ensureLoaded(s.id);
+				}
+			})();
+		}, PRE);
+		return () => {
+			cancelled = true;
+			window.clearTimeout(timer);
+		};
+	}, [serverReady, busy, lastCourseId, activeFor, sessionsFor, ensureLoaded]);
 
 	// The index refresh runs on focus; if the OPEN chat moved on the server,
 	// pull its tree so the reader is not looking at a version that ended two
