@@ -10,7 +10,6 @@
 pkgs.mkShell {
   packages = [
     pkgs.nodejs_22
-    pkgs.ffmpeg
     (pkgs.python3.withPackages (ps: [
       ps.playwright
       ps.httpx
