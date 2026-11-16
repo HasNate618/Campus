@@ -160,12 +160,6 @@ export function isTreeStale(input: {
 	return (serverUpdatedAt ?? 0) > (localUpdatedAt ?? 0) + marginMs;
 }
 
-/** Node ids present in `before` and gone from `after` — the explicit deletions. */export function removedIds(before: Iterable<string>, after: Set<string>): string[] {
-	const gone: string[] = [];
-	for (const id of before) if (!after.has(id)) gone.push(id);
-	return gone;
-}
-
 /**
  * Newest first, until the byte budget is spent. Anything left out simply comes
  * from the server on load, which is where it came from anyway.

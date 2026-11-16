@@ -4,7 +4,6 @@ import { describe, it } from 'node:test'
 import {
 	capForCache,
 	isTreeStale,
-	removedIds,
 	sessionSignature,
 	sinceForSync,
 	serverTimeToEpochSeconds,
@@ -121,15 +120,6 @@ describe('sessionSignature', () => {
 			sessionSignature(base),
 			sessionSignature({ ...base, activeNodeId: 'b' }),
 		)
-	})
-})
-
-describe('removedIds', () => {
-	it('reports exactly what disappeared', () => {
-		assert.deepEqual(removedIds(['a', 'b', 'c'], new Set(['a', 'c'])), ['b'])
-	})
-	it('reports nothing when the set only grew', () => {
-		assert.deepEqual(removedIds(['a'], new Set(['a', 'b'])), [])
 	})
 })
 
