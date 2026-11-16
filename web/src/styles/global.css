@@ -4405,3 +4405,58 @@ pre code.hljs {
   .settings-nav-item.active { border-color: transparent; }
   .settings-foot { flex-wrap: wrap; }
 }
+
+/* Pull past the bottom of a conversation to re-read it from the server.
+   Mobile only: a desktop wheel has no bottom overscroll to give, and the
+   keyboard has its own refresh. Hidden outright on a fine pointer, because the
+   element is always in the tree (the touch handler needs it to exist) and would
+   otherwise show its label above the chat. Kept out of the layout flow
+   (absolute, height animated from the touch handler) so a drag never reflows
+   the message list. */
+.chat-pull {
+  display: none;
+}
+
+@media (max-width: 860px) and (pointer: coarse) {
+  .chat-wrap {
+    position: relative;
+  }
+
+  .chat-scroll {
+    /* Without this the gesture bounces the PAGE instead of staying in the
+       chat, and pull-to-refresh never sees it. */
+    overscroll-behavior-y: contain;
+  }
+
+  .chat-pull {
+    position: absolute;
+    top: 4px;
+    left: 50%;
+    height: 0;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform: translateX(-50%);
+    padding: 0 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    line-height: 1;
+    white-space: nowrap;
+    color: var(--text-2);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(8px);
+    pointer-events: none;
+    z-index: 4;
+    transition: opacity 120ms ease;
+  }
+
+  .chat-pull[data-armed="1"] {
+    color: var(--text-1);
+  }
+
+  .chat-pull[data-refreshing="1"] {
+    color: var(--violet);
+  }
+}

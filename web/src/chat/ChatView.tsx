@@ -132,6 +132,7 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		activeFor,
 		sessionsFailed,
 		ensureSessionLoaded,
+		reloadSession,
 		serverReady,
 		openSession,
 		newChat,
@@ -420,6 +421,111 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		if (content) ro.observe(content);
 		return () => ro.disconnect();
 	}, []);
+
+	// Pull past the BOTTOM of the conversation to re-read it from the server.
+	//
+	// On a phone the browser either bounces the whole page or shows an
+	// overscroll glow there; `overscroll-behavior: contain` on .chat-scroll keeps
+	// the gesture inside the chat, and this turns it into the repair the user
+	// actually wants when this device's copy has drifted from the server. It
+	// calls reloadSession, which skips the freshness verdict entirely.
+	//
+	// Deliberately imperative: touchmove fires ~60 times a second, and
+	// re-rendering a whole conversation on every one of those is not affordable
+	// on a phone. The drag only moves a height and an opacity; React hears about
+	// the two states that change text (`armed`, `refreshing`).
+	const PULL_TRIGGER = 64;
+	const pullBarRef = useRef<HTMLDivElement>(null);
+	const [pullArmed, setPullArmed] = useState(false);
+	const [refreshing, setRefreshing] = useState(false);
+	const refreshingRef = useRef(false);
+	const sessionIdForPull = useRef<string | null>(null);
+	useEffect(() => {
+		sessionIdForPull.current = session?.id ?? null;
+	}, [session?.id]);
+
+	const startRefresh = useCallback(() => {
+		const id = sessionIdForPull.current;
+		if (!id || refreshingRef.current) return;
+		refreshingRef.current = true;
+		setRefreshing(true);
+		// The reader asked for the newest state, so follow it to the bottom again
+		// even if they had scrolled up.
+		pinnedRef.current = true;
+		void reloadSession(id).finally(() => {
+			refreshingRef.current = false;
+			setRefreshing(false);
+			// Collapse the indicator only now, so "Refreshing from server" stays
+			// visible while the fetch is actually running.
+			const bar = pullBarRef.current;
+			if (bar) bar.style.height = "0px";
+			requestAnimationFrame(() => {
+				const el = scrollRef.current;
+				if (el) el.scrollTop = el.scrollHeight;
+			});
+		});
+	}, [reloadSession]);
+
+	useEffect(() => {
+		const el = scrollRef.current;
+		if (!el) return;
+		// Coarse pointer only: a desktop wheel has no bottom overscroll to give,
+		// and its user can press r/refresh.
+		if (!window.matchMedia("(pointer: coarse)").matches) return;
+		const bar = pullBarRef.current;
+		let armed = false;      // is this gesture a pull (it started at the bottom)?
+		let startY = 0;
+		let value = 0;
+		const render = (next: number) => {
+			value = next;
+			if (bar) bar.style.height = `${next.toFixed(1)}px`;
+			const isArmed = next >= PULL_TRIGGER;
+			// Only when the threshold flips, so a drag cannot trigger renders.
+			setPullArmed((prev) => (prev === isArmed ? prev : isArmed));
+		};
+		const onStart = (ev: TouchEvent) => {
+			if (refreshingRef.current || ev.touches.length !== 1) {
+				armed = false;
+				return;
+			}
+			// Only from the bottom: pulling mid-history is a mis-swipe.
+			armed = el.scrollHeight - el.scrollTop - el.clientHeight < 4;
+			startY = ev.touches[0].clientY;
+		};
+		const onMove = (ev: TouchEvent) => {
+			if (!armed) return;
+			const dy = startY - ev.touches[0].clientY; // finger moving up is positive
+			if (dy <= 0) {
+				render(0);
+				return;
+			}
+			// Rubber band: half the distance, capped, so the drag resists.
+			render(Math.min(dy * 0.5, 96));
+			if (ev.cancelable) ev.preventDefault();
+		};
+		const finish = () => {
+			if (!armed) {
+				render(0);
+				return;
+			}
+			armed = false;
+			const shouldRefresh = value >= PULL_TRIGGER;
+			// Leave it open at a readable height while the fetch runs; startRefresh
+			// collapses it when the tree is back.
+			render(shouldRefresh ? 28 : 0);
+			if (shouldRefresh) startRefresh();
+		};
+		el.addEventListener("touchstart", onStart, { passive: true });
+		el.addEventListener("touchmove", onMove, { passive: false });
+		el.addEventListener("touchend", finish);
+		el.addEventListener("touchcancel", finish);
+		return () => {
+			el.removeEventListener("touchstart", onStart);
+			el.removeEventListener("touchmove", onMove);
+			el.removeEventListener("touchend", finish);
+			el.removeEventListener("touchcancel", finish);
+		};
+	}, [startRefresh]);
 
 	/** Tool children of an assistant node (fallback + tree semantics). Indexed
 	 *  once per render (O(nodes)) rather than filtering session.nodes per node,
@@ -1405,6 +1511,25 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 				)}
 			</div>
 
+			{/* The pull indicator. Height is driven imperatively from the touch
+			    handler (see startRefresh); only the two states that change the
+			    wording re-render. */}
+			<div
+				className="chat-pull"
+				ref={pullBarRef}
+				data-armed={pullArmed ? "1" : "0"}
+				data-refreshing={refreshing ? "1" : "0"}
+				role="status"
+				aria-live="polite"
+			>
+				<span>
+					{refreshing
+						? "Refreshing from server…"
+						: pullArmed
+							? "Release to refresh"
+							: "Pull to refresh"}
+				</span>
+			</div>
 			<div className="chat-scroll" ref={scrollRef}>
 				<div className="chat-col">
 					{!serverReady ||
