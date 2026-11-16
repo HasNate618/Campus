@@ -22,8 +22,14 @@ from .context import build_system_prompt
 from .view import render_view_block
 from .tools import execute_tool, tool_schemas
 
-MAX_ITERATIONS = 10
-NUDGE_AT = 6  # after this many rounds, tell the model to stop calling tools
+# Rounds of tool calls one turn may take. The old cap of 10 cut real research
+# short: page-addressed reads fixed the four-reads-to-find-page-57 problem, but
+# a question spanning several documents still ran out mid-investigation and
+# answered "(stopped: tool-call iteration limit reached)". 50 leaves room for a
+# multi-document sweep; the nudge is the real brake, so it fires early enough
+# that the model still has turns left to write the answer it was told to write.
+MAX_ITERATIONS = 50
+NUDGE_AT = 46  # after this many rounds, tell the model to stop calling tools
 
 
 LLM_USER_AGENT = "Campus/0.1"
@@ -807,7 +813,8 @@ def run_turn(cfg: Config, db: DB, user_message: str, course_id: int | None = Non
                 "content": content,
             })
 
-    answer = "(stopped: tool-call iteration limit reached)"
+    answer = (f"(stopped: tool-call iteration limit reached after "
+              f"{MAX_ITERATIONS} rounds)")
     if emit:
         emit("done", {"answer": answer})
     return answer, messages

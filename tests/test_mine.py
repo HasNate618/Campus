@@ -885,8 +885,8 @@ def test_assigned_date_event_gets_context_notes(db):
 
 def test_chat_loop_budget_is_enforceable():
     import agent.chat as chat_mod
-    assert chat_mod.MAX_ITERATIONS == 10
-    assert chat_mod.NUDGE_AT == 6
+    assert chat_mod.MAX_ITERATIONS == 50
+    assert chat_mod.NUDGE_AT == 46
     assert chat_mod.NUDGE_AT < chat_mod.MAX_ITERATIONS - 2  # nudge leaves room to comply
 
 
