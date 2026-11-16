@@ -47,7 +47,7 @@ def _row(dbp, sid):
     conn.row_factory = sqlite3.Row
     try:
         return conn.execute(
-            "SELECT title, nodes_json, model FROM chat_sessions WHERE id=?", (sid,)
+            "SELECT title, nodes_json, model, rev FROM chat_sessions WHERE id=?", (sid,)
         ).fetchone()
     finally:
         conn.close()
@@ -117,15 +117,55 @@ def test_omitted_model_keeps_and_explicit_null_clears(session_db):
     assert _row(dbp, sid)["model"] == "model-b"
 
 
-def test_updated_at_uses_the_supplied_epoch(session_db):
+def test_updated_at_ignores_the_client_epoch(session_db):
+    """The server's clock orders the list, not whichever device saved last.
+
+    This used to adopt the client's epoch, which made freshness a wall-clock
+    race: a phone a few seconds fast stamped the near future, and every later
+    desktop save landed "before" it, so the phone's cached stamp stayed newer
+    forever and it never refreshed again.
+    """
     from api.routers.chat import SessionUpdate, put_session
 
     dbp, sid = session_db
     put_session(sid, SessionUpdate(title="x", updatedAt=1_700_000_000_000))
     conn = sqlite3.connect(dbp)
-    got = conn.execute("SELECT updated_at FROM chat_sessions WHERE id=?", (sid,)).fetchone()[0]
+    got, now = conn.execute(
+        "SELECT (SELECT updated_at FROM chat_sessions WHERE id=?), datetime('now')",
+        (sid,)).fetchone()
     conn.close()
-    assert got.startswith("2023-11-14")
+    assert not got.startswith("2023-11-14"), "the client epoch must not reach the column"
+    assert got[:13] == now[:13], f"expected the server's hour, got {got} vs {now}"
+
+
+def test_rev_advances_only_when_something_is_written(session_db):
+    """rev is the cross-device freshness signal, so it must track real writes."""
+    from api.routers.chat import SessionUpdate, put_session
+
+    dbp, sid = session_db
+    before = _row(dbp, sid)["rev"]
+
+    res = put_session(sid, SessionUpdate(activeNodeId="n1"))   # UI state only
+    assert res["rev"] == before, "switching branch is not a content change"
+
+    res = put_session(sid, SessionUpdate(nodes=[
+        {"id": "n2", "parentId": "n1", "role": "user", "content": "hey"}]))
+    assert res["rev"] == before + 1
+    assert _row(dbp, sid)["rev"] == before + 1
+
+    res = put_session(sid, SessionUpdate(title="Renamed"))
+    assert res["rev"] == before + 2, "a rename is a change other devices should see"
+
+
+def test_rev_is_monotonic_across_put_calls(session_db):
+    from api.routers.chat import SessionUpdate, put_session
+
+    dbp, sid = session_db
+    revs = []
+    for i in range(3):
+        revs.append(put_session(sid, SessionUpdate(nodes=[
+            {"id": f"n{i}", "role": "user", "content": "x"}]))["rev"])
+    assert revs == sorted(revs) and len(set(revs)) == 3
 
 
 def test_missing_session_is_404(session_db):

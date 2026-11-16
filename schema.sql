@@ -214,6 +214,7 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     model       TEXT,                       -- per-session LLM model; NULL = inherit current selection
     active_node_id TEXT,                    -- which branch the client had open
     client_key  TEXT,                       -- stable client uuid; makes create idempotent
+    rev         INTEGER NOT NULL DEFAULT 0, -- monotonic write counter; freshness across devices
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );

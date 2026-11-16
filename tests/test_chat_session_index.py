@@ -59,15 +59,16 @@ def _add_session(dbp: str, title: str, nodes: list[str], updated: str = "2026-11
     """Insert a session the way the app does: rows ARE the tree."""
     from sync.db import DB
 
-    conn = DB(dbp).conn
+    conn = DB(Path(dbp)).conn
     sid = conn.execute(
         "INSERT INTO chat_sessions (course_id, title, nodes_json, updated_at) "
         "VALUES (NULL,?,?,?)", (title, json.dumps(_tree(*nodes)), updated)).lastrowid
     conn.commit()
     conn.close()
+    assert sid is not None
     from api import chat_nodes
 
-    db = DB(dbp)
+    db = DB(Path(dbp))
     chat_nodes.save_nodes(db, sid, _tree(*nodes)["nodes"])
     chat_nodes.set_active_node(db, sid, nodes[-1])
     db.close()
@@ -83,6 +84,42 @@ def test_summary_carries_no_trees(db):
     assert "nodes" not in got, "the index must not ship message trees"
     assert got["nodeCount"] == 2
     assert got["title"] == "a chat"
+
+
+def test_summary_carries_the_revision(db):
+    """The client decides "is my cached tree behind?" from this number.
+
+    Comparing wall clocks let a device whose clock ran fast pin every other
+    device's later turns behind its own cache, and a reload did not help
+    because the poisoned stamp was persisted. rev only moves when the server
+    writes.
+    """
+    from api.routers.chat import list_sessions
+
+    sid = _add_session(db, "a chat", ["n1", "n2"])
+    first = [s for s in list_sessions(summary=1) if s["id"] == sid][0]
+    assert first["rev"] >= 1, "writing the tree moved the revision"
+
+    from sync.db import DB
+    from api import chat_nodes
+
+    d = DB(db)
+    chat_nodes.save_nodes(d, sid, [{"id": "n3", "parentId": "n2", "role": "user",
+                                    "content": "later"}])
+    d.close()
+
+    second = [s for s in list_sessions(summary=1) if s["id"] == sid][0]
+    assert second["rev"] > first["rev"]
+
+
+def test_a_single_session_fetch_carries_the_revision(db):
+    from api.routers.chat import get_session
+
+    sid = _add_session(db, "a chat", ["n1", "n2"])
+    one = get_session(sid)
+    listed = [s for s in __import__("api.routers.chat", fromlist=["list_sessions"])
+              .list_sessions(summary=1) if s["id"] == sid][0]
+    assert one["rev"] == listed["rev"], "tree fetch must date the tree it returned"
 
 
 def test_full_list_still_carries_trees(db):

@@ -62,6 +62,16 @@ class DB:
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_sessions_client_key "
                 "ON chat_sessions(client_key) WHERE client_key IS NOT NULL")
             self.conn.commit()
+        # Monotonic revision per conversation. Clients used to decide "is my
+        # cached tree behind the server?" by comparing wall clocks, including
+        # stamps they supplied themselves, so a device whose clock ran a few
+        # seconds fast could pin every later save from another device behind
+        # its own cache and never refresh again. rev only advances when the
+        # server actually writes, which no clock can forge.
+        if "rev" not in scols:
+            self.conn.execute(
+                "ALTER TABLE chat_sessions ADD COLUMN rev INTEGER NOT NULL DEFAULT 0")
+            self.conn.commit()
 
         # Conversations used to be one JSON blob per session. Nodes are rows now
         # so that a save can only add or update the nodes it names — see

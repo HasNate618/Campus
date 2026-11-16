@@ -133,6 +133,11 @@ def save_nodes(db, session_id: int, nodes: list[dict] | None,
         removed += cur.rowcount
     db.conn.commit()
     write_snapshot(db, session_id)
+    if added or updated or removed:
+        # A revision is what tells every OTHER device that this conversation
+        # moved. It is bumped here, where the write actually happened, so a
+        # save cannot advance it without changing the tree.
+        bump_rev(db, session_id)
     total = db.conn.execute(
         "SELECT COUNT(*) FROM chat_nodes WHERE session_id=?", (session_id,)).fetchone()[0]
     return {"added": added, "updated": updated, "removed": removed, "total": total}
@@ -270,6 +275,30 @@ def set_active_node(db, session_id: int, node_id: str | None) -> None:
     db.conn.execute("UPDATE chat_sessions SET active_node_id=? WHERE id=?",
                     (node_id, session_id))
     db.conn.commit()
+
+
+def rev_of(db, session_id: int) -> int:
+    """The conversation's current revision, 0 for a session that does not exist."""
+    row = db.conn.execute("SELECT rev FROM chat_sessions WHERE id=?",
+                          (session_id,)).fetchone()
+    return int(row[0] or 0) if row else 0
+
+
+def bump_rev(db, session_id: int) -> int:
+    """Advance the conversation's revision and restamp updated_at server-side.
+
+    Both halves matter. rev is the cross-device freshness signal: it is
+    monotonic and only the server can move it, so a phone with a fast clock can
+    no longer outrank a desktop's newer turn forever. updated_at is the ORDER
+    the list is sorted by, and it was previously whatever epoch the client sent;
+    one device's skew reordered every conversation on every other device. The
+    server's clock is the only one both devices share.
+    """
+    db.conn.execute(
+        "UPDATE chat_sessions SET rev = rev + 1, updated_at = datetime('now') "
+        "WHERE id=?", (session_id,))
+    db.conn.commit()
+    return rev_of(db, session_id)
 
 
 def migrate_session(db, session_id: int) -> int:

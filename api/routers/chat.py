@@ -307,7 +307,7 @@ def list_sessions(course_id: int | None = None, since: int | None = None,
                 "%Y-%m-%d %H:%M:%S")
             where.append("updated_at > ?")
             args.append(cutoff)
-        sql = ("SELECT id, course_id, title, nodes_json, model, updated_at, client_key "
+        sql = ("SELECT id, course_id, title, nodes_json, model, updated_at, client_key, rev "
                "FROM chat_sessions"
                + (" WHERE " + " AND ".join(where) if where else "")
                + " ORDER BY updated_at DESC")
@@ -350,6 +350,11 @@ def list_sessions(course_id: int | None = None, since: int | None = None,
                 "updatedAt": r["updated_at"],
                 "nodeCount": len(per_session.get(sid, [])),
                 "clientKey": r["client_key"],
+                # Monotonic revision: the client compares THIS to the rev it
+                # last saw, instead of comparing wall clocks that each device
+                # stamps for itself. Sent in the index because deciding what
+                # is stale is the index's whole job now.
+                "rev": int(r["rev"] or 0),
             }
             if not summary:
                 # Nodes are rows now; load_tree falls back to the old blob for
@@ -419,12 +424,13 @@ def create_session(body: SessionCreate):
             # adopt the server id it already has — the retry path that used to
             # duplicate the conversation now converges on it.
             existing = db.conn.execute(
-                "SELECT id, course_id, title, model, updated_at FROM chat_sessions "
+                "SELECT id, course_id, title, model, updated_at, rev FROM chat_sessions "
                 "WHERE client_key=?", (key,)).fetchone()
             if existing:
                 return {"id": existing["id"], "courseId": existing["course_id"],
                         "title": existing["title"], "model": existing["model"],
                         "updatedAt": existing["updated_at"],
+                        "rev": int(existing["rev"] or 0),
                         "nodes": [], "activeNodeId": None, "created": False}
         if course_id is not None:
             if not db.conn.execute("SELECT 1 FROM courses WHERE id=?",
@@ -438,11 +444,12 @@ def create_session(body: SessionCreate):
         db.conn.commit()
         sid = cur.lastrowid
         row = db.conn.execute(
-            "SELECT id, course_id, title, model, updated_at FROM chat_sessions WHERE id=?",
+            "SELECT id, course_id, title, model, updated_at, rev FROM chat_sessions WHERE id=?",
             (sid,)).fetchone()
         return {"id": row["id"], "courseId": row["course_id"], "title": row["title"],
                 "model": row["model"],
-                "updatedAt": row["updated_at"], "nodes": [], "activeNodeId": None,
+                "updatedAt": row["updated_at"], "rev": int(row["rev"] or 0),
+                "nodes": [], "activeNodeId": None,
                 "created": True}
 
     finally:
@@ -458,14 +465,14 @@ def get_session(sid: int):
     db = DB(cfg.db_path)
     try:
         row = db.conn.execute(
-            "SELECT id, course_id, title, model, updated_at FROM chat_sessions WHERE id=?",
+            "SELECT id, course_id, title, model, updated_at, rev FROM chat_sessions WHERE id=?",
             (sid,)).fetchone()
         if not row:
             raise HTTPException(404, "session not found")
         tree = chat_nodes.load_tree(db, sid)
         return {"id": row["id"], "courseId": row["course_id"], "title": row["title"],
                 "model": row["model"],
-                "updatedAt": row["updated_at"],
+                "updatedAt": row["updated_at"], "rev": int(row["rev"] or 0),
                 "nodes": tree.get("nodes", []), "activeNodeId": tree.get("activeNodeId")}
     finally:
         db.close()
@@ -483,24 +490,28 @@ def put_session(sid: int, body: SessionUpdate):
         if not row:
             raise HTTPException(404, "session not found")
         write_model = "model" in body.model_fields_set
-        ts = body.updatedAt / 1000 if body.updatedAt else None
-        # Session columns first: save_nodes rebuilds the compatibility snapshot
-        # from the rows and reads active_node_id while doing it, so that value
-        # has to be current before the nodes land.
+        # updated_at is the SERVER's clock, not the epoch the client supplied.
+        # Accepting the client's was a wall-clock race between devices: a phone
+        # whose clock ran a few seconds fast stamped a time in the near future,
+        # every later desktop save landed "before" it, and the phone's own
+        # cached stamp stayed permanently newer — so it never refreshed again
+        # while the desktop kept picking up the phone's turns. Sorting only
+        # needs one clock both devices share, and that is the server's. The
+        # per-session activity time that client stamps existed to protect still
+        # survives, because a save now sends only the sessions that changed.
+        ts = None  # kept for the response shape; no longer written
         db.conn.execute(
             "UPDATE chat_sessions SET "
             "  title = COALESCE(?, title), "
             "  active_node_id = CASE WHEN ? THEN ? ELSE active_node_id END, "
             "  model = CASE WHEN ? THEN ? ELSE model END, "
-            "  updated_at = CASE WHEN ? THEN datetime(?, 'unixepoch') ELSE datetime('now') END "
+            "  updated_at = datetime('now') "
             "WHERE id=?",
             (body.title,
              int("activeNodeId" in body.model_fields_set),
              body.activeNodeId,
              int(write_model),
              body.model,
-             int(ts is not None),
-             ts,
              sid))
         db.conn.commit()
         # A save is a per-node UPSERT, never a tree replace. The old statement
@@ -513,7 +524,13 @@ def put_session(sid: int, body: SessionUpdate):
         if write_nodes or body.deletedNodeIds:
             counts = chat_nodes.save_nodes(
                 db, sid, body.nodes if write_nodes else None, body.deletedNodeIds)
-        return {"ok": True, "id": sid, **counts}
+        elif body.title is not None or write_model:
+            # Session metadata moved without any node changing. It is still a
+            # change other devices should notice, and bump_rev is what moves the
+            # revision and restamps updated_at. (save_nodes already bumped it
+            # when it wrote, so this would otherwise count the same save twice.)
+            chat_nodes.bump_rev(db, sid)
+        return {"ok": True, "id": sid, "rev": chat_nodes.rev_of(db, sid), **counts}
     finally:
         db.close()
 
