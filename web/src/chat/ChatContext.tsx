@@ -17,6 +17,7 @@ import {
 import type { ViewContext } from "@/types";
 import {
 	capForCache,
+	isTreeStale,
 	removedIds,
 	sessionSignature,
 	unionNodes,
@@ -106,6 +107,11 @@ export interface ChatSession {
 	/** The server's `updatedAt` for this session as of the last index refresh,
 	 *  so an open can tell whether its stored tree is worth re-fetching. */
 	serverUpdatedAt?: number;
+	/** The last server REVISION this device saw for the conversation. Freshness
+	 *  is decided by comparing this to the index, never by comparing clocks:
+	 *  each device stamps its own time, so a fast clock could keep one device's
+	 *  cached tree "newer" than every later save from another device forever. */
+	serverRev?: number;
 	/** The index says the server has turns this device has not merged yet. The
 	 *  tree is still painted; it is re-fetched when the session is opened. */
 	nodesStale?: boolean;
@@ -162,6 +168,11 @@ interface ChatContextValue {
 	/** Fetch a conversation's messages if this device does not hold them. Safe
 	 *  to call repeatedly; it no-ops when the tree is current. */
 	ensureSessionLoaded: (sessionId: string) => void;
+	/** Force a server read of one conversation, whatever this device believes.
+	 *  Resolves when the fetch settles. Used by the pull-past-the-bottom refresh
+	 *  and the retry button: after a sync mix-up the cached copy is exactly what
+	 *  must not be trusted. */
+	reloadSession: (sessionId: string) => Promise<void>;
 	/** True once the server session list has loaded (or failed). Until then the
 	 *  local cache is incomplete and callers should not guess. */
 	serverReady: boolean;
@@ -577,6 +588,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			// entry counts as loaded.
 			nodesLoaded: srv.nodes !== undefined,
 			serverUpdatedAt: Number.isFinite(ts) ? ts : undefined,
+			serverRev: srv.rev,
 			nodeCount: srv.nodeCount ?? (srv.nodes ? (srv.nodes as unknown[]).length : undefined),
 		});
 	}
@@ -625,6 +637,22 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			if (srv.nodes === undefined) {
 				const srvTs = refreshed.serverUpdatedAt ?? 0;
 				const knownTs = local.serverUpdatedAt ?? local.updatedAt ?? 0;
+				// Freshness is the server's revision now. The old rule compared wall
+				// clocks (`srvTs > knownTs + 2000`), and `knownTs` was a stamp this
+				// device had written itself — so a device whose clock ran a few
+				// seconds fast considered its own cached tree newer than every later
+				// save from another device, permanently. That is the phone: it kept
+				// receiving nothing from the desktop while the desktop received the
+				// phone's turns, and a reload could not fix it because the stamp
+				// lived in localStorage. A revision cannot be forged by a clock.
+				// A device with no recorded revision (cache predates this) is
+				// treated as behind whenever the server has written at all.
+				const stale = isTreeStale({
+					localRev: local.serverRev,
+					serverRev: srv.rev,
+					localUpdatedAt: knownTs,
+					serverUpdatedAt: srvTs,
+				});
 				return {
 					...local,
 					id,
@@ -633,9 +661,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 					createdAt: local.createdAt || refreshed.createdAt,
 					updatedAt: Math.max(local.updatedAt || 0, refreshed.updatedAt || 0),
 					serverUpdatedAt: srvTs || local.serverUpdatedAt,
+					serverRev: srv.rev ?? local.serverRev,
 					// The server has turns this device has not seen: re-fetch when
 					// it is opened, but keep painting what we have until then.
-					nodesStale: local.nodesStale || srvTs > knownTs + 2000,
+					nodesStale: local.nodesStale || stale,
 				};
 			}
 			return {
@@ -651,6 +680,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				activeNodeId: local.activeNodeId ?? refreshed.activeNodeId ?? null,
 				nodesLoaded: true,
 				nodesStale: false,
+				serverRev: srv.rev ?? local.serverRev,
 				serverUpdatedAt: Math.max(
 					local.serverUpdatedAt ?? 0,
 					refreshed.serverUpdatedAt ?? 0,
@@ -735,7 +765,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 		};
 		document.addEventListener("visibilitychange", onVis);
 		window.addEventListener("focus", maybeRefetch);
+		// Returning to the tab is not the only way the server moves on: a phone
+		// can stay in the foreground for an hour while the desktop writes. A
+		// light poll of the index (15 KB, throttled to one per 30 s by the guard
+		// above, skipped while a turn streams) keeps the chat on screen current
+		// without another gesture. "Mostly in sync unless I touch it" was the
+		// behaviour that made the phone feel broken.
+		const poll = window.setInterval(maybeRefetch, 45_000);
 		return () => {
+			window.clearInterval(poll);
 			document.removeEventListener("visibilitychange", onVis);
 			window.removeEventListener("focus", maybeRefetch);
 		};
@@ -774,7 +812,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
 	// What this device last pushed, per server session: a cheap fingerprint for
 	// "did anything change" and the node ids it had, so a prune can be named.
-	const syncedRef = useRef(new Map<number, { sig: string; ids: Set<string> }>());
+	const syncedRef = useRef(
+		new Map<number, { sig: string; ids: Set<string>; rev?: number }>(),
+	);
 	// When the oldest unsaved change happened, for the max-wait save below.
 	const dirtySinceRef = useRef(0);
 
@@ -785,6 +825,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			syncedRef.current.set(serverId, {
 				sig: sessionSignature(s),
 				ids: new Set(s.nodes.map((n) => n.id)),
+				rev: s.serverRev,
 			});
 		};
 		try {
@@ -822,8 +863,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				};
 				if (s.serverId != null) {
 					try {
-						await api.chatSessionSave(s.serverId, payload);
-						s.serverUpdatedAt = payload.updatedAt;
+						const saved = await api.chatSessionSave(s.serverId, payload);
+						// Record what this device is now current AS, from the server's
+						// own answer. `payload.updatedAt` was the local clock, which is
+						// no longer what the column holds.
+						if (saved.rev != null) s.serverRev = saved.rev;
+						s.serverUpdatedAt = saved.updatedAt
+							? parseServerTime(saved.updatedAt)
+							: payload.updatedAt;
 						markSynced(s.serverId, s);
 					} catch (e) {
 						if (e instanceof Error && e.message.startsWith("404")) {
@@ -862,14 +909,18 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 						s.id,
 					);
 					s.serverId = created.id;
-					s.serverUpdatedAt = payload.updatedAt;
+					if (created.rev != null) s.serverRev = created.rev;
+					s.serverUpdatedAt = created.updatedAt
+						? parseServerTime(created.updatedAt)
+						: Date.now();
 					sessionsRef.current = sessionsRef.current.map((x) =>
 						x.id === s.id ? { ...x, serverId: created.id } : x,
 					);
 					setSessions((ss) =>
 						ss.map((x) => (x.id === s.id ? { ...x, serverId: created.id } : x)),
 					);
-					await api.chatSessionSave(created.id, payload);
+					const first = await api.chatSessionSave(created.id, payload);
+					if (first.rev != null) s.serverRev = first.rev;
 					markSynced(created.id, s);
 				}
 			}
@@ -1026,15 +1077,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 	 * it returns immediately for a session that is loaded and not stale.
 	 */
 	const ensureLoaded = useCallback(
-		async (sessionId: string) => {
+		async (sessionId: string, force = false) => {
 			const s = sessionsRef.current.find((x) => x.id === sessionId);
 			// A draft with no server row has nothing to fetch.
 			if (!s || s.serverId == null) return;
-			// Already have the tree and the index has not reported a newer one.
-			// `loadedRef` covers the render gap: state still says "not loaded"
-			// for a moment after a fetch resolves.
-			if (loadedRef.current.has(sessionId) && !s.nodesStale) return;
-			if (s.nodesLoaded !== false && !s.nodesStale) return;
+			// `force` skips the freshness verdict on purpose: the pull-to-refresh
+			// gesture exists for the case where this device's belief about what it
+			// already holds is exactly what went wrong.
+			if (!force) {
+				// Already have the tree and the index has not reported a newer one.
+				// `loadedRef` covers the render gap: state still says "not loaded"
+				// for a moment after a fetch resolves.
+				if (loadedRef.current.has(sessionId) && !s.nodesStale) return;
+				if (s.nodesLoaded !== false && !s.nodesStale) return;
+			}
 			if (loadingRef.current.has(s.serverId)) return;
 			loadingRef.current.add(s.serverId);
 			setLoading(sessionId, true);
@@ -1068,6 +1124,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 							),
 							nodesLoaded: true,
 							nodesStale: false,
+							serverRev: srv.rev ?? x.serverRev,
 							serverUpdatedAt: Number.isFinite(ts)
 								? ts
 								: x.serverUpdatedAt,
@@ -1083,6 +1140,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 							syncedRef.current.set(s.serverId, {
 								sig: sessionSignature(next),
 								ids: new Set(next.nodes.map((n) => n.id)),
+								rev: next.serverRev,
 							});
 						}
 						return next;
@@ -1100,6 +1158,21 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			}
 		},
 		[setLoading, setFailed],
+	);
+
+	/** Force a server read of one conversation and resolve when it settles.
+	 *
+	 * The gesture that calls this is the user saying "I do not believe this
+	 * screen", so the freshness verdict is skipped entirely: after a sync
+	 * mix-up the cached copy is exactly what must not be trusted, and its
+	 * "already loaded" flag is cleared before the fetch.
+	 */
+	const reloadSession = useCallback(
+		async (sessionId: string) => {
+			loadedRef.current.delete(sessionId);
+			await ensureLoaded(sessionId, true);
+		},
+		[ensureLoaded],
 	);
 
 	// Load the tree for the chat that is on screen. The index paints the list
@@ -2034,6 +2107,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			sessionsLoading: loadingIds,
 			sessionsFailed: failedIds,
 			ensureSessionLoaded: ensureLoaded,
+			reloadSession,
 			serverReady,
 			openSession,
 			setSessionModel,
@@ -2066,6 +2140,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			loadingIds,
 			failedIds,
 			ensureLoaded,
+			reloadSession,
 			serverReady,
 			openSession,
 			setSessionModel,

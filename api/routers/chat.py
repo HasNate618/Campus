@@ -387,9 +387,12 @@ class SessionUpdate(BaseModel):
     nodes: list | None = None
     activeNodeId: str | None = None
     model: str | None = None
-    # Client's ms epoch for this session — the client's own record of when
-    # it last touched the session is the truth (the server used to stamp
-    # updated_at on every bulk re-save, clobbering individual times).
+    # Client's ms epoch for this session. Accepted and IGNORED: the server stamps
+    # updated_at from its own clock now. This field used to be written verbatim,
+    # which made freshness a race between devices whose clocks disagree — one
+    # fast phone could keep every later desktop save "before" its cached stamp,
+    # so that device never refreshed again. Ordering is the server's job, and
+    # cross-device freshness is `rev` (see bump_rev in api/chat_nodes.py).
     updatedAt: float | None = None
     # Node ids the client deliberately dropped (edit-and-resend prunes the old
     # descendants). Opt-in on purpose: a save that names no deletions can never
@@ -499,7 +502,6 @@ def put_session(sid: int, body: SessionUpdate):
         # needs one clock both devices share, and that is the server's. The
         # per-session activity time that client stamps existed to protect still
         # survives, because a save now sends only the sessions that changed.
-        ts = None  # kept for the response shape; no longer written
         db.conn.execute(
             "UPDATE chat_sessions SET "
             "  title = COALESCE(?, title), "
@@ -530,7 +532,14 @@ def put_session(sid: int, body: SessionUpdate):
             # revision and restamps updated_at. (save_nodes already bumped it
             # when it wrote, so this would otherwise count the same save twice.)
             chat_nodes.bump_rev(db, sid)
-        return {"ok": True, "id": sid, "rev": chat_nodes.rev_of(db, sid), **counts}
+        now = db.conn.execute(
+            "SELECT rev, updated_at FROM chat_sessions WHERE id=?", (sid,)).fetchone()
+        # The revision and the server's own timestamp come back with every save,
+        # so the saver records what it is now current as. Without them the client
+        # had to guess freshness on its own, which is how it drifted from the
+        # server in the first place.
+        return {"ok": True, "id": sid, "rev": int(now["rev"] or 0),
+                "updatedAt": now["updated_at"], **counts}
     finally:
         db.close()
 

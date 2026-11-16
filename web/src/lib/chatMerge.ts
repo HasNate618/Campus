@@ -119,8 +119,48 @@ export function sessionSignature(s: {
 	].join("|");
 }
 
-/** Node ids present in `before` and gone from `after` — the explicit deletions. */
-export function removedIds(before: Iterable<string>, after: Set<string>): string[] {
+/**
+ * Is this device's cached tree behind the server's?
+ *
+ * The server REVISION decides. It only moves when the server writes, so no
+ * clock can forge it, and it is the same number on both devices.
+ *
+ * The old rule compared wall clocks: `serverUpdatedAt > localUpdatedAt + 2000`.
+ * Both sides of that comparison were stamps the CLIENTS wrote (a save used to
+ * PUT its own `Date.now()` and the server stored it verbatim), so a device whose
+ * clock ran a few seconds fast kept considering its own cache newer than every
+ * later save from another device — permanently, and across page reloads, because
+ * the stamp lived in localStorage. That is exactly the phone: it never received
+ * the desktop's turns while the desktop received the phone's.
+ *
+ * The clock rule is kept ONLY as a fallback for a server old enough not to send
+ * a revision.
+ */
+export function isTreeStale(input: {
+	/** The revision this device last recorded for the conversation. */
+	localRev?: number | null;
+	/** The revision in the index (absent from an old server). */
+	serverRev?: number | null;
+	localUpdatedAt?: number | null;
+	serverUpdatedAt?: number | null;
+	marginMs?: number;
+}): boolean {
+	const {
+		localRev,
+		serverRev,
+		localUpdatedAt,
+		serverUpdatedAt,
+		marginMs = 2000,
+	} = input;
+	if (serverRev != null) {
+		// A cache written before the revision counter existed holds no rev; any
+		// write the server has made since is news to it, so it IS stale.
+		return localRev == null ? serverRev > 0 : serverRev > localRev;
+	}
+	return (serverUpdatedAt ?? 0) > (localUpdatedAt ?? 0) + marginMs;
+}
+
+/** Node ids present in `before` and gone from `after` — the explicit deletions. */export function removedIds(before: Iterable<string>, after: Set<string>): string[] {
 	const gone: string[] = [];
 	for (const id of before) if (!after.has(id)) gone.push(id);
 	return gone;

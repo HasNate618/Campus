@@ -27,14 +27,22 @@ async function get<T>(path: string, timeoutMs?: number): Promise<T> {
 	}
 }
 
-async function post<T>(path: string, body?: unknown): Promise<T> {
-	const res = await fetch(`${BASE}${path}`, {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: body ? JSON.stringify(body) : undefined,
-	});
-	if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-	return res.json();
+async function post<T>(path: string, body?: unknown, timeoutMs?: number): Promise<T> {
+	const ctrl = timeoutMs ? new AbortController() : undefined;
+	const timer =
+		ctrl && timeoutMs ? setTimeout(() => ctrl.abort(), timeoutMs) : undefined;
+	try {
+		const res = await fetch(`${BASE}${path}`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: body ? JSON.stringify(body) : undefined,
+			signal: ctrl?.signal,
+		});
+		if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+		return res.json();
+	} finally {
+		if (timer) clearTimeout(timer);
+	}
 }
 
 async function request<T>(path: string, init: RequestInit): Promise<T> {
@@ -221,17 +229,25 @@ export const api = {
 		title: string,
 		clientKey?: string,
 	) =>
-		post<ChatServerSession & { created?: boolean }>("/chat/sessions", {
-			course_id: courseId,
-			title,
-			// Makes the create idempotent: a device that lost its server id asks
-			// again with the same key and gets the row it already made back,
-			// instead of creating a second copy of the conversation.
-			client_key: clientKey,
-		}),
+		// A create that never settles keeps savingRef true, which stops this device
+		// from saving ANY conversation again for the life of the tab.
+		post<ChatServerSession & { created?: boolean }>(
+			"/chat/sessions",
+			{
+				course_id: courseId,
+				title,
+				// Makes the create idempotent: a device that lost its server id asks
+				// again with the same key and gets the row it already made back,
+				// instead of creating a second copy of the conversation.
+				client_key: clientKey,
+			},
+			30_000,
+		),
 
 	chatSessionGet: (id: number) =>
-		get<ChatServerSession>(`/chat/sessions/${id}`),
+		// Opening a chat is a user-visible wait, and a hung GET leaves the session
+		// spinning with loadingRef stuck. Fail so the view can offer Retry.
+		get<ChatServerSession>(`/chat/sessions/${id}`, 45_000),
 	chatSessionSave: (
 		id: number,
 		body: {
@@ -243,7 +259,16 @@ export const api = {
 			/** Node ids this device dropped on purpose; the only way a save removes. */
 			deletedNodeIds?: string[];
 		},
-	) => put(`/chat/sessions/${id}`, body),
+	) =>
+		// The revision comes back so the caller records what it is current as,
+		// and can then tell a real change from a re-save of the same tree.
+		put<{ ok: boolean; id: number; rev?: number; updatedAt?: string }>(
+			`/chat/sessions/${id}`,
+			body,
+			// A tree can be a megabyte, so this is generous; the point is that a
+			// stalled upload fails instead of wedging the save loop forever.
+			30_000,
+		),
 	chatSessionDelete: (id: number) => del(`/chat/sessions/${id}`),
 	/**
 	 * Queue a message for the turn that is already streaming. It is read at the
@@ -279,20 +304,33 @@ export interface ChatServerSession {
 	/** Summary responses only. */
 	nodeCount?: number;
 	clientKey?: string | null;
+	/** Monotonic server revision of this conversation's content. The client
+	 *  compares it to decide whether its cached tree is behind; wall clocks are
+	 *  not consulted, because each device stamps its own. */
+	rev?: number;
 	created?: boolean;
 }
 
-async function put(
+async function put<T = { ok: boolean; id: number }>(
 	path: string,
 	body: unknown,
-): Promise<{ ok: boolean; id: number }> {
-	const res = await fetch(`${BASE}${path}`, {
-		method: "PUT",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify(body),
-	});
-	if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-	return res.json();
+	timeoutMs?: number,
+): Promise<T> {
+	const ctrl = timeoutMs ? new AbortController() : undefined;
+	const timer =
+		ctrl && timeoutMs ? setTimeout(() => ctrl.abort(), timeoutMs) : undefined;
+	try {
+		const res = await fetch(`${BASE}${path}`, {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(body),
+			signal: ctrl?.signal,
+		});
+		if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+		return res.json();
+	} finally {
+		if (timer) clearTimeout(timer);
+	}
 }
 
 async function del(path: string): Promise<{ ok: boolean }> {
@@ -366,12 +404,45 @@ export async function streamChat(
 	const decoder = new TextDecoder();
 	let buffer = "";
 
+	// A dead mobile socket does not reject: the reader simply never resolves.
+	// That leaves `busy` true forever, and busy is exactly what suppresses the
+	// cross-device index refresh, so the phone freezes in time until reloaded.
+	// There is nothing to lose by giving up: the server writes each turn under
+	// ids it was sent, and the caller reconciles against the stored answer when
+	// a stream fails.
+	const IDLE_MS = 90_000;
+	const readWithDeadline = () =>
+		new Promise<ReadableStreamReadResult<Uint8Array>>((resolve, reject) => {
+			let settled = false;
+			const timer = setTimeout(() => {
+				settled = true;
+				reject(new Error(`stream idle for ${IDLE_MS / 1000}s`));
+			}, IDLE_MS);
+			reader.read().then(
+				(value) => {
+					if (settled) return;
+					settled = true;
+					clearTimeout(timer);
+					resolve(value);
+				},
+				(error) => {
+					if (settled) return;
+					settled = true;
+					clearTimeout(timer);
+					reject(error);
+				},
+			);
+		});
+
 	while (true) {
 		let chunk: ReadableStreamReadResult<Uint8Array>;
 		try {
-			chunk = await reader.read();
+			chunk = await readWithDeadline();
 		} catch (e) {
 			console.error("[chat-stream] read failed:", e);
+			// Release the socket; a cancelled reader on a live stream also tells the
+			// server nobody is listening, which is what it needs to stop writing.
+			void reader.cancel().catch(() => {});
 			throw e;
 		}
 		const { done, value } = chunk;

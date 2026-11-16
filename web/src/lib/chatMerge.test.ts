@@ -3,6 +3,7 @@ import { describe, it } from 'node:test'
 
 import {
 	capForCache,
+	isTreeStale,
 	removedIds,
 	sessionSignature,
 	sinceForSync,
@@ -162,8 +163,7 @@ describe('capForCache', () => {
 	})
 })
 
-describe('stale citation targets', () => {
-	it('takes the server file target when a chip was repaired there', () => {
+describe('stale citation targets', () => {	it('takes the server file target when a chip was repaired there', () => {
 		// The same citation id, but the server now points it at the PDF that was
 		// generated for the deck while the browser still holds the markdown id.
 		const local = [
@@ -237,3 +237,48 @@ describe('serverTimeToEpochSeconds', () => {
 		assert.equal(sinceForSync([{ updatedAt: t + 86_400_000 }], t), undefined);
 	});
 });
+
+describe('isTreeStale', () => {
+	it('compares revisions, not clocks', () => {
+		assert.equal(isTreeStale({ localRev: 3, serverRev: 4 }), true)
+		assert.equal(isTreeStale({ localRev: 4, serverRev: 4 }), false)
+		// A server that has not moved on since this device's save.
+		assert.equal(isTreeStale({ localRev: 7, serverRev: 6 }), false)
+	})
+
+	it('ignores a cached clock that runs ahead of the server', () => {
+		// The phone case: its own stamp is "newer" than the server's, so the old
+		// clock rule said fresh forever. The revision says otherwise.
+		assert.equal(
+			isTreeStale({
+				localRev: 2,
+				serverRev: 5,
+				localUpdatedAt: 2_000_000,
+				serverUpdatedAt: 1_000_000,
+			}),
+			true,
+		)
+	})
+
+	it('treats a cache with no revision as behind', () => {
+		// A phone whose localStorage predates the counter still has to refetch.
+		assert.equal(isTreeStale({ serverRev: 1 }), true)
+		assert.equal(isTreeStale({ serverRev: 0 }), false)
+	})
+
+	it('falls back to clocks only for a server that sends no revision', () => {
+		assert.equal(
+			isTreeStale({ serverUpdatedAt: 10_000, localUpdatedAt: 5_000 }),
+			true,
+		)
+		assert.equal(
+			isTreeStale({ serverUpdatedAt: 5_000, localUpdatedAt: 5_000 }),
+			false,
+		)
+		// Same second, different devices: inside the margin it is not news.
+		assert.equal(
+			isTreeStale({ serverUpdatedAt: 6_000, localUpdatedAt: 5_000 }),
+			false,
+		)
+	})
+})
