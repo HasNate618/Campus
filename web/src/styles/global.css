@@ -3394,15 +3394,20 @@
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      /* re-affirm mobile padding: the desktop pdf-mode rule zeroes it;
-         equal specificity + later position keeps the 96px tabbar room */
-      padding: 12px 12px 96px;
+      /* full-bleed: the document owns the phone's width. Only the bottom
+         padding survives, to clear the fixed tab bar. */
+      padding: 0 0 96px;
     }
     .course-scroll:has(.split-viewer.pdf-mode) > .page-col {
       flex: 1;
       min-height: 0;
       display: flex;
       flex-direction: column;
+      /* `margin: 0 auto` from the base rule is an auto cross-axis margin on a
+         COLUMN flex item, which stops it stretching and shrinks this column to
+         its content width (276px on a 390px phone). */
+      margin: 0;
+      max-width: none;
     }
     .course-scroll:has(.split-viewer.pdf-mode) .split {
       flex: 1;
@@ -3413,31 +3418,34 @@
       grid-template-rows: minmax(0, 1fr);
       height: 100%;
     }
-    .split-viewer.pdf-mode {
+    /* The one-pane mobile split forces the viewer to display:block with the
+       MORE specific `.split.has-selection .split-viewer`, which silently
+       undid every pdf-mode flex rule below (display:block, no flex context).
+       The iframe then kept height:auto and fell back to the browser's default
+       300x150 box inside a 640px-tall viewer. Match that specificity so the
+       column flex chain actually exists. */
+    .split.has-selection .split-viewer.pdf-mode {
       flex: 1;
       min-height: 0;
       height: auto;
       display: flex;
       flex-direction: column;
     }
-    .split-viewer.pdf-mode .pdf-zen {
+    .split.has-selection .split-viewer.pdf-mode .pdf-zen {
       flex: 1;
       min-height: 0;
       display: flex;
       flex-direction: column;
-    }
-
-    .split-viewer.pdf-mode .zen-pdf-frame {
-      flex: 1;
-      width: calc(100% + 24px); /* touch the screen edges */
-      margin: 0 -12px;
-      height: auto;
-      min-height: 0;
-    }
-
-    .split-viewer.pdf-mode .pdf-zen {
       padding-left: 0;
       padding-right: 0;
+    }
+
+    .split.has-selection .split-viewer.pdf-mode .zen-pdf-frame {
+      flex: 1;
+      width: 100%;
+      height: auto;
+      min-height: 0;
+      margin: 0;
     }
 
     .page-schedule .page-head {
