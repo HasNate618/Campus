@@ -532,6 +532,23 @@ def put_session(sid: int, body: SessionUpdate):
             # revision and restamps updated_at. (save_nodes already bumped it
             # when it wrote, so this would otherwise count the same save twice.)
             chat_nodes.bump_rev(db, sid)
+        # The pointer is written verbatim above because it may name a node this
+        # very save created, so it can only be validated now that the rows are
+        # in. A dangling active_node_id is not cosmetic: the client builds the
+        # transcript by walking parents up from it, so it renders an EMPTY
+        # conversation on every device while the messages sit in the table.
+        # A session that still lives only in the legacy blob is left alone: it
+        # has no rows to validate against, and rebuilding its snapshot from them
+        # would wipe the conversation.
+        if chat_nodes.has_nodes(db, sid):
+            stored_active = chat_nodes.active_node_id(db, sid)
+            safe_active = chat_nodes.safe_active_node(db, sid, stored_active)
+            if safe_active != stored_active:
+                chat_nodes.set_active_node(db, sid, safe_active)
+                # nodes_json is the compatibility snapshot and embeds the
+                # pointer, so it must be rebuilt or a rollback path resurrects
+                # the bad one.
+                chat_nodes.write_snapshot(db, sid)
         now = db.conn.execute(
             "SELECT rev, updated_at FROM chat_sessions WHERE id=?", (sid,)).fetchone()
         # The revision and the server's own timestamp come back with every save,

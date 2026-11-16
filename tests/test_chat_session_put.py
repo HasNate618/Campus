@@ -105,6 +105,51 @@ def test_nodes_update_upserts_and_keeps_the_rest(session_db):
     assert tree["nodes"][0]["children"] == ["z"]   # linkage derived from parentId
 
 
+def test_a_dangling_active_node_is_repaired_not_stored(session_db):
+    """A pointer at a node that does not exist must not survive a save.
+
+    The client builds the transcript by walking parents up from active_node_id,
+    so a dangling one renders an empty conversation on every device (the nodes
+    are all still there). Both halves are covered here: the save repairs the
+    row, and the compatibility snapshot is rebuilt so a rollback path cannot
+    resurrect the bad pointer.
+    """
+    from api.routers.chat import SessionUpdate, put_session
+
+    dbp, sid = session_db
+    # adopt the legacy blob into rows first (a node save is what does that)
+    put_session(sid, SessionUpdate(nodes=[{"id": "n1", "role": "assistant",
+                                           "content": "hi"}]))
+    put_session(sid, SessionUpdate(activeNodeId="ghost"))
+    blob = json.loads(_row(dbp, sid)["nodes_json"])
+    assert blob["activeNodeId"] == "n1"          # the only node: the fallback
+    assert blob["activeNodeId"] != "ghost"
+
+
+def test_clearing_the_pointer_on_a_populated_chat_resolves_to_a_node(session_db):
+    from api.routers.chat import SessionUpdate, put_session
+
+    dbp, sid = session_db
+    put_session(sid, SessionUpdate(nodes=[{"id": "n1", "role": "assistant",
+                                           "content": "hi"}]))
+    put_session(sid, SessionUpdate(activeNodeId=None))
+    assert json.loads(_row(dbp, sid)["nodes_json"])["activeNodeId"] == "n1"
+
+
+def test_a_metadata_save_does_not_touch_a_legacy_blob(session_db):
+    """Repairing must not run on a session that still lives in the blob.
+
+    There are no rows to validate against, and the repair rebuilds nodes_json
+    from the rows — for a not-yet-migrated session that is an EMPTY list, so a
+    rename would have destroyed the conversation.
+    """
+    from api.routers.chat import SessionUpdate, put_session
+
+    dbp, sid = session_db
+    put_session(sid, SessionUpdate(title="Renamed"))
+    assert json.loads(_row(dbp, sid)["nodes_json"]) == TREE
+
+
 def test_omitted_model_keeps_and_explicit_null_clears(session_db):
     from api.routers.chat import SessionUpdate, put_session
 

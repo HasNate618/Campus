@@ -94,6 +94,59 @@ def test_an_empty_save_writes_nothing(db):
     assert res == {"added": 0, "updated": 0, "removed": 0, "total": 1}
 
 
+# --- the active pointer -----------------------------------------------------
+
+def test_a_live_pointer_is_left_alone(db):
+    from api import chat_nodes
+
+    s = sid(db)
+    chat_nodes.save_nodes(db, s, [
+        {"id": "u1", "parentId": None, "role": "user", "content": "q"},
+        {"id": "a1", "parentId": "u1", "role": "assistant", "content": "a"},
+    ])
+    chat_nodes.set_active_node(db, s, "u1")
+    assert chat_nodes.safe_active_node(db, s, "u1") == "u1"
+    assert chat_nodes.load_tree(db, s)["activeNodeId"] == "u1"
+
+
+def test_a_dangling_pointer_falls_back_to_the_newest_leaf(db):
+    """Deleting the message you were reading used to leave the pointer behind.
+
+    The client draws a conversation by walking parents up from this node, so a
+    pointer at a deleted row renders an EMPTY chat while every message is still
+    stored. It has to resolve to something that exists.
+    """
+    from api import chat_nodes
+
+    s = sid(db)
+    chat_nodes.save_nodes(db, s, [
+        {"id": "u1", "parentId": None, "role": "user", "content": "q"},
+        {"id": "a1", "parentId": "u1", "role": "assistant", "content": "a"},
+    ])
+    chat_nodes.set_active_node(db, s, "ghost")
+    assert chat_nodes.safe_active_node(db, s, "ghost") == "a1"
+    assert chat_nodes.load_tree(db, s)["activeNodeId"] == "a1"
+
+
+def test_a_tool_node_is_never_the_fallback(db):
+    from api import chat_nodes
+
+    s = sid(db)
+    chat_nodes.save_nodes(db, s, [
+        {"id": "a1", "parentId": None, "role": "assistant", "content": "a"},
+        {"id": "t1", "parentId": "a1", "role": "tool", "content": ""},
+    ])
+    # a tool row is a leaf, but it is an artifact: the turn itself is the tip
+    assert chat_nodes.safe_active_node(db, s, None) == "a1"
+
+
+def test_an_empty_session_keeps_no_pointer(db):
+    from api import chat_nodes
+
+    s = sid(db)
+    assert chat_nodes.safe_active_node(db, s, "anything") is None
+
+
 # --- tree assembly ----------------------------------------------------------
 
 def test_children_order_follows_the_writer(db):

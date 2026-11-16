@@ -248,11 +248,14 @@ def load_tree(db, session_id: int) -> dict:
     nodes = load_nodes(db, session_id)
     if nodes:
         _repoint_citations(db, session_id, nodes)
-        return {"nodes": nodes, "activeNodeId": active_node_id(db, session_id)}
+        return {"nodes": nodes,
+                "activeNodeId": safe_active_node(db, session_id,
+                                                 active_node_id(db, session_id))}
     tree = _legacy_tree(db, session_id)
     legacy_nodes = tree.get("nodes", [])
     _repoint_citations(db, session_id, legacy_nodes)
-    return {"nodes": legacy_nodes, "activeNodeId": tree.get("activeNodeId")}
+    return {"nodes": legacy_nodes,
+            "activeNodeId": pick_active(legacy_nodes, tree.get("activeNodeId"))}
 
 
 def write_snapshot(db, session_id: int) -> None:
@@ -275,6 +278,50 @@ def set_active_node(db, session_id: int, node_id: str | None) -> None:
     db.conn.execute("UPDATE chat_sessions SET active_node_id=? WHERE id=?",
                     (node_id, session_id))
     db.conn.commit()
+
+
+def pick_active(nodes: list[dict], active: str | None) -> str | None:
+    """The active node, guaranteed to be one of `nodes`.
+
+    The client draws a conversation by walking parents UP from the active node,
+    so a pointer at a node that is not there does not degrade the view — it
+    EMPTIES it, on every device, while every message is still stored. That
+    happens for real: deleting the message you were reading leaves the pointer
+    behind (the client falls back to the parent, but a root has none), and two
+    devices can delete each other's branches.
+
+    An unknown pointer is replaced by the newest leaf, then by the newest
+    message. A tool row is an artifact of a turn and is only ever a last resort.
+    """
+    ids = {str(n.get("id")) for n in nodes}
+    if active and active in ids:
+        return active
+    parents = {n.get("parentId") for n in nodes if n.get("parentId")}
+    leaves = [str(n.get("id")) for n in nodes
+              if n.get("id") not in parents and n.get("role") != "tool"]
+    if leaves:
+        return leaves[-1]
+    real = [str(n.get("id")) for n in nodes if n.get("role") != "tool"]
+    if real:
+        return real[-1]
+    return str(nodes[-1].get("id")) if nodes else None
+
+
+def safe_active_node(db, session_id: int, active: str | None) -> str | None:
+    """`pick_active` over this session's rows. None when it has no rows yet."""
+    rows = db.conn.execute(
+        "SELECT id, parent_id, role FROM chat_nodes WHERE session_id=? "
+        "ORDER BY position, rowid", (session_id,)).fetchall()
+    return pick_active(
+        [{"id": r["id"], "parentId": r["parent_id"], "role": r["role"]} for r in rows],
+        active)
+
+
+def has_nodes(db, session_id: int) -> bool:
+    """Whether the session has been migrated to rows (or ever saved)."""
+    return db.conn.execute(
+        "SELECT 1 FROM chat_nodes WHERE session_id=? LIMIT 1",
+        (session_id,)).fetchone() is not None
 
 
 def rev_of(db, session_id: int) -> int:
