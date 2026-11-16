@@ -18,10 +18,13 @@ import type { ViewContext } from "@/types";
 import {
 	capForCache,
 	isTreeStale,
-	removedIds,
 	sessionSignature,
 	unionNodes,
 } from "@/lib/chatMerge";
+import { pathFor, rootBranches, tipOf } from "@/lib/chatTree";
+
+/** Re-exported for the view, which imports it alongside the context. */
+export { pathFor } from "@/lib/chatTree";
 
 /** Chat message tree (Open WebUI-style): a flat node store linked by
  *  parentId/children. The visible conversation is the path from the root
@@ -242,23 +245,6 @@ function makeSession(courseId: number): ChatSession {
 		nodes: [],
 		activeNodeId: null,
 	};
-}
-
-/** Path from the root to activeNodeId (the displayed conversation). */
-export function pathFor(session: ChatSession): MsgNode[] {
-	// Index once (O(nodes)) so walking the active path is O(depth) instead of
-	// O(nodes × depth). This runs on every render — including every streamed
-	// token — so the repeated find() was quadratic in long conversations.
-	const byId = new Map(session.nodes.map((n) => [n.id, n]));
-	const out: MsgNode[] = [];
-	let cur = session.activeNodeId ? byId.get(session.activeNodeId) : undefined;
-	const guard = new Set<string>();
-	while (cur && !guard.has(cur.id)) {
-		guard.add(cur.id);
-		out.push(cur);
-		cur = cur.parentId ? byId.get(cur.parentId) : undefined;
-	}
-	return out.reverse();
 }
 
 /**
@@ -811,9 +797,32 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 	}, [sessions]);
 
 	// What this device last pushed, per server session: a cheap fingerprint for
-	// "did anything change" and the node ids it had, so a prune can be named.
-	const syncedRef = useRef(
-		new Map<number, { sig: string; ids: Set<string>; rev?: number }>(),
+	// "did anything change", so an unchanged session is never re-uploaded.
+	const syncedRef = useRef(new Map<number, { sig: string; rev?: number }>());
+	// Node ids this device deliberately removed, per server session, until a
+	// save has told the server about them.
+	//
+	// Deletions used to be DERIVED: diff what this device last pushed against
+	// what it has now. That baseline only exists once a save or a fetch has
+	// happened, and after a reload a cached session is never fetched, so the
+	// diff was empty and the delete was simply not sent: the message vanished
+	// from the screen, stayed on the server, and came back on the next load —
+	// along with the re-parented children, which left the conversation forked.
+	// Naming the ids at the moment they are removed makes the intent explicit
+	// and independent of what this browser happens to remember.
+	const deletedRef = useRef(new Map<number, Set<string>>());
+	/** Name nodes this device removed, so the next save tells the server. */
+	const recordDeletions = useCallback(
+		(serverId: number | null | undefined, ids: Iterable<string>) => {
+			if (serverId == null) return; // never stored: nothing to remove
+			let gone = deletedRef.current.get(serverId);
+			if (!gone) {
+				gone = new Set<string>();
+				deletedRef.current.set(serverId, gone);
+			}
+			for (const id of ids) gone.add(id);
+		},
+		[],
 	);
 	// When the oldest unsaved change happened, for the max-wait save below.
 	const dirtySinceRef = useRef(0);
@@ -824,7 +833,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 		const markSynced = (serverId: number, s: ChatSession) => {
 			syncedRef.current.set(serverId, {
 				sig: sessionSignature(s),
-				ids: new Set(s.nodes.map((n) => n.id)),
 				rev: s.serverRev,
 			});
 		};
@@ -842,18 +850,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				// updated_at because of it.
 				const sig = sessionSignature(s);
 				const prev = s.serverId != null ? syncedRef.current.get(s.serverId) : undefined;
-				const ids = new Set(s.nodes.map((n) => n.id));
-				const gone = prev ? removedIds(prev.ids, ids) : [];
-				if (prev && prev.sig === sig && gone.length === 0) continue;
+				const gone = s.serverId != null
+					? deletedRef.current.get(s.serverId)
+					: undefined;
+				if (prev && prev.sig === sig && !gone?.size) continue;
 				const payload = {
 					title: s.title,
 					nodes: stripUiFlags(s).nodes,
 					activeNodeId: s.activeNodeId,
 					model: s.model ?? null,
-					// Node ids this device deliberately dropped (edit-and-resend
-					// prunes the old descendants). The server removes ONLY these,
-					// so an unchanged save can never shrink a tree.
-					deletedNodeIds: gone,
+					// Node ids this device deliberately dropped (delete-message and
+					// edit-and-resend's pruned descendants). The server removes ONLY
+					// these, so a save can never shrink a tree by accident.
+					deletedNodeIds: gone ? [...gone] : [],
 					// the true per-session activity time — the server adopts it as
 					// updated_at instead of stamping its own (bulk re-saves used to
 					// clobber every session's time with the same value). Clamped:
@@ -871,6 +880,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 						s.serverUpdatedAt = saved.updatedAt
 							? parseServerTime(saved.updatedAt)
 							: payload.updatedAt;
+						deletedRef.current.delete(s.serverId);
 						markSynced(s.serverId, s);
 					} catch (e) {
 						if (e instanceof Error && e.message.startsWith("404")) {
@@ -879,6 +889,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 							// next tick re-creates it, and keep saving the rest
 							// of the batch instead of 404-spamming every tick.
 							syncedRef.current.delete(s.serverId);
+							deletedRef.current.delete(s.serverId);
 							setSessions((ss) =>
 								ss.map((x) =>
 									x.id === s.id ? { ...x, serverId: undefined } : x,
@@ -1107,15 +1118,26 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 						// A live stream owns this tree; a fetch that lands mid-turn
 						// would paint over tokens the server has not stored yet.
 						if (x.nodes.some((n) => n.streaming)) return x;
+						// Union, not replace: this device may hold turns the
+						// server has not been told about yet.
+						const nodes =
+							x.nodesLoaded === false
+								? fetched
+								: unionNodes(x.nodes, fetched);
+						// Never keep a pointer at a node this tree does not contain.
+						// The transcript is that node's ancestor chain, so a
+						// dangling id draws an empty conversation even though the
+						// messages arrived (the server repairs its copy; a browser
+						// holding the old pointer has to repair its own).
+						const known = new Set(nodes.map((n) => n.id));
+						const activeNodeId =
+							x.activeNodeId && known.has(x.activeNodeId)
+								? x.activeNodeId
+								: (srv.activeNodeId ?? null);
 						const next: ChatSession = {
 							...x,
-							// Union, not replace: this device may hold turns the
-							// server has not been told about yet.
-							nodes:
-								x.nodesLoaded === false
-									? fetched
-									: unionNodes(x.nodes, fetched),
-							activeNodeId: x.activeNodeId ?? srv.activeNodeId ?? null,
+							nodes,
+							activeNodeId,
 							title: srv.title || x.title,
 							model: x.model ?? srv.model ?? null,
 							updatedAt: Math.max(
@@ -1139,7 +1161,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 						if (s.serverId != null && x.nodes.every((n) => fetchedIds.has(n.id))) {
 							syncedRef.current.set(s.serverId, {
 								sig: sessionSignature(next),
-								ids: new Set(next.nodes.map((n) => n.id)),
 								rev: next.serverRev,
 							});
 						}
@@ -1957,6 +1978,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			// into a ghost parent: the user message vanished and only the new
 			// assistant response rendered.
 			doomed.delete(nodeId);
+			// The old answer and everything under it are gone: say so explicitly,
+			// otherwise the server keeps them and the next load brings them back
+			// beside the new answer (a fork the user never asked for).
+			recordDeletions(session.serverId, doomed);
 			const history = pathFor(session)
 				.filter(
 					(n) =>
@@ -2005,7 +2030,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				makeUuid(),
 			);
 		},
-		[sessions, streamTurn],
+		[sessions, streamTurn, recordDeletions],
 	);
 
 	const deleteMessage = useCallback(
@@ -2027,6 +2052,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 			const artifactIds = new Set(
 				kids.filter((k) => !rejoin.some((r) => r.id === k.id)).map((k) => k.id),
 			);
+			recordDeletions(session.serverId, [nodeId, ...artifactIds]);
 			const nodes = session.nodes
 				.filter((n) => n.id !== nodeId && !artifactIds.has(n.id))
 				.map((n) => {
@@ -2047,17 +2073,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				const siblings = (parent?.children ?? [])
 					.map((id) => nodes.find((n) => n.id === id))
 					.filter((n): n is MsgNode => !!n && n.role !== "tool");
-				activeNodeId = siblings.length
-					? siblings[siblings.length - 1]!.id
-					: parentId;
+				// Show the surviving version of that turn, down to its own end —
+				// pointing at the fork child would hide the rest of its branch.
+				const last = siblings.at(-1);
+				activeNodeId = last ? tipOf(nodes, last.id) : parentId;
 			}
 			// safety: never leave the path rooted at a missing node
 			if (activeNodeId && !nodes.some((n) => n.id === activeNodeId)) {
-				activeNodeId = nodes[nodes.length - 1]?.id ?? null;
+				const lastRoot = rootBranches(nodes).at(-1);
+				activeNodeId = lastRoot ? tipOf(nodes, lastRoot.id) : null;
 			}
 			if (nodes.length === 0) {
 				// the last message is gone → the session is empty → drop it entirely
 				if (session.serverId != null) {
+					deletedRef.current.delete(session.serverId);
 					api
 						.chatSessionDelete(session.serverId)
 						.catch((e) => console.error("[chat-sync] delete failed:", e));
@@ -2073,12 +2102,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 				),
 			);
 		},
-		[sessions],
+		[sessions, recordDeletions],
 	);
 
 	const setActiveBranch = useCallback(
 		(sessionId: string, nodeId: string) => {
-			setActiveNode(sessionId, nodeId);
+			// A chip names the FIRST node of another branch; the transcript is the
+			// ancestor chain of the active node, so activating that first node
+			// dropped every later turn on the branch from the screen. Land on the
+			// tip instead, preferring where the reader already was.
+			const s = sessionsRef.current.find((x) => x.id === sessionId);
+			setActiveNode(
+				sessionId,
+				s ? tipOf(s.nodes, nodeId, s.activeNodeId) : nodeId,
+			);
 		},
 		[setActiveNode],
 	);

@@ -37,6 +37,7 @@ import type { CitationMeta } from "@/lib/md";
 import { fileRefAction } from "@/lib/fileRefAction";
 import { WORKSPACE_OPEN_EVENT, type ResolvedRef } from "@/lib/refs";
 import { useChat, pathFor, type Citation, type MsgNode, type StepItem } from "./ChatContext";
+import { rootBranches } from "@/lib/chatTree";
 import type { Course } from "@/types";
 
 const SUGGESTIONS = [
@@ -214,6 +215,12 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		return e;
 	}, [session?.model, model, models]);
 	const path = session ? pathFor(session) : [];
+	// Which nodes are on the branch being shown. A chip belongs to the active
+	// branch when its target sits somewhere on this path, not only when it is
+	// the tip — the tip is several turns below any fork, so comparing against
+	// activeNodeId alone meant no chip was ever highlighted while the
+	// conversation was playing correctly.
+	const activeIds = new Set(path.map((n) => n.id));
 	const lastAssistant = [...path]
 		.reverse()
 		.find((n) => n.role === "assistant" && !n.intermediate);
@@ -947,15 +954,14 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		);
 	};
 
-	const renderBranchChips = (node: MsgNode): ReactNode => {
-		const kids = childrenByParent.get(node.id) ?? [];
+	const renderChips = (key: string, kids: MsgNode[]): ReactNode => {
 		if (kids.length < 2) return null;
 		return (
-			<div key={`br-${node.id}`} className="branch-chips">
+			<div key={key} className="branch-chips">
 				{kids.map((k, i) => (
 					<button
 						key={k.id}
-						className={`branch-chip${session?.activeNodeId === k.id ? " active" : ""}`}
+						className={`branch-chip${activeIds.has(k.id) ? " active" : ""}`}
 						onClick={() => setActiveBranch(session!.id, k.id)}
 						title="Switch to this branch"
 					>
@@ -966,9 +972,18 @@ export function ChatView({ courseId, course, courses, onPickCourse }: Props) {
 		);
 	};
 
+	const renderBranchChips = (node: MsgNode): ReactNode =>
+		renderChips(`br-${node.id}`, childrenByParent.get(node.id) ?? []);
+
 	const renderMessages = (): ReactNode[] => {
 		if (!session) return [];
 		const out: ReactNode[] = [];
+		// Deleting a conversation's first message rejoins its children to the
+		// root, so a forked chat can end up with two starting points. Chips are
+		// rendered under a parent, and a root has none, which would leave the
+		// other branch on screen nowhere and unreachable.
+		const rootChips = renderChips(`br-roots-${session.id}`, rootBranches(session.nodes));
+		if (rootChips) out.push(rootChips);
 		for (const node of path) {
 			const key = `${session.id}-${node.id}`;
 			if (node.role === "user") {
