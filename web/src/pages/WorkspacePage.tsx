@@ -50,6 +50,11 @@ export function WorkspacePage() {
   const { courseId } = useParams()
   const cid = Number(courseId)
   const [searchParams, setSearchParams] = useSearchParams()
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
   const [tree, setTree] = useState<WorkspaceTree | null>(null)
   // expanded DIRECTORY paths — a Set so subfolders can stay open under an
   // open parent (a single open-path string made any subfolder click
@@ -209,7 +214,21 @@ export function WorkspacePage() {
     // seconds, so an effect guarded on "is the open file the param" only stays
     // quiet if a manual open also updates the param. `replace` keeps the back
     // button clean, and it makes a workspace view linkable.
-    setSearchParams({ path: n.path }, { replace: true })
+    // Only own the URL while this page IS the live route. openNode awaits the
+    // flush above, so a navigation that lands inside that window used to have
+    // its destination rewritten by this stale continuation: tap Home from a
+    // workspace with a file open and the app put you straight back in the
+    // workspace.
+    //
+    // This reads window.location, not useLocation(). navigate() updates the
+    // URL synchronously but React catches up on a later render — and the
+    // reverted URL cancels that render, so the component never sees the
+    // navigation and never unmounts. Its useLocation() still reports the
+    // workspace at the moment the continuation runs, which is exactly the
+    // trap. The URL is the only value that is already correct.
+    if (mountedRef.current && window.location.pathname === `/courses/${cid}/workspace`) {
+      setSearchParams({ path: n.path }, { replace: true })
+    }
     setPreview(true)
     setViewable(false)
     setAssetUrl(null)
