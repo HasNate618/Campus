@@ -813,12 +813,27 @@ def get_sync_log(run_id: int) -> str:
 
 
 def get_digest() -> dict:
-    logs = sorted((SCHOOL_ROOT / "sync_logs").glob("*.md")) if (SCHOOL_ROOT / "sync_logs").exists() else []
+    logs_dir = SCHOOL_ROOT / "sync_logs"
+    current = logs_dir / "digest.md"
+    if current.exists():
+        meta_path = logs_dir / "digest.meta.json"
+        try:
+            meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+        except (OSError, ValueError):
+            meta = {}
+        return {
+            "generated_at": str(meta.get("generated_at") or ""),
+            "markdown": current.read_text()[:20_000],
+            "source": str(current),
+            "generated_by": meta.get("generated_by") or "deterministic",
+        }
+    logs = sorted(logs_dir.glob("*.md")) if logs_dir.exists() else []
     if not logs:
-        return {"generated_at": "", "markdown": "", "source": ""}
-    latest = logs[-1]
-    return {"generated_at": latest.stem, "markdown": latest.read_text()[:20_000],
-            "source": str(latest)}
+        return {"generated_at": "", "markdown": "", "source": "",
+                "generated_by": "legacy"}
+    legacy = logs[-1]
+    return {"generated_at": legacy.stem, "markdown": legacy.read_text()[:20_000],
+            "source": str(legacy), "generated_by": "legacy"}
 
 
 # ── sync trigger (background) ───────────────────────────────────────────

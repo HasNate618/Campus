@@ -26,7 +26,7 @@ import httpx
 from sync.config import Config
 from sync.d2l import D2LClient, D2LError
 from sync.report import (  # re-exported: tests and callers import render_sync_log here
-    SyncReport, build_report, render_digest_fallback, render_sync_log,
+    SyncReport, build_report, render_sync_log,
 )
 from sync.db import DB
 from sync.extractors import extract_to_text
@@ -1442,10 +1442,13 @@ class SyncEngine:
 
         if report.status == "failed":
             return
+        from sync.digest import make_digest
+
         logs.mkdir(parents=True, exist_ok=True)
-        (logs / "digest.md").write_text(render_digest_fallback(report))
+        markdown, generated_by = make_digest(self.cfg, self.model, report)
+        (logs / "digest.md").write_text(markdown)
         meta = {"generated_at": datetime.datetime.now().isoformat(timespec="seconds"),
-                "generated_by": "deterministic"}
+                "generated_by": generated_by}
         (logs / "digest.meta.json").write_text(json.dumps(meta))
 
     def write_failure_log(self, run_id: int, error: str, trigger: str) -> None:

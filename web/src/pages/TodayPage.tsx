@@ -8,7 +8,12 @@ import { SyncCard } from "@/components/SyncCard";
 import { eventDayKey, fmtDateTime, fmtRelative, fmtTime } from "@/lib/format";
 import type { Event } from "@/types";
 
-type Digest = { generated_at: string; markdown: string; source: string };
+type Digest = {
+	generated_at: string;
+	markdown: string;
+	source: string;
+	generated_by?: "ai" | "deterministic" | "legacy";
+};
 
 function eventChipClass(kind: string): string {
 	if (kind === "assignment" || kind === "deadline") return "chip violet";
