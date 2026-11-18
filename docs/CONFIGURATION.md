@@ -20,7 +20,10 @@ All personal values live in `config.yaml` (gitignored) or `CAMPUS_*` env vars, p
 | `institution` | n/a | Label in the system prompt, e.g. `"Your University"` |
 | `brightspace_hosts` / `brightspace_base_url` | `CAMPUS_BRIGHTSPACE_HOSTS` / `CAMPUS_BRIGHTSPACE_BASE_URL` | Content proxy allowlist and link rebasing, Brightspace-only features |
 | `term_dates` | n/a | Start and end dates that anchor class events |
-| `timezone` | `CAMPUS_TIMEZONE` | Dates you see and the clock in the prompt; empty means host local time |
+| `timezone` | `CAMPUS_TIMEZONE` | Dates you see, the clock in the prompt, and the daily auto-sync clock; empty means host local time |
+| `auto_sync_enabled` | `CAMPUS_AUTO_SYNC_ENABLED` | Enables one guarded sync per local day. Off by default |
+| `auto_sync_time` | `CAMPUS_AUTO_SYNC_TIME` | 24-hour `HH:MM` for the daily run; default `03:00` |
+| `auto_sync_catch_up` | `CAMPUS_AUTO_SYNC_CATCH_UP` | Run once after a missed slot instead of skipping the day. On by default |
 | `web_password` | `CAMPUS_WEB_PASSWORD` | Single password for `/api/*` routes; empty means open demo |
 | In-app settings | `CAMPUS_SETTINGS_PATH` | `settings.yaml` beside the DB. The Settings panel writes it, and it overrides env vars |
 
@@ -34,7 +37,13 @@ Saving changes writes an allowlisted, gitignored `settings.yaml` next to the con
 defaults < config.yaml < environment variables < settings.yaml
 ```
 
-The panel covers runtime values such as LLM endpoints and models, search models, PDF extraction, Office-to-PDF conversion, sync scope, institution and timezone, notifications, and MCP servers. Deployment-only values such as paths, web password, LMS credentials and term dates stay in `config.yaml` or the environment. Changing `mcp_urls` requires an API restart (`docker compose restart campus`); changing the embeddings or reranker model requires rebuilding the search index. The panel also provides an LLM connection test and a search-index rebuild action.
+The panel covers runtime values such as LLM endpoints and models, search models, PDF extraction, Office-to-PDF conversion, sync scope, institution and timezone, daily auto-sync, notifications, and MCP servers. Deployment-only values such as paths, web password, LMS credentials and term dates stay in `config.yaml` or the environment. Changing `mcp_urls` requires an API restart (`docker compose restart campus`); changing the embeddings or reranker model requires rebuilding the search index. The panel also provides an LLM connection test and a search-index rebuild action.
+
+### Daily auto-sync
+
+With `auto_sync_enabled: true`, the API process checks about once a minute and starts one non-overlapping full sync at `auto_sync_time` in the configured timezone. Settings changes apply without a restart. With catch-up on (the default), a stop, sleep or missed slot is covered by one sync on next start; with it off, a slot that passes is skipped. The date of the last attempt is stored in `auto_sync_state.json` beside `settings.yaml`. A failed run is recorded, not retried in a loop.
+
+Each run writes an operational log under `sync_logs/runs/{date}/{run_id}.md`; the Home digest is generated separately as `sync_logs/digest.md`. If no LLM endpoint is configured, the digest is deterministic. Model output may only reference server-owned card markers, which are replaced with exact in-app links before rendering.
 
 ### Not using Brightspace/D2L?
 

@@ -34,7 +34,7 @@ There is no hosted live demo. This starts Campus in demo mode with a made-up sam
 
 I built Campus because my course material was scattered across six Brightspace pages, with files buried four clicks deep and due dates that lived in a dropbox and also in a line of the syllabus PDF. It syncs every course into SQLite and a local file store, skips any file whose sha256 hasn't changed, and gives a 20-tool agent structured access to that store instead of pasting files into the prompt, so each answer links to the file and PDF page it came from. The agent can also edit my notes and due dates, every one of those writes is logged with the before and after state, and the whole thing runs on any OpenAI-compatible endpoint, whether that's a model on my own hardware or a cheap hosted one.
 
-- **Deterministic LMS sync:** D2L REST plus Playwright and MFA auth pulls the content tree, module landing pages, files, dropbox assignments, announcements and the syllabus. Change detection runs on sha256, so an unchanged file is never downloaded twice and nothing is scraped in the background.
+- **Deterministic LMS sync:** D2L REST plus Playwright and MFA auth pulls the content tree, module landing pages, files, dropbox assignments, announcements and the syllabus. Change detection runs on sha256, so an unchanged file is never downloaded twice. Optional auto-sync runs once per day at a chosen time; one guarded, non-overlapping full sync covers missed days.
 - **Course-scoped agent:** 20 built-in tools over your own data, covering assignments, announcements and facts, paginated file reads, grep, corpus search, audited mutations, recall quizzes and file edits, with `terminal_run` available only when you turn it on. The web app tells the agent what you currently have open, down to the PDF page, so "explain this" resolves against the real view.
 - **Search that starts lexical:** the default ranker needs no extra model and boosts exact phrases so a verbatim hit lands first. Setting `embed_model` and `rerank_model` adds embeddings and reranking on top, and the lexical boost still promotes verbatim hits that embed badly.
 - **Demo mode:** `docker compose up` seeds one clearly fictional course and shows a banner saying so, so a stranger can browse, read and search with no Brightspace account and no model endpoint.
@@ -42,13 +42,13 @@ I built Campus because my course material was scattered across six Brightspace p
 
 ## How it works
 
-A sync run uses Playwright (including MFA) and the D2L REST API to pull the content tree, files, dropbox assignments, announcements and the syllabus into SQLite and a local file store. Change detection runs on sha256, so an unchanged file is never downloaded twice and nothing is scraped in the background.
+A sync run uses Playwright (including MFA) and the D2L REST API to pull the content tree, files, dropbox assignments, announcements and the syllabus into SQLite and a local file store. Change detection runs on sha256, so an unchanged file is never downloaded twice. Optional auto-sync checks about once a minute, reads the current settings, and starts at most one guarded run per local day; missed days are covered by the next full sync.
 
 The store is the source of truth: 20 tables in `schema.sql`, the files on disk, and an ephemeral search index. Search starts lexical (a SQLite `instr()` pre-filter and snippet windowing). Embeddings and reranking are added only when `embed_model` and `rerank_model` are set, and the lexical boost still promotes verbatim hits that embed badly.
 
 When you ask a question, the web app sends only the IDs and position of the file or assignment you have open. The server resolves the path, title, deadline, status and PDF page from SQLite, so the model never trusts client-provided source details. The agent does not receive a course dump. It uses tools to query the store (`harness_*` for dates and deadlines, `content_read_file`, `content_grep` and `search_corpus` for prose). Those tools register sources in `agent/citations.py`, which become `[cite:N]` chips you can open to the file and page. If the answer is not in the synced data, the system prompt tells the model to say so.
 
-Writes (extending a due date, saving a fact, editing a file) go through tools that log before and after JSON to `audit_log`. Facts are superseded by flipping `is_active` to 0 and inserting a new row, never deleted in place. I chose SQLite WAL over Postgres so a fresh clone and a Docker demo stay portable, at the cost of lower throughput, which is fine at this scale. Sync is something you trigger, not a background scrape, because a background job would fight MFA.
+Writes (extending a due date, saving a fact, editing a file) go through tools that log before and after JSON to `audit_log`. Facts are superseded by flipping `is_active` to 0 and inserting a new row, never deleted in place. I chose SQLite WAL over Postgres so a fresh clone and a Docker demo stay portable, at the cost of lower throughput, which is fine at this scale. Auto-sync is opt-in and runs at most once a day; the saved browser session normally avoids a Duo prompt, and a real auth failure is recorded as a failed run rather than retried in a loop.
 
 ```text
 Brightspace / D2L
@@ -69,13 +69,13 @@ More detail lives in [`docs/DESIGN.md`](docs/DESIGN.md) and [`docs/DATA_MODEL.md
 
 I assumed embeddings would just work, and then a short exact phrase failed at 0.34 cosine against a 0.48 cutoff and buried the right slide. Adding a SQLite `instr()` lexical pre-filter felt almost too simple, but it fixed the exact questions a student actually asks, and windowing the snippet around that match kept the answer text from getting cut.
 
-I also left background scraping out on purpose. A sync you trigger is slower than a daemon, but it does not fight the hourly MFA push.
+I kept continuous scraping out on purpose. One daily guarded sync removes the daily button press without hammering Brightspace or fighting Duo; the saved session is reused until auth actually fails.
 
 ## Limitations and safety
 
 Campus only reads from Brightspace. It never submits work or changes anything in the LMS, and when the agent extends a due date or adds a note it changes my local copy and records the before and after in `audit_log`. Your Brightspace password is read from the `CAMPUS_BRIGHTSPACE_PASSWORD` environment variable and never stored in a config file, and the MFA token and browser profile stay in `token_dir` on your machine. Course text is sent to whichever model endpoint you configure, so if your course material shouldn't leave your machine, point it at a local model.
 
-The automated sync only supports Brightspace/D2L and needs a fresh MFA push about once an hour. Other schools can still drop their files into `data_root` and use search and chat. So far I'm the only user, and agent edits apply without an approval step. The model can also misread a correct tool result, so open the cited page before relying on an answer.
+The automated sync only supports Brightspace/D2L. It reuses the saved session, so Duo is normally only needed during setup or after auth actually fails; a scheduled failure is recorded rather than retried in a loop. Other schools can still drop their files into `data_root` and use search and chat. So far I'm the only user, and agent edits apply without an approval step. The model can also misread a correct tool result, so open the cited page before relying on an answer.
 
 The agent has an optional `terminal_run` tool for workspace tasks you ask for. It's off unless you set `terminal_enabled`, and when it's on it runs inside the container with a 30 s default timeout (120 s max), a command blocklist and an audit entry for every command, and the synced course content is read-only to it.
 

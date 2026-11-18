@@ -107,6 +107,15 @@ llm_api_key: ""               # Bearer auth when set (OpenAI, OpenRouter, ...); 
 
 # timezone for user-facing datetimes + the system prompt clock.
 # Empty = system local time. e.g. timezone: "America/Toronto"
+# Also controls the daily auto-sync clock below.
+
+# One opt-in sync per local day. The API checks about once a minute, reads
+# these live, and uses the existing guarded sync path so manual and scheduled
+# runs never overlap. Catch-up means one full sync after a missed slot (e.g.
+# the laptop was asleep), covering all missed days in one pass.
+# auto_sync_enabled: false
+# auto_sync_time: "03:00"
+# auto_sync_catch_up: true
 
 # ── PDF parsing ────────────────────────────────────────────────────────────
 # When empty: PyMuPDF extracts digital PDFs locally (instant, zero-config).

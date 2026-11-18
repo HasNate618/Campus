@@ -39,20 +39,20 @@ answers LMS questions from **synced harness data only**.
 
 ### LMS sync
 
-Manual / nudged (MFA push). Not background scraping.
+Opt-in daily checker plus manual trigger. One guarded full sync/day; no continuous scraping.
 
 1. Playwright + MFA → own token file (survive restarts).
 2. LMS REST API: enrollments, content tree, file download, dropbox, news, syllabus.
 3. sha256 change detection → `{data_root}/{term}/{code}/…`
 4. PDF extractor → markdown beside PDFs (fast path: embedded text layer; fallback: OCR/VLM).
-5. AI digest → assignments / announcements / `memory_facts` + `sync_logs/{date}.md` + push notification.
+5. Deterministic run log → `sync_logs/runs/{date}/{run_id}.md`; separate bounded-card digest → `sync_logs/digest.md` (one optional LLM call, server-owned links) + push notification.
 
 ### Pipelines
 
 | Job | Trigger | Notes |
 |-----|---------|--------|
-| LMS sync + AI sync log | Manual / nudge | MFA |
-| Morning digest | Cron | From DB only — no LMS |
+| LMS sync + operational log | Manual or daily auto-sync | Settings: enabled, time, catch-up; one non-overlapping full sync |
+| Morning digest | Same sync run | Bounded cards + optional LLM; deterministic fallback |
 | Knowledge cleanup | Scheduled | Upsert/supersede `memory_facts` |
 | Cloud mirror | Timer | Not deadline source of truth |
 | Lecture digest | Upload + whisper/embed | Later phase |
@@ -122,7 +122,7 @@ Stack: FastAPI + React/TS, SQLite WAL, semantic search over chunks.
 - Grade calculator
 - Chat-app bot
 - Word editing / iframe office
-- Background LMS sync
+- Continuous background LMS scraping (one opt-in daily sync is supported)
 - Course content or solutions in git
 - Another chat UI as primary surface
 

@@ -32,7 +32,7 @@ def _utc(y: int, m: int, d: int, h: int, minute: int) -> dt.datetime:
 
 
 def test_parse_clock():
-    from api.scheduler import parse_clock
+    from api.scheduler import parse_clock  # pyright: ignore[reportMissingImports]
 
     assert parse_clock("03:00") == dt.time(3, 0)
     assert parse_clock("23:59") == dt.time(23, 59)
@@ -41,14 +41,14 @@ def test_parse_clock():
 
 
 def test_before_time_not_due(tmp_path: Path):
-    from api.scheduler import due_date
+    from api.scheduler import due_date  # pyright: ignore[reportMissingImports]
 
     cfg = _cfg(tmp_path, timezone="UTC")
     assert due_date(_utc(2026, 11, 18, 2, 59), cfg, None) is None
 
 
 def test_catch_up_runs_once_after_missed_days(tmp_path: Path):
-    from api.scheduler import ScheduleState, due_date
+    from api.scheduler import ScheduleState, due_date  # pyright: ignore[reportMissingImports]
 
     cfg = _cfg(tmp_path, timezone="UTC")
     now = _utc(2026, 11, 18, 10, 0)  # three days past the slot
@@ -58,7 +58,7 @@ def test_catch_up_runs_once_after_missed_days(tmp_path: Path):
 
 
 def test_catch_up_off_window(tmp_path: Path):
-    from api.scheduler import due_date
+    from api.scheduler import due_date  # pyright: ignore[reportMissingImports]
 
     cfg = _cfg(tmp_path, timezone="UTC", auto_sync_catch_up=False)
     assert due_date(_utc(2026, 11, 18, 3, 5), cfg, None) == dt.date(2026, 11, 18)
@@ -66,7 +66,7 @@ def test_catch_up_off_window(tmp_path: Path):
 
 
 def test_timezone_boundary(tmp_path: Path):
-    from api.scheduler import due_date
+    from api.scheduler import due_date  # pyright: ignore[reportMissingImports]
 
     cfg = _cfg(tmp_path, timezone="America/Toronto")  # UTC-5 in November
     assert due_date(_utc(2026, 11, 18, 6, 30), cfg, None) is None
@@ -74,7 +74,7 @@ def test_timezone_boundary(tmp_path: Path):
 
 
 def test_corrupt_state_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    from api.scheduler import read_state, state_path
+    from api.scheduler import read_state, state_path  # pyright: ignore[reportMissingImports]
 
     monkeypatch.setenv("CAMPUS_SETTINGS_PATH", str(tmp_path / "settings.yaml"))
     path = state_path(_cfg(tmp_path))
@@ -87,7 +87,7 @@ def test_corrupt_state_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 def test_in_progress_does_not_mark_date(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     import api.services as services
-    from api.scheduler import AutoSyncScheduler, read_state, state_path
+    from api.scheduler import AutoSyncScheduler, read_state, state_path  # pyright: ignore[reportMissingImports]
 
     monkeypatch.setenv("CAMPUS_SETTINGS_PATH", str(tmp_path / "settings.yaml"))
     (tmp_path / "settings.yaml").write_text(
@@ -105,7 +105,7 @@ def test_in_progress_does_not_mark_date(tmp_path: Path, monkeypatch: pytest.Monk
 
 def test_settings_change_observed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     import api.services as services
-    from api.scheduler import AutoSyncScheduler
+    from api.scheduler import AutoSyncScheduler  # pyright: ignore[reportMissingImports]
 
     settings = tmp_path / "settings.yaml"
     monkeypatch.setenv("CAMPUS_SETTINGS_PATH", str(settings))
