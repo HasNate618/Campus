@@ -551,7 +551,18 @@ def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int
 
     Idempotent: re-applying the same output returns all zeros. Every write
     is audited (actor='sync'). `course_id` is ALWAYS the mined course."""
-    res = {"facts": 0, "events": 0, "exams": 0, "assignments": 0}
+    res = {"facts": 0, "events": 0, "exams": 0, "assignments": 0, "items": []}
+
+    def note_item(kind: str, title: object, detail: object = None,
+                  ref_id: int | None = None, href_target: int | None = None,
+                  starts_at: object = None) -> None:
+        res["items"].append({
+            "kind": kind, "title": str(title or "").strip(),
+            "detail": str(detail).strip() if detail else None,
+            "ref_id": ref_id, "href_target": href_target,
+            "starts_at": str(starts_at or "").strip() or None,
+        })
+
     course = db.conn.execute(
         "SELECT code FROM courses WHERE id=?", (course_id,)).fetchone()
     code = course["code"] if course else str(course_id)
@@ -586,6 +597,7 @@ def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int
             "INSERT INTO memory_facts (course_id, fact, category, confidence, source) VALUES (?,?,?,?,?)",
             (course_id, fact, f.get("category") or "general", conf, source))
         res["facts"] += 1
+        note_item("fact", fact, detail=f.get("category"), ref_id=cur.lastrowid)
         db.audit("sync", "memory_facts", cur.lastrowid, "mine-insert",
                  {"course_id": course_id, "fact": fact})
         existing_facts.append(fact)  # so the NEXT fact in this batch sees it
@@ -600,6 +612,8 @@ def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int
                               kind=kind, ends_at=e.get("ends_at"), notes=e.get("notes"))
         if rowid:
             res["events"] += 1
+            note_item("event", e.get("title"), detail=e.get("notes"),
+                      ref_id=rowid, starts_at=e.get("starts_at"))
             _annotate_assigned_date(db, course_id, e.get("title"), e.get("starts_at"),
                                     kind, rowid, assigns)
 
@@ -633,6 +647,8 @@ def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int
             " VALUES (?,?,?,?,?, 'ai')",
             (course_id, xtitle, xstarts, xw, x.get("notes")))
         res["exams"] += 1
+        note_item("exam", xtitle, detail=x.get("notes"),
+                  ref_id=cur.lastrowid, starts_at=xstarts)
         db.audit("sync", "exams", cur.lastrowid, "mine-insert",
                  {"course_id": course_id, "title": xtitle, "starts_at": xstarts})
 
@@ -666,6 +682,8 @@ def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int
                 " VALUES (?,?,?,?, 'ai')",
                 (course_id, title, u.get("due_at"), uw))
             res["assignments"] += 1
+            note_item("assignment", title, detail=u.get("due_at"),
+                      href_target=cur.lastrowid, starts_at=u.get("due_at"))
             db.audit("sync", "assignments", cur.lastrowid, "mine-insert",
                      {"title": title, "due_at": u.get("due_at"), "weight": uw})
             if u.get("due_at"):
@@ -690,6 +708,9 @@ def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int
                 " updated_at=datetime('now') WHERE id=?",
                 (*sets.values(), target["id"]))
             res["assignments"] += 1
+            note_item("assignment", target["title"],
+                      detail=", ".join(f"{k}={v}" for k, v in sets.items()),
+                      href_target=target["id"], starts_at=sets.get("due_at"))
             db.audit("sync", "assignments", target["id"], "mine-backfill",
                      {"before": {"due_at": target["due_at"], "weight": target["weight"]},
                       "after": sets})
@@ -722,6 +743,8 @@ def apply_mining(db, course_id: int, mined: dict, source: str, ann_ids: list[int
             [(i,) for i in ann_ids])
     if raw:
         db.audit("sync", "mine_run", course_id, "mine-run",
-                 {"source": source, "counts": res, "raw": (raw or "")[:4000]})
+                 {"source": source,
+                  "counts": {k: res[k] for k in ("facts", "events", "exams", "assignments")},
+                  "raw": (raw or "")[:4000]})
     db.conn.commit()
     return res

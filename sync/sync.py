@@ -191,6 +191,9 @@ class SyncEngine:
                       "files_changed": 0, "announcements_new": 0,
                       "facts_added": 0, "pdfs_extracted": 0}
         self.deltas: list[dict] = []  # for the AI digest
+        # Hard extraction failures for this run. Deliberate skips (oversize,
+        # long scan, unsupported type) are not failures and stay out.
+        self.extraction_failures: list[str] = []
         self._last_miner_raw: str | None = None  # raw miner output for audit provenance
         # Courses whose fact mining failed this run. Mining is best-effort, but a
         # failure is NOT retried by a later sync: the delta gate keys on this
@@ -338,12 +341,18 @@ class SyncEngine:
             (subdir / filename).write_bytes(body)
             wrote = True
             self.stats["files_new"] += 1
-            self.deltas.append({"kind": "file_new", "path": rel})
+            self.deltas.append({"kind": "file_new", "path": rel,
+                                "course_id": course_id, "title": filename,
+                                "file_id": file_id,
+                                "node_id": node["id"] if node else None})
         elif changed:
             (subdir / filename).write_bytes(body)
             wrote = True
             self.stats["files_changed"] += 1
-            self.deltas.append({"kind": "file_changed", "path": rel})
+            self.deltas.append({"kind": "file_changed", "path": rel,
+                                "course_id": course_id, "title": filename,
+                                "file_id": file_id,
+                                "node_id": node["id"] if node else None})
         if wrote:
             self._maybe_convert_office(subdir / filename)
 
@@ -411,12 +420,16 @@ class SyncEngine:
                     dest.write_bytes(body)
                     wrote = True
                     self.stats["files_new"] += 1
-                    self.deltas.append({"kind": "file_new", "path": rel})
+                    self.deltas.append({"kind": "file_new", "path": rel,
+                                        "course_id": course_id, "title": filename,
+                                        "file_id": file_id, "node_id": node_id})
                 elif changed:
                     dest.write_bytes(body)
                     wrote = True
                     self.stats["files_changed"] += 1
-                    self.deltas.append({"kind": "file_changed", "path": rel})
+                    self.deltas.append({"kind": "file_changed", "path": rel,
+                                        "course_id": course_id, "title": filename,
+                                        "file_id": file_id, "node_id": node_id})
                 if wrote:
                     self._maybe_convert_office(dest)
                 if node_id is not None:
@@ -624,10 +637,16 @@ class SyncEngine:
                 self.db.link_file_topic(file_id, tid)
             if is_new:
                 self.stats["files_new"] += 1
-                self.deltas.append({"kind": "file_new", "path": rel})
+                self.deltas.append({"kind": "file_new", "path": rel,
+                                    "course_id": course_id, "title": fname,
+                                    "file_id": file_id,
+                                    "node_id": topics[0] if topics else None})
             elif changed:
                 self.stats["files_changed"] += 1
-                self.deltas.append({"kind": "file_changed", "path": rel})
+                self.deltas.append({"kind": "file_changed", "path": rel,
+                                    "course_id": course_id, "title": fname,
+                                    "file_id": file_id,
+                                    "node_id": topics[0] if topics else None})
             asset = f"{asset_base}/{fname}"
             for row_id, raws in refs.items():
                 for raw in raws:
@@ -683,10 +702,14 @@ class SyncEngine:
                         sha, dest.stat().st_size)
                     if is_new:
                         self.stats["files_new"] += 1
-                        self.deltas.append({"kind": "file_new", "path": at["local"]})
+                        self.deltas.append({"kind": "file_new", "path": at["local"],
+                                            "course_id": course_id, "title": fname,
+                                            "file_id": file_id, "node_id": None})
                     elif changed:
                         self.stats["files_changed"] += 1
-                        self.deltas.append({"kind": "file_changed", "path": at["local"]})
+                        self.deltas.append({"kind": "file_changed", "path": at["local"],
+                                            "course_id": course_id, "title": fname,
+                                            "file_id": file_id, "node_id": None})
                 except Exception:
                     pass
 
@@ -794,9 +817,13 @@ class SyncEngine:
                 "is_pinned": n.get("IsPinned", False),
             })
             if is_new:
+                ann_row = self.db.conn.execute(
+                    "SELECT id FROM announcements WHERE brightspace_id=?",
+                    (n.get("Id"),)).fetchone()
                 self.stats["announcements_new"] += 1
                 self.deltas.append({"kind": "announcement",
                                     "course_id": course_id,
+                                    "announcement_id": ann_row["id"] if ann_row else None,
                                     "title": n.get("Title"),
                                     "body": body[:800],  # excerpt for the digest
                                     "posted_at": n.get("StartDate")})
@@ -1045,9 +1072,11 @@ class SyncEngine:
                     else:
                         self._write_stub(row["course_id"], path, "office pdf extraction failed", row)
                         failed += 1
+                        self.extraction_failures.append(f"{row['path']}: office pdf extraction failed")
                 else:
                     self._write_stub(row["course_id"], path, "office conversion failed", row)
                     failed += 1
+                    self.extraction_failures.append(f"{row['path']}: office conversion failed")
                 self.db.mark_processed(row["id"])
                 continue
             if path.suffix.lower() == ".doc":
@@ -1059,6 +1088,7 @@ class SyncEngine:
                         self.register_extraction(row["course_id"], md, row)
                 else:
                     self._write_stub(row["course_id"], path, "doc extraction failed", row)
+                    self.extraction_failures.append(f"{row['path']}: doc extraction failed")
                 self.db.mark_processed(row["id"])  # one attempt; .md sibling persists
                 continue
             if not is_pdf:
@@ -1083,6 +1113,7 @@ class SyncEngine:
                 print(f"  extracted: {row['path']}", flush=True)
             else:
                 failed += 1
+                self.extraction_failures.append(f"{row['path']}: extraction failed")
         self.stats["pdfs_extracted"] = self.stats.get("pdfs_extracted", 0) + done
         if total:
             parts = [f"{done} extracted"]
@@ -1143,7 +1174,8 @@ class SyncEngine:
         kept = _truncate_blocks(ordered[:30], 55000)
         if not kept:
             print(f"  mining skipped for {corpus['code']}: corpus empty after truncation")
-            return {"facts": [], "events": [], "exams": [], "assignment_updates": []}
+            return {"facts": [], "events": [], "exams": [], "assignment_updates": [],
+                    "items": []}
         if len(kept) < len(ordered[:30]):
             print(f"  mining truncated for {corpus['code']}: {len(ordered[:30]) - len(kept)} block(s) dropped")
         prompt = (MINER_SYSTEM + f"\n\nTODAY: {corpus['today']}\nCOURSE: {corpus['code']} ({corpus['term']})\n"
@@ -1180,17 +1212,20 @@ class SyncEngine:
         print(f"  [warn] mining FAILED for {corpus['code']}: "
               f"{type(last_err).__name__}: {str(last_err)[:200]} — no facts "
               f"extracted, and this content will NOT be re-mined unless it changes")
-        return {"facts": [], "events": [], "exams": [], "assignment_updates": []}
+        return {"facts": [], "events": [], "exams": [], "assignment_updates": [],
+                "items": []}
 
     def mine_course(self, course_id: int, force: bool = False) -> dict:
         """Mine one course corpus and apply results (per-course => correct attribution)."""
         import time as _time
         from sync.mine import apply_mining, build_course_corpus
+        empty = {"facts": 0, "events": 0, "exams": 0, "assignments": 0,
+                 "items": []}
         if not force and not self.course_has_mining_deltas(course_id):
-            return {"facts": 0, "events": 0, "exams": 0, "assignments": 0}
+            return empty
         corpus = build_course_corpus(self.cfg, self.db, course_id)
         if not corpus["blocks"]:
-            return {"facts": 0, "events": 0, "exams": 0, "assignments": 0}
+            return empty
         mined = self._call_miner(corpus)
         course = self.db.conn.execute(
             "SELECT code FROM courses WHERE id=?", (course_id,)).fetchone()
@@ -1310,9 +1345,10 @@ class SyncEngine:
                     mined = self.mine_course(course["id"])
                 except Exception as e:
                     print(f"    mining failed for {course['code']}: {e}")
-                    mined = {"facts": 0, "events": 0, "exams": 0, "assignments": 0}
+                    mined = {"facts": 0, "events": 0, "exams": 0,
+                             "assignments": 0, "items": []}
                 mining[course["id"]] = mined
-                if any(mined.values()):
+                if any(mined.get(k, 0) for k in ("facts", "events", "exams", "assignments")):
                     print(f"    → mined {course['code']}: +{mined['facts']} facts,"
                           f" +{mined['events']} events, +{mined['exams']} exams,"
                           f" backfilled {mined['assignments']} assignment(s)")

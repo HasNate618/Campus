@@ -83,12 +83,27 @@ def test_apply_mining_dedupes_and_backfills(db):
                                {"title": "Quiz 9 (new row)", "due_at": "2026-10-01", "weight": None}],
     }
     r1 = apply_mining(db, course["id"], mined, source="mine:test")
-    assert r1 == {"facts": 1, "events": 2, "exams": 1, "assignments": 2}
+    assert {k: r1[k] for k in ("facts", "events", "exams", "assignments")} == {
+        "facts": 1, "events": 2, "exams": 1, "assignments": 2,
+    }
+    assert {i["kind"] for i in r1["items"]} == {
+        "fact", "event", "exam", "assignment",
+    }
+    assert all(i["title"] for i in r1["items"])
+    exam_id = db.conn.execute(
+        "SELECT id FROM exams WHERE title='Midterm'").fetchone()[0]
+    assert next(i for i in r1["items"] if i["kind"] == "exam")["ref_id"] == exam_id
+    lab_id = db.conn.execute(
+        "SELECT id FROM assignments WHERE title LIKE 'Lab 1%'").fetchone()[0]
+    assert next(i for i in r1["items"] if i["kind"] == "assignment")["href_target"] == lab_id
     assert db.conn.execute(
         "SELECT COUNT(*) FROM assignments WHERE course_id=?",
         (course["id"],)).fetchone()[0] == 2  # Lab 1 filled + Quiz 9 row created
     r2 = apply_mining(db, course["id"], mined, source="mine:test")
-    assert r2 == {"facts": 0, "events": 0, "exams": 0, "assignments": 0}
+    assert {k: r2[k] for k in ("facts", "events", "exams", "assignments")} == {
+        "facts": 0, "events": 0, "exams": 0, "assignments": 0,
+    }
+    assert r2["items"] == []
     assert db.conn.execute(
         "SELECT due_at FROM assignments WHERE course_id=?",
         (course["id"],)).fetchone()[0] == "2026-09-14"
@@ -106,14 +121,19 @@ def test_mine_course_writes_fact_and_counts(db, cfg, monkeypatch):
         (course["id"], "Midterm", "Covers units 1-4 including binary arithmetic and logic gates.", "brightspace"))
     db.conn.commit()
     fake = {"facts": [{"fact": "Final is worth 45%.", "category": "grading", "confidence": 0.9}],
-            "events": [], "exams": [], "assignment_updates": []}
+            "events": [{"title": "Lab 1 due", "starts_at": "2026-09-14",
+                         "kind": "assignment"}],
+            "exams": [], "assignment_updates": []}
     import sync.sync as sync_mod
     monkeypatch.setattr(sync_mod.SyncEngine, "_call_miner", lambda self, c: fake)
     from unittest.mock import MagicMock
     eng = SyncEngine(cfg, db, client=MagicMock())
     out = eng.mine_course(course["id"], force=True)
     assert eng.course_has_mining_deltas(course["id"]) is False  # bare DB: gate works
-    assert out == {"facts": 1, "events": 0, "exams": 0, "assignments": 0}
+    assert {k: out[k] for k in ("facts", "events", "exams", "assignments")} == {
+        "facts": 1, "events": 1, "exams": 0, "assignments": 0,
+    }
+    assert {i["kind"] for i in out["items"]} == {"fact", "event"}
     assert db.conn.execute(
         "SELECT COUNT(*) FROM memory_facts WHERE course_id=?",
         (course["id"],)).fetchone()[0] == 1
@@ -293,7 +313,10 @@ def test_backfill_creates_assignment_event(db):
         (course["id"],)).fetchone()
     assert (row["title"], row["starts_at"], row["kind"]) == ("Lab 2", "2026-10-09", "assignment")
     r2 = apply_mining(db, course["id"], mined, source="mine:test")
-    assert r2 == {"facts": 0, "events": 0, "exams": 0, "assignments": 0}
+    assert {k: r2[k] for k in ("facts", "events", "exams", "assignments")} == {
+        "facts": 0, "events": 0, "exams": 0, "assignments": 0,
+    }
+    assert r2["items"] == []
     db.close()
 
 
@@ -743,7 +766,10 @@ def test_apply_skips_paraphrase_facts_and_retitled_events(db):
         "facts": [{"fact": "Professor X, Email: x@example.edu.", "category": "prof-note", "confidence": 0.9}],
         "events": [{"title": "Project Approval from TA", "starts_at": "2026-09-25", "kind": "assignment"}],
         "exams": [], "assignment_updates": []}, source="mine:test")
-    assert out == {"facts": 0, "events": 0, "exams": 0, "assignments": 0}
+    assert {k: out[k] for k in ("facts", "events", "exams", "assignments")} == {
+        "facts": 0, "events": 0, "exams": 0, "assignments": 0,
+    }
+    assert out["items"] == []
     db.close()
 
 
@@ -825,7 +851,10 @@ def test_update_without_row_creates_assignment_and_event(db):
     assert (row["title"], row["due_at"], row["source"]) == (
         "Assignment 3: Creating DB System", "2026-11-20", "ai")
     out2 = apply_mining(db, course["id"], mined, source="mine:test")
-    assert out2 == {"facts": 0, "events": 0, "exams": 0, "assignments": 0}
+    assert {k: out2[k] for k in ("facts", "events", "exams", "assignments")} == {
+        "facts": 0, "events": 0, "exams": 0, "assignments": 0,
+    }
+    assert out2["items"] == []
     db.close()
 
 
