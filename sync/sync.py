@@ -10,6 +10,7 @@ auth (manual, Duo). Deltas only — sha256 change detection.
 from __future__ import annotations
 
 import argparse
+import datetime
 import hashlib
 import html
 import json
@@ -24,6 +25,9 @@ import httpx
 
 from sync.config import Config
 from sync.d2l import D2LClient, D2LError
+from sync.report import (  # re-exported: tests and callers import render_sync_log here
+    SyncReport, build_report, render_digest_fallback, render_sync_log,
+)
 from sync.db import DB
 from sync.extractors import extract_to_text
 from sync.token_store import TokenStore
@@ -123,37 +127,6 @@ def _extract_code(name: str) -> str:
     head = (name or "").split(":")[0]
     m = re.match(r"([A-Z]+\s*\d{4}[A-Z]?)", head)
     return _norm_code(m.group(1)) if m else ""
-
-
-def render_sync_log(date_str: str, stats: dict, per_course: list[dict]) -> str:
-    """Deterministic sync log — counts only, no LLM. Pure function."""
-    lines = [f"# Sync {date_str}", ""]
-    if not per_course and not any(stats.get(k, 0) for k in
-                                  ("files_new", "files_changed", "announcements_new")):
-        lines.append("Nothing new in any course.")
-        return "\n".join(lines) + "\n"
-    for c in per_course:
-        parts = []
-        if c.get("files_new"):
-            parts.append(f"{c['files_new']} new file{'s' if c['files_new'] != 1 else ''}")
-        if c.get("files_changed"):
-            parts.append(f"{c['files_changed']} changed")
-        if c.get("announcements_new"):
-            n = c['announcements_new']
-            parts.append(f"{n} announcement{'s' if n != 1 else ''}")
-        m = c.get("mined") or {}
-        mine_parts = []
-        if m.get("facts"): mine_parts.append(f"+{m['facts']} facts")
-        if m.get("events"): mine_parts.append(f"+{m['events']} events")
-        if m.get("exams"): mine_parts.append(f"+{m['exams']} exams")
-        if m.get("assignments"):
-            n = m['assignments']
-            mine_parts.append(f"backfilled {n} assignment{'s' if n != 1 else ''}")
-        line = f"- {c['code']}: " + (", ".join(parts) if parts else "no changes")
-        if mine_parts:
-            line += " — mined " + ", ".join(mine_parts)
-        lines.append(line)
-    return "\n".join(lines) + "\n"
 
 
 def dropbox_submit_url(base_url: str, org_unit: int, folder_id: int) -> str:
@@ -1275,8 +1248,11 @@ class SyncEngine:
         print(f"Extract done: {', '.join(parts)}")
         return 0
 
-    def run(self, code: str | None = None, dry_run: bool = False) -> int:
-        run_id = self.db.start_sync()
+    def run(self, code: str | None = None, dry_run: bool = False,
+            trigger: str = "manual") -> int:
+        run_id = self.db.start_sync(trigger)
+        started_wall = datetime.datetime.now().isoformat(timespec="seconds")
+        started_clock = time.monotonic()
         try:
             enrollments = self.fetch_enrollments()
             # get_course_by_code returns None for an unknown code. Wrapping that
@@ -1372,7 +1348,6 @@ class SyncEngine:
                 print(f"    → {course['code']}: {summary}", flush=True)
 
             if not dry_run:
-                self.digest_and_log(run_id, courses, mining)
                 # semantic corpus index (incremental — embeddings via the LLM
                 # endpoint; best-effort: a blip there must never fail the sync)
                 try:
@@ -1411,6 +1386,21 @@ class SyncEngine:
                       "unless the content changes")
             status = "partial" if self.course_failures else "ok"
             note = " | ".join(problems) if problems else None
+            self.stats["events_added"] = sum(
+                m.get("events", 0) for m in mining.values())
+            self.stats["assignments_added"] = sum(
+                m.get("assignments", 0) for m in mining.values())
+            finished_wall = datetime.datetime.now().isoformat(timespec="seconds")
+            report = build_report(
+                run_id=run_id, started_at=started_wall, finished_at=finished_wall,
+                duration_s=time.monotonic() - started_clock, trigger=trigger,
+                status=status, stats=self.stats, courses=courses, deltas=self.deltas,
+                mining=mining, course_failures=self.course_failures,
+                mining_failures=self.mining_failures,
+                extraction_failures=self.extraction_failures,
+            )
+            if not dry_run:
+                self.write_run_artifacts(report)
             self.db.finish_sync(run_id, status, **self.stats,
                                 **({"error": note} if note else {}))
             print(f"\nSync {status.upper()}: {json.dumps(self.stats)}")
@@ -1434,41 +1424,39 @@ class SyncEngine:
             print()
             return 0
         except Exception as e:
+            self.write_failure_log(run_id, str(e), trigger)
             self.db.finish_sync(run_id, "failed", error=str(e))
             print(f"Sync FAILED: {e}", file=sys.stderr)
             return 1
 
-    def digest_and_log(self, run_id: int, courses, mining: dict | None = None) -> None:
-        """Deterministic sync log — counts only, no LLM.
-
-        Per-course file/announcement counts come from this run's deltas;
-        mining results come from the per-course mining loop. Announcements are
-        mined through the course corpus (never a digest backlog); chat facts
-        are recorded live by the agent, so no batch pass is needed."""
-        mining = mining or {}
-        per_course = []
-        for c in courses:
-            prefix = f"{c['term']}/{c['code'].replace(' ', '')}/"
-            files_new = sum(1 for d in self.deltas
-                            if d.get("kind") == "file_new"
-                            and (d.get("path") or "").startswith(prefix))
-            files_changed = sum(1 for d in self.deltas
-                                if d.get("kind") == "file_changed"
-                                and (d.get("path") or "").startswith(prefix))
-            ann_new = sum(1 for d in self.deltas
-                          if d.get("kind") == "announcement" and d.get("course_id") == c["id"])
-            m = mining.get(c["id"]) or {}
-            per_course.append({
-                "code": c["code"], "files_new": files_new,
-                "files_changed": files_changed, "announcements_new": ann_new,
-                "mined": {"facts": m.get("facts", 0), "events": m.get("events", 0),
-                          "exams": m.get("exams", 0), "assignments": m.get("assignments", 0)}})
-        md = render_sync_log(time.strftime("%Y-%m-%d"), self.stats, per_course)
-        (self.cfg.data_root / "sync_logs").mkdir(parents=True, exist_ok=True)
-        log_path = self.cfg.data_root / "sync_logs" / f"{time.strftime('%Y-%m-%d')}.md"
-        log_path.write_text(md)
-        self.db.conn.execute("UPDATE sync_runs SET log_path=? WHERE id=?", (str(log_path), run_id))
+    def write_run_artifacts(self, report: SyncReport) -> None:
+        """Write the per-run operational log and the current digest."""
+        logs = self.cfg.data_root / "sync_logs"
+        run_dir = logs / "runs" / datetime.datetime.now().strftime("%Y-%m-%d")
+        run_dir.mkdir(parents=True, exist_ok=True)
+        log_path = run_dir / f"{report.run_id}.md"
+        log_path.write_text(render_sync_log(report))
+        self.db.conn.execute(
+            "UPDATE sync_runs SET log_path=? WHERE id=?", (str(log_path), report.run_id))
         self.db.conn.commit()
+
+        if report.status == "failed":
+            return
+        logs.mkdir(parents=True, exist_ok=True)
+        (logs / "digest.md").write_text(render_digest_fallback(report))
+        meta = {"generated_at": datetime.datetime.now().isoformat(timespec="seconds"),
+                "generated_by": "deterministic"}
+        (logs / "digest.meta.json").write_text(json.dumps(meta))
+
+    def write_failure_log(self, run_id: int, error: str, trigger: str) -> None:
+        """Record a failed sweep without touching the last good digest."""
+        now = datetime.datetime.now().isoformat(timespec="seconds")
+        report = SyncReport(
+            run_id=run_id, started_at=now, finished_at=now, duration_s=0.0,
+            trigger=trigger, status="failed", courses_checked=0, courses_changed=0,
+            stats={}, changes=[], failures=[error],
+        )
+        self.write_run_artifacts(report)
 
     def _notify(self, message: str, priority: str = "default") -> None:
         try:

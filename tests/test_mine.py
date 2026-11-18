@@ -263,15 +263,23 @@ def test_card_filters_noise_and_keeps_grading(db, cfg):
 
 
 def test_render_sync_log_deterministic():
-    from sync.sync import render_sync_log
-    md = render_sync_log("2026-09-11",
-        {"files_new": 3, "files_changed": 1},
-        [{"code": "SE 3352A", "files_new": 3, "files_changed": 1,
-          "announcements_new": 0,
-          "mined": {"facts": 4, "events": 2, "exams": 0, "assignments": 1}}])
-    assert "SE 3352A" in md and "3 new" in md
-    assert "mined +4 facts" in md and "+2 events" in md and "backfilled 1 assignment" in md
-    assert "Nothing new" in render_sync_log("2026-09-11", {}, [])
+    from sync.report import ChangeCard, SyncReport, render_sync_log
+
+    report = SyncReport(
+        run_id=7, started_at="2026-09-11T03:00:00",
+        finished_at="2026-09-11T03:02:00", duration_s=120.0,
+        trigger="manual", status="ok", courses_checked=1, courses_changed=1,
+        stats={"files_new": 3, "files_changed": 1, "announcements_new": 0,
+               "facts_added": 4, "events_added": 2, "assignments_added": 1},
+        changes=[ChangeCard("c1", 7, "SE 3352A", "file_new", "Week 11 slides.pdf")],
+        failures=[],
+    )
+    md = render_sync_log(report)
+    assert md == render_sync_log(report)
+    assert "SE 3352A" in md and "Week 11 slides.pdf" in md
+    assert "+4 facts" in md and "backfilled 1 assignments" in md
+    report.changes = []
+    assert "No course content changed." in render_sync_log(report)
 
 
 def test_parser_rejects_class_and_personal_events():
