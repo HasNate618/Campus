@@ -26,7 +26,11 @@ function AnnouncementRow({ a }: { a: Announcement }) {
 	// Rich HTML body (links + real paragraph spacing) when the sync has it —
 	// falls back to the plain text body (pre-wrap) until the next sync.
 	return (
-		<div className="row" style={{ alignItems: "flex-start" }}>
+		<div
+			id={`announcement-${a.id}`}
+			className="row"
+			style={{ alignItems: "flex-start" }}
+		>
 			<div className="row-main">
 				<div className="row-title announce-title">{a.title}</div>
 				{a.body_html ? (
@@ -263,6 +267,7 @@ export function CourseLayout() {
 
 export function CourseHubPage() {
 	const { courseId } = useParams();
+	const { hash } = useLocation();
 	const cid = Number(courseId);
 	const [hub, setHub] = useState<CourseHub | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -274,6 +279,12 @@ export function CourseHubPage() {
 			.then(setHub)
 			.catch((e) => setError(String(e)));
 	}, [cid]);
+
+	useEffect(() => {
+		if (!hub || !hash.startsWith("#announcement-")) return;
+		const el = document.getElementById(hash.slice(1));
+		if (el) requestAnimationFrame(() => el.scrollIntoView({ block: "center" }));
+	}, [hub, hash]);
 
 	if (error) return <div className="card">Failed to load: {error}</div>;
 	if (!hub)

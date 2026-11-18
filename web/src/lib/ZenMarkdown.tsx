@@ -1,6 +1,8 @@
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, type MouseEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import '@/styles/zen.css'
 import { parseMarkdown, type CitationMeta } from './md'
+import { isInternalHref } from './refs'
 import { useZenPostProcess } from './zenMd'
 
 /**
@@ -31,6 +33,7 @@ export function ZenMarkdown({
   frozen?: boolean
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  const navigate = useNavigate()
   const html = useMemo(
     () => parseMarkdown(content ?? '', citations, assetBase),
     [content, citations, assetBase],
@@ -41,11 +44,22 @@ export function ZenMarkdown({
   // resetting the scroll position even when the markdown did not change.
   const inner = useMemo(() => ({ __html: html }), [html])
   useZenPostProcess(ref, [html], frozen)
+  const onClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented || event.button !== 0) return
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    const anchor = (event.target as HTMLElement).closest('a')
+    if (!anchor || anchor.target === '_blank' || anchor.hasAttribute('download')) return
+    const href = anchor.getAttribute('href') || ''
+    if (!isInternalHref(href)) return
+    event.preventDefault()
+    navigate(href)
+  }
   return (
     <div
       ref={ref}
       className={`md${className ? ` ${className}` : ''}`}
       dangerouslySetInnerHTML={inner}
+      onClick={onClick}
     />
   )
 }

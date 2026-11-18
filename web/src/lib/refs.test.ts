@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { ancestorDirs, refTarget, workspaceHref } from './refs.ts'
+import { ancestorDirs, isInternalHref, refTarget, workspaceHref } from './refs.ts'
 
 describe('refTarget', () => {
   it('routes a resolved corpus file to the content tab', () => {
@@ -45,6 +45,19 @@ describe('workspaceHref', () => {
       workspaceHref(4, 'uploads/a b#c.md'),
       '/courses/4/workspace?path=uploads%2Fa%20b%23c.md',
     )
+  })
+})
+
+describe('isInternalHref', () => {
+  it('accepts same-origin paths and hashes', () => {
+    assert.equal(isInternalHref('/courses/1#announcement-2'), true)
+    assert.equal(isInternalHref('#announcement-2'), true)
+  })
+
+  it('rejects external, protocol-relative and non-http URLs', () => {
+    assert.equal(isInternalHref('https://example.com/x'), false)
+    assert.equal(isInternalHref('//evil.example/x'), false)
+    assert.equal(isInternalHref('mailto:a@example.com'), false)
   })
 })
 

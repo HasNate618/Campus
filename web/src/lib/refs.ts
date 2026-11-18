@@ -47,6 +47,24 @@ export function refTarget(resolved: ResolvedRef | null): RefTarget {
   return { kind: 'workspace', rel: resolved?.rel ?? '' }
 }
 
+/**
+ * Whether a markdown link should be handled by the SPA router.
+ * Paths (including hashes) and same-origin absolute URLs are internal;
+ * protocol-relative, mailto and other-origin links stay with the browser.
+ */
+export function isInternalHref(
+  href: string,
+  origin: string = typeof window === 'undefined' ? 'http://localhost' : window.location.origin,
+): boolean {
+  if (!href || href.startsWith('//')) return false
+  if (href.startsWith('/') || href.startsWith('#')) return true
+  try {
+    return new URL(href, origin).origin === new URL(origin).origin
+  } catch {
+    return false
+  }
+}
+
 /** Deep link that selects a file in the Workspace tab. */
 export function workspaceHref(courseId: number, path: string): string {
   return `/courses/${courseId}/workspace?path=${encodeURIComponent(path)}`

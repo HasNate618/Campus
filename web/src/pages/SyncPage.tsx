@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, Loader2, Play, RefreshCw } from 'lucide-react'
 import { api } from '@/api/client'
+import { ZenMarkdown } from '@/lib/ZenMarkdown'
 import { fmtDateTime, fmtRelative } from '@/lib/format'
 import type { SyncRun } from '@/types'
 
@@ -186,8 +187,10 @@ export function SyncPage() {
                     <div className="empty compact">
                       <Loader2 size={15} className="animate-spin" style={{ display: 'inline' }} />
                     </div>
+                  ) : log ? (
+                    <div className="log-view"><ZenMarkdown content={log} /></div>
                   ) : (
-                    <div className="log-view">{log || 'Empty log.'}</div>
+                    <div className="log-view">Empty log.</div>
                   )}
                 </div>
               )}
