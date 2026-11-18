@@ -251,6 +251,13 @@ function Field({
 					value={value == null ? "" : String(value)}
 					onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
 				/>
+			) : field.kind === "time" ? (
+				<input
+					id={`set-${field.key}`}
+					type="time"
+					value={value == null ? "" : String(value)}
+					onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)}
+				/>
 			) : field.kind === "secret" ? (
 				<input
 					id={`set-${field.key}`}

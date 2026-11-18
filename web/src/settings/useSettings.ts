@@ -11,7 +11,7 @@ export type FieldValue =
 export interface SettingsField {
 	key: string;
 	group: string;
-	kind: "text" | "secret" | "bool" | "int" | "json" | "url" | "list";
+	kind: "text" | "secret" | "bool" | "int" | "json" | "url" | "list" | "time";
 	value: FieldValue;
 	source: "default" | "config" | "env" | "settings";
 	inherited_value?: FieldValue;

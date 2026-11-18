@@ -165,7 +165,7 @@ _write_lock = threading.Lock()
 # in api/settings_fields.py are deliberately strict and do not trim, so a pasted
 # "  https://ntfy.sh/x  " would be rejected rather than saved. `json` is absent
 # because its own validator strips before parsing.
-_TRIMMED_KINDS = frozenset({"text", "secret", "url"})
+_TRIMMED_KINDS = frozenset({"text", "secret", "url", "time"})
 
 
 class PutBody(BaseModel):

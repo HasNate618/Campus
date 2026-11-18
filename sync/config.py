@@ -35,6 +35,9 @@ ENV_OVERRIDES: list[tuple[str, str]] = [
     ("CAMPUS_DB_PATH", "db_path"),
     ("CAMPUS_TOKEN_DIR", "token_dir"),
     ("CAMPUS_TIMEZONE", "timezone"),
+    ("CAMPUS_AUTO_SYNC_ENABLED", "auto_sync_enabled"),
+    ("CAMPUS_AUTO_SYNC_TIME", "auto_sync_time"),
+    ("CAMPUS_AUTO_SYNC_CATCH_UP", "auto_sync_catch_up"),
     ("CAMPUS_PDF_EXTRACTOR_URL", "pdf_extractor_url"),
     ("CAMPUS_NTFY_URL", "ntfy_url"),
     ("CAMPUS_MCP_URL", "mcp_url"),
@@ -49,7 +52,9 @@ ENV_OVERRIDES: list[tuple[str, str]] = [
 
 # Env values arrive as strings, so a boolean flag needs parsing: without this
 # CAMPUS_TERMINAL_ENABLED=0 would set the string "0", which is truthy.
-_BOOL_ENV_ATTRS = frozenset({"terminal_enabled", "demo"})
+_BOOL_ENV_ATTRS = frozenset({
+    "terminal_enabled", "demo", "auto_sync_enabled", "auto_sync_catch_up",
+})
 
 # Comma-separated in the environment, lists on Config.
 _ENV_CSV_ATTRS = frozenset({"llm_urls", "mcp_urls"})
@@ -277,6 +282,12 @@ class Config:
     # Empty = the host's local time (portable default). Set e.g. "America/Toronto"
     # if you want a fixed zone regardless of where the server runs.
     timezone: str = ""
+
+    # One opt-in sync per local day. The scheduler reads these live on every
+    # tick, so Settings changes apply without an API restart.
+    auto_sync_enabled: bool = False
+    auto_sync_time: str = "03:00"  # 24-hour HH:MM in the timezone above
+    auto_sync_catch_up: bool = True  # one run after missed slot(s)
 
     # sync scope
     max_file_size: int = 200 * 1024 * 1024  # skip downloads above this

@@ -69,6 +69,24 @@ export const FIELD_META: Record<string, FieldMeta> = {
 		group: "content",
 		order: 4,
 	},
+	auto_sync_enabled: {
+		label: "Automatic sync",
+		help: "Run Brightspace sync once a day.",
+		group: "sync",
+		order: 1,
+	},
+	auto_sync_time: {
+		label: "Sync time",
+		help: "24-hour time in the timezone below.",
+		group: "sync",
+		order: 4,
+	},
+	auto_sync_catch_up: {
+		label: "Catch up missed syncs",
+		help: "If Campus was off at that time, sync once when it starts. One full sync covers all missed days.",
+		group: "sync",
+		order: 5,
+	},
 	institution: {
 		label: "Institution",
 		help: "Shown to the AI as who it works for.",

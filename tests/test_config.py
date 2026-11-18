@@ -53,6 +53,27 @@ def test_defaults_are_portable():
     assert "8085" not in str(cfg.ntfy_url)   # ntfy port must not be a default
 
 
+def test_auto_sync_defaults_are_portable():
+    from sync.config import Config
+
+    cfg = Config()
+    assert cfg.auto_sync_enabled is False
+    assert cfg.auto_sync_time == "03:00"
+    assert cfg.auto_sync_catch_up is True
+
+
+def test_auto_sync_env_overrides(monkeypatch):
+    from sync.config import Config
+
+    monkeypatch.setenv("CAMPUS_AUTO_SYNC_ENABLED", "1")
+    monkeypatch.setenv("CAMPUS_AUTO_SYNC_TIME", "04:30")
+    monkeypatch.setenv("CAMPUS_AUTO_SYNC_CATCH_UP", "0")
+    cfg = Config.load()
+    assert cfg.auto_sync_enabled is True
+    assert cfg.auto_sync_time == "04:30"
+    assert cfg.auto_sync_catch_up is False
+
+
 def test_env_overrides(monkeypatch):
     from sync.config import Config
 

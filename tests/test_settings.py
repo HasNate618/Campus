@@ -84,6 +84,18 @@ def test_timezone_validation():
         normalize(REGISTRY["timezone"], "Mars/Olympus_Mons")
 
 
+def test_clock_validation():
+    from api.settings_fields import REGISTRY, ValidationError, normalize
+
+    f = REGISTRY["auto_sync_time"]
+    assert normalize(f, "03:00") == "03:00"
+    assert normalize(f, "00:00") == "00:00"
+    assert normalize(f, "23:59") == "23:59"
+    for bad in ("24:00", "12:60", "7:05", "abc", ""):
+        with pytest.raises(ValidationError):
+            normalize(f, bad)
+
+
 def test_tool_choice_parses_json_object():
     """agent/chat.py:108-109 sends cfg.llm_tool_choice whenever it is not None,
     so the object form must round-trip as an object, not as a string."""
@@ -109,6 +121,7 @@ def test_registry_shape():
         "auto_extract_pdfs", "office_to_pdf", "pdf_extractor_url",
         "long_scan_skip_pages", "digest_pdf_excerpt_chars",
         "institution", "timezone",
+        "auto_sync_enabled", "auto_sync_time", "auto_sync_catch_up",
         "ntfy_url", "mcp_urls",
         "max_file_size", "max_extract_size", "office_convert_timeout_s",
         "digest_announcement_days",

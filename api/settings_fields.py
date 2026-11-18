@@ -11,6 +11,7 @@ from the overrides file" (i.e. inherit from config.yaml / env again).
 from __future__ import annotations
 
 import json
+import re
 import zoneinfo
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -92,6 +93,12 @@ def v_url_list(v: Any) -> list[str]:
     return out
 
 
+def v_clock(v: Any) -> str:
+    if not isinstance(v, str) or not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", v):
+        raise ValidationError("must be HH:MM (00:00–23:59)")
+    return v
+
+
 def v_timezone(v: Any) -> str:
     if not isinstance(v, str):
         raise ValidationError("must be text")
@@ -163,6 +170,10 @@ REGISTRY: dict[str, Field] = {
     "digest_pdf_excerpt_chars": Field("digest_pdf_excerpt_chars", "int",
                                       v_int(0, 1_000_000), group="content"),
     # sync
+    "auto_sync_enabled": Field("auto_sync_enabled", "bool", v_bool, group="sync"),
+    "auto_sync_time": Field("auto_sync_time", "time", v_clock, group="sync",
+                            empty="reject"),
+    "auto_sync_catch_up": Field("auto_sync_catch_up", "bool", v_bool, group="sync"),
     "institution": Field("institution", "text", v_text(True), group="sync"),
     "timezone": Field("timezone", "text", v_timezone, group="sync", empty="store"),
     # notifications
