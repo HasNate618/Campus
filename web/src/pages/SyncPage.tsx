@@ -13,6 +13,10 @@ function statusChip(status: string) {
 export function SyncPage() {
   const [runs, setRuns] = useState<SyncRun[]>([])
   const [tokenValid, setTokenValid] = useState<boolean | undefined>(undefined)
+  const [autoSync, setAutoSync] = useState<{
+    enabled: boolean; time: string; catch_up: boolean; timezone: string;
+    last_attempt_date: string | null;
+  } | null>(null)
   const [triggering, setTriggering] = useState(false)
   const [triggerMsg, setTriggerMsg] = useState<string | null>(null)
   const [openRun, setOpenRun] = useState<number | null>(null)
@@ -24,7 +28,10 @@ export function SyncPage() {
     api.syncRuns(25).then(setRuns).catch(console.error)
     api
       .syncStatus()
-      .then((s) => setTokenValid(s.token_valid))
+      .then((s) => {
+        setTokenValid(s.token_valid)
+        setAutoSync(s.auto_sync ?? null)
+      })
       .catch(() => {})
   }, [])
 
@@ -103,6 +110,15 @@ export function SyncPage() {
         <div>
           <h1 className="page-title">Sync</h1>
           <p className="page-sub">Brightspace → local database</p>
+          {autoSync?.enabled && (
+            <p className="row-sub">
+              Auto sync: daily at {autoSync.time} · catch-up{' '}
+              {autoSync.catch_up ? 'on' : 'off'} · {autoSync.timezone}
+              {autoSync.last_attempt_date
+                ? ` · last ${autoSync.last_attempt_date}`
+                : ''}
+            </p>
+          )}
         </div>
 
         <div className="card">

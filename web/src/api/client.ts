@@ -165,9 +165,18 @@ export const api = {
 			isPdf?: boolean;
 		}>(`/courses/${courseId}/resolve-ref?ref=${encodeURIComponent(ref)}`),
 	syncStatus: () =>
-		get<{ status: string; last_run: SyncRun | null; token_valid?: boolean }>(
-			"/sync/status",
-		),
+		get<{
+			status: string;
+			last_run: SyncRun | null;
+			token_valid?: boolean;
+			auto_sync?: {
+				enabled: boolean;
+				time: string;
+				catch_up: boolean;
+				timezone: string;
+				last_attempt_date: string | null;
+			};
+		}>("/sync/status"),
 	syncRuns: (limit = 20) => get<SyncRun[]>(`/sync/runs?limit=${limit}`),
 	syncLog: (runId: number) =>
 		get<{ markdown: string }>(`/sync/runs/${runId}/log`),

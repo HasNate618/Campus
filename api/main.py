@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI
@@ -13,11 +14,24 @@ from api.auth import router as auth_router
 from api.config import cfg
 from api.db import db_available, ensure_wal
 from api.routers import chat, courses, data, digest, search, settings, sync
+from api.scheduler import AutoSyncScheduler
 from api.version import VERSION
 
 ensure_wal()  # WAL so API readers never block the sync writer
 
-app = FastAPI(title="Campus", version=VERSION)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Own the single in-process auto-sync checker for this API process."""
+    scheduler = AutoSyncScheduler()
+    scheduler.start()
+    try:
+        yield
+    finally:
+        scheduler.stop()
+
+
+app = FastAPI(title="Campus", version=VERSION, lifespan=lifespan)
 
 # No CORS by default. Production serves web/dist from this same app, and the
 # Vite dev server proxies /api, so every request in this repo is same-origin and

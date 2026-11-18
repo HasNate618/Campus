@@ -790,8 +790,26 @@ def latest_sync_status() -> dict:
         token_valid = bool(store.load())
     except Exception:
         pass
+
+    auto_sync = {"enabled": False, "time": "", "catch_up": True,
+                 "timezone": "local", "last_attempt_date": None}
+    try:
+        from api.scheduler import read_state, state_path
+        from sync.config import Config as SyncConfig
+
+        sched_cfg = SyncConfig.load()
+        state = read_state(state_path(sched_cfg))
+        auto_sync = {
+            "enabled": sched_cfg.auto_sync_enabled,
+            "time": sched_cfg.auto_sync_time,
+            "catch_up": sched_cfg.auto_sync_catch_up,
+            "timezone": sched_cfg.timezone or "local",
+            "last_attempt_date": state.last_date,
+        }
+    except Exception:
+        pass
     return {"status": (last or {}).get("status", "never"), "last_run": last,
-            "token_valid": token_valid}
+            "token_valid": token_valid, "auto_sync": auto_sync}
 
 
 def list_sync_runs(limit: int = 20) -> list[dict]:
@@ -845,7 +863,7 @@ _sync_lock = threading.Lock()
 _sync_in_progress = False
 
 
-def trigger_sync(course_id: int | None = None) -> dict:
+def trigger_sync(course_id: int | None = None, trigger: str = "manual") -> dict:
     global _sync_in_progress
     with _sync_lock:
         if _sync_in_progress:
@@ -878,7 +896,7 @@ def trigger_sync(course_id: int | None = None) -> dict:
                 row = db.conn.execute("SELECT code FROM courses WHERE id=?", (course_id,)).fetchone()
                 code = row["code"] if row else None
             try:
-                engine.run(code=code)
+                engine.run(code=code, trigger=trigger)
             except D2LAuthError:
                 print("[sync] token expired mid-sync — auto-reauthenticating...", flush=True)
                 from sync.auth import auth
@@ -889,7 +907,7 @@ def trigger_sync(course_id: int | None = None) -> dict:
                 store = TokenStore(cfg.token_dir, ttl=cfg.token_ttl, refresh_buffer=cfg.refresh_buffer)
                 client = D2LClient(cfg.base_url, store.load, on_auth_error=_do_auth)
                 engine = SyncEngine(cfg, db, client)
-                engine.run(code=code)
+                engine.run(code=code, trigger=trigger)
         except Exception:
             # This used to be a bare `pass` while the route still answered
             # {"status": "started"}, so the UI showed a sync that had already
