@@ -39,6 +39,15 @@ class _FakeDB:
     def __init__(self, path):
         self.conn = _FakeConn()
 
+    # trigger_sync reserves the run row before the engine starts, so the live
+    # log has a stable id from its first line. Without these the background
+    # thread dies on AttributeError and the trigger label is never captured.
+    def start_sync(self, trigger):
+        return 1
+
+    def finish_sync(self, run_id, status, error=None, **kw):
+        pass
+
     def close(self):
         pass
 
@@ -75,14 +84,16 @@ def test_scheduled_trigger_label(capture_sync: list[dict]):
 
     out = trigger_sync(trigger="cron")
     assert out["status"] == "started"
-    assert capture_sync == [{"code": None, "trigger": "cron"}]
+    # run_id is passed through so the engine adopts the reserved row instead of
+    # inserting a second one; the label is what this test is about.
+    assert capture_sync == [{"code": None, "trigger": "cron", "run_id": 1}]
 
 
 def test_manual_trigger_default(capture_sync: list[dict]):
     from api.services import trigger_sync
 
     trigger_sync()
-    assert capture_sync == [{"code": None, "trigger": "manual"}]
+    assert capture_sync == [{"code": None, "trigger": "manual", "run_id": 1}]
 
 
 def test_overlap_guard(capture_sync: list[dict], monkeypatch: pytest.MonkeyPatch):
