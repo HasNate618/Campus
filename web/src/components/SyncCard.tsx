@@ -74,7 +74,9 @@ export function SyncCard() {
   }
 
   const chipCls =
-    lastRun?.status === 'success'
+    // 'ok' is what the server writes; 'success' never arrives, so a healthy
+    // sync used to fall through to red.
+    lastRun?.status === 'ok' || lastRun?.status === 'success'
       ? 'chip green'
       : lastRun?.status === 'running'
         ? 'chip amber'

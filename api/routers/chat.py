@@ -307,7 +307,11 @@ def list_sessions(course_id: int | None = None, since: int | None = None,
                 "%Y-%m-%d %H:%M:%S")
             where.append("updated_at > ?")
             args.append(cutoff)
-        sql = ("SELECT id, course_id, title, nodes_json, model, updated_at, client_key, rev "
+        # The legacy blob is NOT selected here. It is 50 MB of duplicated tree
+        # (every session is migrated to chat_nodes rows now) and reading it made
+        # the index query 56 ms instead of 24 ms for a 16 KB response. Sessions
+        # the migration has not reached are handled by load_tree's own fallback.
+        sql = ("SELECT id, course_id, title, model, updated_at, client_key, rev "
                "FROM chat_sessions"
                + (" WHERE " + " AND ".join(where) if where else "")
                + " ORDER BY updated_at DESC")
@@ -334,9 +338,9 @@ def list_sessions(course_id: int | None = None, since: int | None = None,
         for r in rows:
             sid = r["id"]
             # Sessions the row migration has not reached still only have the
-            # blob, so fall back to its digest for them.
-            digest = digests.get(sid) or hashlib.md5(
-                (r["nodes_json"] or "").encode()).hexdigest()
+            # blob. They have no rows, so they get their own key rather than
+            # sharing one digest with every other unmigrated session.
+            digest = digests.get(sid) or f"legacy:{sid}"
             key = (r["course_id"], r["title"], digest)
             if key in seen:
                 # Keep the NEWEST (rows arrive updated_at DESC). The duplicate

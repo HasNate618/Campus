@@ -6,7 +6,11 @@ import { fmtDateTime, fmtRelative } from '@/lib/format'
 import type { SyncRun } from '@/types'
 
 function statusChip(status: string) {
-  if (status === 'success') return 'chip green'
+  // The server writes 'ok' (see sync_runs.status: only 'ok' and 'failed' exist).
+  // This compared against 'success', which the API never sends, so every
+  // healthy run rendered RED — the dashboard said the sync was broken while it
+  // was working. 'success' is kept as an alias for any older caller.
+  if (status === 'ok' || status === 'success') return 'chip green'
   if (status === 'running') return 'chip amber'
   return 'chip red'
 }
