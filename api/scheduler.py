@@ -24,6 +24,25 @@ log = logging.getLogger(__name__)
 class ScheduleState:
     last_date: str | None = None
     last_timezone: str | None = None
+    # The date whose run FINISHED successfully. `last_date` alone used to mean
+    # "attempted", and it was written the moment trigger_sync returned
+    # 'started' — which happens before the daemon thread does any work. A 05:00
+    # run that failed on an expired token therefore marked the whole day done
+    # and was never retried. These two fields separate the attempt from the
+    # outcome so a failed slot can be tried again.
+    last_success_date: str | None = None
+    # Attempts made for `last_date`, and when the last one was made (UTC ISO).
+    # Bounded and spaced so a persistent failure cannot spin every tick.
+    attempts: int = 0
+    last_attempt_at: str | None = None
+
+
+#: How many times one day's slot may be attempted before giving up until
+#: tomorrow. Three covers a token that needs a re-auth plus one transient blip.
+MAX_ATTEMPTS_PER_DAY = 3
+#: Minimum spacing between attempts of the same day. The tick is 60s; without a
+#: gap a failing run would be retried every minute.
+RETRY_SPACING = dt.timedelta(minutes=30)
 
 
 def parse_clock(value: str) -> dt.time | None:
@@ -51,7 +70,12 @@ def _zone(cfg: Config):
 
 def due_date(now: dt.datetime, cfg: Config, state: ScheduleState | None = None,
              window: dt.timedelta = dt.timedelta(minutes=15)) -> dt.date | None:
-    """Return the local date that should be synced, or None."""
+    """Return the local date that should be synced, or None.
+
+    A day is finished only when a run for it SUCCEEDED. An attempt that failed
+    leaves the day due, subject to the attempt cap and the retry spacing, so an
+    expired token at 05:00 no longer cancels the day.
+    """
     if not cfg.auto_sync_enabled:
         return None
     clock = parse_clock(cfg.auto_sync_time)
@@ -67,10 +91,32 @@ def due_date(now: dt.datetime, cfg: Config, state: ScheduleState | None = None,
         return None
     if not cfg.auto_sync_catch_up and local > scheduled + window:
         return None
-    if state and state.last_date == local.date().isoformat() \
-            and state.last_timezone == effective_timezone(cfg):
-        return None
+    today = local.date().isoformat()
+    same_zone = state is not None and state.last_timezone == effective_timezone(cfg)
+    if state and same_zone:
+        # Already synced successfully today: nothing to do.
+        if state.last_success_date == today:
+            return None
+        if state.last_date == today:
+            # Attempted but not yet successful. Retry only within the cap and
+            # only after the spacing has elapsed.
+            if state.attempts >= MAX_ATTEMPTS_PER_DAY:
+                return None
+            last = _parse_utc(state.last_attempt_at)
+            if last is not None and now - last < RETRY_SPACING:
+                return None
     return local.date()
+
+
+def _parse_utc(value: str | None) -> dt.datetime | None:
+    """Parse a stored UTC timestamp, tolerating a naive or malformed value."""
+    if not value:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=dt.timezone.utc)
 
 
 def state_path(cfg: Config) -> Path:
@@ -82,17 +128,29 @@ def read_state(path: Path) -> ScheduleState:
         data = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             return ScheduleState()
+        attempts = data.get("attempts")
         return ScheduleState(
             last_date=data.get("last_date") if isinstance(data.get("last_date"), str) else None,
             last_timezone=(data.get("last_timezone")
                            if isinstance(data.get("last_timezone"), str) else None),
+            last_success_date=(data.get("last_success_date")
+                               if isinstance(data.get("last_success_date"), str) else None),
+            attempts=attempts if isinstance(attempts, int) and attempts >= 0 else 0,
+            last_attempt_at=(data.get("last_attempt_at")
+                             if isinstance(data.get("last_attempt_at"), str) else None),
         )
     except (OSError, ValueError):
         return ScheduleState()
 
 
 def write_state(path: Path, state: ScheduleState) -> None:
-    payload = {"last_date": state.last_date, "last_timezone": state.last_timezone}
+    payload = {
+        "last_date": state.last_date,
+        "last_timezone": state.last_timezone,
+        "last_success_date": state.last_success_date,
+        "attempts": state.attempts,
+        "last_attempt_at": state.last_attempt_at,
+    }
     write_secret(path, json.dumps(payload), chmod_parent=False)
 
 
@@ -138,16 +196,81 @@ class AutoSyncScheduler:
         path = state_path(cfg)
         state = read_state(path)
         current = now or dt.datetime.now(dt.timezone.utc)
+
+        from api import services
+
+        # Settle the previous attempt BEFORE deciding whether today is due. The
+        # run happens on a background thread, so its outcome only exists in
+        # sync_runs; reading it here is what turns "attempted" into "succeeded".
+        state = self._settle(cfg, state, path, services)
+
         target = due_date(current, cfg, state)
         if target is None:
             return "not_due"
 
-        from api import services
         result = services.trigger_sync(trigger="cron")
         status = result.get("status") if isinstance(result, dict) else ""
         if status == "started":
-            write_state(path, ScheduleState(target.isoformat(), effective_timezone(cfg)))
+            # Record the ATTEMPT, not a success. `last_success_date` is only
+            # written by _settle once a run for this date has finished ok.
+            attempts = state.attempts + 1 if state.last_date == target.isoformat() else 1
+            write_state(path, ScheduleState(
+                last_date=target.isoformat(),
+                last_timezone=effective_timezone(cfg),
+                last_success_date=state.last_success_date,
+                attempts=attempts,
+                last_attempt_at=current.astimezone(dt.timezone.utc).isoformat(),
+            ))
             return "started"
         if status == "in_progress":
             return "in_progress"
         return "skipped"
+
+    @staticmethod
+    def _settle(cfg: Config, state: ScheduleState, path: Path, services) -> ScheduleState:
+        """Promote a finished cron run to last_success_date.
+
+        Without this the scheduler cannot tell a failed attempt from a successful
+        one: trigger_sync returns 'started' before the work happens, so the old
+        code marked the day done on launch and a token failure at 05:00 silently
+        cancelled every later attempt that day.
+        """
+        if not state.last_date or state.last_success_date == state.last_date:
+            return state
+        try:
+            runs = services.list_sync_runs(limit=10)
+        except Exception:
+            log.exception("auto-sync: could not read run outcomes")
+            return state
+        # Only cron runs count: a manual sync the user ran is not the scheduled
+        # slot succeeding, and crediting it would hide a broken schedule.
+        for run in runs or []:
+            if (run.get("trigger") != "cron"
+                    or run.get("status") not in ("ok", "partial")):
+                continue
+            started = str(run.get("started_at") or "")
+            if not started:
+                continue
+            # started_at is a naive UTC string from SQLite; compare the DATE in
+            # the schedule's own zone, since a 05:00 local slot can fall on
+            # either UTC date.
+            when = _parse_utc(started.replace(" ", "T"))
+            if when is None:
+                continue
+            try:
+                local_date = when.astimezone(_zone(cfg)).date().isoformat()
+            except Exception:
+                continue
+            if local_date == state.last_date:
+                settled = ScheduleState(
+                    last_date=state.last_date,
+                    last_timezone=state.last_timezone,
+                    last_success_date=state.last_date,
+                    attempts=state.attempts,
+                    last_attempt_at=state.last_attempt_at,
+                )
+                write_state(path, settled)
+                log.info("auto-sync: %s settled by cron run %s (%s)",
+                         state.last_date, run.get("id"), run.get("status"))
+                return settled
+        return state

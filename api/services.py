@@ -808,6 +808,12 @@ def latest_sync_status() -> dict:
             "catch_up": sched_cfg.auto_sync_catch_up,
             "timezone": sched_cfg.timezone or "local",
             "last_attempt_date": state.last_date,
+            # Attempted is not succeeded: a failed slot retries, so the UI can
+            # show "today's sync has not succeeded yet" instead of implying the
+            # day is done because a run was launched.
+            "last_success_date": state.last_success_date,
+            "attempts": state.attempts,
+            "last_attempt_at": state.last_attempt_at,
         }
     except Exception:
         pass

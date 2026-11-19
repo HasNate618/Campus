@@ -53,8 +53,16 @@ def test_catch_up_runs_once_after_missed_days(tmp_path: Path):
     cfg = _cfg(tmp_path, timezone="UTC")
     now = _utc(2026, 11, 18, 10, 0)  # three days past the slot
     assert due_date(now, cfg, None) == now.date()
-    state = ScheduleState(last_date="2026-11-18", last_timezone="UTC")
-    assert due_date(now, cfg, state) is None
+    # A day is finished when a run for it SUCCEEDED, not when one was launched.
+    # `last_date` alone used to settle it, so a run that failed on an expired
+    # token cancelled every later attempt that day.
+    done = ScheduleState(last_date="2026-11-18", last_timezone="UTC",
+                         last_success_date="2026-11-18")
+    assert due_date(now, cfg, done) is None
+    # Attempted but never succeeded: still due (the retry cap and spacing are
+    # covered in test_scheduler_retry.py).
+    attempted = ScheduleState(last_date="2026-11-18", last_timezone="UTC")
+    assert due_date(now, cfg, attempted) == now.date()
 
 
 def test_catch_up_off_window(tmp_path: Path):
