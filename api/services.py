@@ -5,14 +5,17 @@ logic (agent/) and mutations (mutate_* tools, audit_log).
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import errno
 import hashlib
+import io
 import json
 import logging
 import os
 import shutil
 import sqlite3
+import sys
 import threading
 from urllib.parse import quote
 from pathlib import Path
@@ -822,12 +825,40 @@ def get_sync_run(run_id: int) -> dict | None:
 
 def get_sync_log(run_id: int) -> str:
     run = get_sync_run(run_id)
-    if not run or not run.get("log_path"):
+    if not run:
+        return ""
+    # While the run is in flight the final markdown log does not exist yet;
+    # serve the live progress stream instead so the UI is never blank.
+    if run.get("status") == "running":
+        live = _find_live_log(run_id)
+        if live is not None:
+            try:
+                return live.read_text()[-20_000:]
+            except OSError:
+                pass
+    if not run.get("log_path"):
+        # Finished but no final log (e.g. an early failure): fall back to the
+        # live stream if one was captured.
+        live = _find_live_log(run_id)
+        if live is not None:
+            try:
+                return live.read_text()[-20_000:]
+            except OSError:
+                pass
         return ""
     p = Path(run["log_path"])
     if p.exists():
         return p.read_text()[:20_000]
     return ""
+
+
+def _find_live_log(run_id: int) -> Path | None:
+    """Newest live log file for a run id (date dirs, retry-safe)."""
+    live_root = SCHOOL_ROOT / "sync_logs" / "live"
+    if not live_root.exists():
+        return None
+    candidates = sorted(live_root.glob(f"*/{run_id}.log"))
+    return candidates[-1] if candidates else None
 
 
 def get_digest() -> dict:
@@ -863,6 +894,73 @@ _sync_lock = threading.Lock()
 _sync_in_progress = False
 
 
+class _LiveLogTee(io.TextIOBase):
+    """Mirror the sync engine's stdout into a per-run live log file.
+
+    The engine reports progress with plain print() lines; before this they
+    only reached docker logs, so the UI showed an empty log until the run
+    finished. Every complete line is appended to the live file as it is
+    printed, and still forwarded to the real stdout. Writes never raise into
+    the sync: a log failure must not kill a run.
+    """
+
+    def __init__(self, original, path: Path):
+        self._original = original
+        self._path = path
+        self._buf = ""
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self._fh = open(path, "a", encoding="utf-8")
+        except OSError:
+            self._fh = None
+
+    def writable(self) -> bool:
+        return True
+
+    def write(self, s: str) -> int:
+        try:
+            self._original.write(s)
+        except Exception:
+            pass
+        if self._fh is not None:
+            try:
+                self._buf += s
+                while "\n" in self._buf:
+                    line, self._buf = self._buf.split("\n", 1)
+                    self._fh.write(line + "\n")
+                self._fh.flush()
+            except Exception:
+                pass
+        return len(s)
+
+    def flush(self) -> None:
+        try:
+            self._original.flush()
+        except Exception:
+            pass
+        if self._fh is not None:
+            try:
+                self._fh.flush()
+            except Exception:
+                pass
+
+    def close(self) -> None:
+        if self._fh is not None:
+            try:
+                if self._buf:
+                    self._fh.write(self._buf)
+                    self._buf = ""
+                self._fh.close()
+            except Exception:
+                pass
+            self._fh = None
+
+
+def _live_log_path(run_id: int) -> Path:
+    return (SCHOOL_ROOT / "sync_logs" / "live"
+            / datetime.datetime.now().strftime("%Y-%m-%d") / f"{run_id}.log")
+
+
 def trigger_sync(course_id: int | None = None, trigger: str = "manual") -> dict:
     global _sync_in_progress
     with _sync_lock:
@@ -875,6 +973,7 @@ def trigger_sync(course_id: int | None = None, trigger: str = "manual") -> dict:
         global _sync_in_progress
         db = None
         client = None
+        tee = None
         try:
             from sync.d2l import D2LClient, D2LAuthError
             from sync.sync import SyncEngine
@@ -889,6 +988,13 @@ def trigger_sync(course_id: int | None = None, trigger: str = "manual") -> dict:
                 _auth(cfg, store)
 
             db = DB(cfg.db_path)
+            # Reserve the run row up front so the live log has a stable id from
+            # the first printed line; engine.run adopts it instead of inserting
+            # a second row.
+            run_id = db.start_sync(trigger)
+            tee = _LiveLogTee(sys.stdout, _live_log_path(run_id))
+            sys.stdout = tee
+            print(f"[sync] run {run_id} started ({trigger})", flush=True)
             client = D2LClient(cfg.base_url, store.load, on_auth_error=_do_auth)
             engine = SyncEngine(cfg, db, client)
             code = None
@@ -896,7 +1002,7 @@ def trigger_sync(course_id: int | None = None, trigger: str = "manual") -> dict:
                 row = db.conn.execute("SELECT code FROM courses WHERE id=?", (course_id,)).fetchone()
                 code = row["code"] if row else None
             try:
-                engine.run(code=code, trigger=trigger)
+                engine.run(code=code, trigger=trigger, run_id=run_id)
             except D2LAuthError:
                 print("[sync] token expired mid-sync — auto-reauthenticating...", flush=True)
                 from sync.auth import auth
@@ -907,13 +1013,17 @@ def trigger_sync(course_id: int | None = None, trigger: str = "manual") -> dict:
                 store = TokenStore(cfg.token_dir, ttl=cfg.token_ttl, refresh_buffer=cfg.refresh_buffer)
                 client = D2LClient(cfg.base_url, store.load, on_auth_error=_do_auth)
                 engine = SyncEngine(cfg, db, client)
+                # Fresh row for the retry: the first attempt's row stays as the
+                # auth-failure record, and the live log keeps appending under
+                # the original id so the UI sees one continuous stream.
+                retry_id = db.start_sync(trigger)
+                print(f"[sync] retrying as run {retry_id}", flush=True)
                 try:
-                    engine.run(code=code, trigger=trigger)
+                    engine.run(code=code, trigger=trigger, run_id=retry_id)
                 except Exception as retry_err:
                     # If re-auth or the retry itself fails, record a failed row
                     # instead of leaving only a log line — the UI reads the row.
-                    rid = db.start_sync(trigger)
-                    db.finish_sync(rid, "failed", error=f"after auto-reauth: {retry_err}")
+                    db.finish_sync(retry_id, "failed", error=f"after auto-reauth: {retry_err}")
                     raise
         except Exception:
             # This used to be a bare `pass` while the route still answered
@@ -924,6 +1034,9 @@ def trigger_sync(course_id: int | None = None, trigger: str = "manual") -> dict:
             # Release the httpx pool and the SQLite connection on every path.
             # The old code skipped both whenever engine.run() raised anything
             # other than D2LAuthError.
+            if tee is not None:
+                sys.stdout = tee._original
+                tee.close()
             if client is not None:
                 client.close()
             if db is not None:

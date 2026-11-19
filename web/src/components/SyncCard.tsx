@@ -10,6 +10,7 @@ export function SyncCard() {
   const [lastRun, setLastRun] = useState<SyncRun | null>(null)
   const [tokenValid, setTokenValid] = useState<boolean | undefined>(undefined)
   const [triggering, setTriggering] = useState(false)
+  const [progress, setProgress] = useState<string | null>(null)
 
   const refresh = useCallback(() => {
     api
@@ -26,6 +27,29 @@ export function SyncCard() {
     const t = setInterval(refresh, 15000)
     return () => clearInterval(t)
   }, [refresh])
+
+  // While a run is in flight, poll faster and surface its latest progress
+  // line so the dashboard reflects what the sync is doing right now.
+  const running = lastRun?.status === 'running'
+  useEffect(() => {
+    if (!running) {
+      setProgress(null)
+      return
+    }
+    let cancelled = false
+    const tick = async () => {
+      refresh()
+      try {
+        const lg = await api.syncLog(lastRun!.id)
+        if (cancelled) return
+        const lines = lg.markdown.split('\n').map((l) => l.trim()).filter(Boolean)
+        setProgress(lines.length ? lines[lines.length - 1] : null)
+      } catch { /* keep last known line */ }
+    }
+    void tick()
+    const t = setInterval(tick, 3000)
+    return () => { cancelled = true; clearInterval(t) }
+  }, [running, lastRun?.id, refresh])
 
   const trigger = async () => {
     setTriggering(true)
@@ -76,6 +100,11 @@ export function SyncCard() {
           {lastRun && (
             <div className="row-sub">
               {lastRun.files_new} new files · {lastRun.announcements_new} announcements
+            </div>
+          )}
+          {running && progress && (
+            <div className="row-sub" style={{ opacity: 0.85, fontStyle: 'italic' }}>
+              {progress.length > 110 ? progress.slice(0, 110) + '…' : progress}
             </div>
           )}
         </div>

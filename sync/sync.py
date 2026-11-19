@@ -1249,8 +1249,11 @@ class SyncEngine:
         return 0
 
     def run(self, code: str | None = None, dry_run: bool = False,
-            trigger: str = "manual") -> int:
-        run_id = self.db.start_sync(trigger)
+            trigger: str = "manual", run_id: int | None = None) -> int:
+        # Callers that stream a live log reserve the row up front and pass its
+        # id; standalone CLI runs still create their own.
+        if run_id is None:
+            run_id = self.db.start_sync(trigger)
         started_wall = datetime.datetime.now().isoformat(timespec="seconds")
         started_clock = time.monotonic()
         try:

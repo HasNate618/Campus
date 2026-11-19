@@ -24,6 +24,9 @@ export function SyncPage() {
   const [log, setLog] = useState<string>('')
   const [logLoading, setLogLoading] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const logPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const openRunRef = useRef<number | null>(null)
+  const openStatusRef = useRef<string | null>(null)
 
   const refresh = useCallback(() => {
     api.syncRuns(25).then(setRuns).catch(console.error)
@@ -40,8 +43,33 @@ export function SyncPage() {
     refresh()
     return () => {
       if (pollRef.current) clearInterval(pollRef.current)
+      if (logPollRef.current) clearInterval(logPollRef.current)
     }
   }, [refresh])
+
+  // Keep the open run's log fresh while it is running: the backend streams
+  // progress lines into the log endpoint, so re-fetch it on the same cadence
+  // as the run list instead of showing a stale snapshot.
+  useEffect(() => {
+    openRunRef.current = openRun
+    const open = runs.find((r) => r.id === openRun)
+    openStatusRef.current = open?.status ?? null
+    const running = open?.status === 'running'
+    if (running && !logPollRef.current) {
+      logPollRef.current = setInterval(() => {
+        const id = openRunRef.current
+        if (id == null) return
+        api.syncLog(id).then((res) => setLog(res.markdown)).catch(() => {})
+      }, 2500)
+    } else if (!running && logPollRef.current) {
+      clearInterval(logPollRef.current)
+      logPollRef.current = null
+      // One final fetch so the finished log replaces the live stream.
+      if (openRun != null && open && open.status !== 'running') {
+        api.syncLog(openRun).then((res) => setLog(res.markdown)).catch(() => {})
+      }
+    }
+  }, [runs, openRun])
 
   // Poll while any run is in flight.
   useEffect(() => {
@@ -78,6 +106,18 @@ export function SyncPage() {
       const res = await api.triggerSync()
       setTriggerMsg(res.message)
       refresh()
+      // Open the new run's log right away so progress is visible while it runs.
+      setTimeout(async () => {
+        try {
+          const latest = await api.syncRuns(1)
+          const r = latest[0]
+          if (r && r.status === 'running') {
+            setOpenRun(r.id)
+            const lg = await api.syncLog(r.id)
+            setLog(lg.markdown)
+          }
+        } catch { /* surfaced by the normal refresh */ }
+      }, 800)
     } catch (err) {
       setTriggerMsg(err instanceof Error ? err.message : String(err))
     } finally {
