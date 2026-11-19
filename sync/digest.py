@@ -23,18 +23,32 @@ from sync.report import (
 
 log = logging.getLogger(__name__)
 
-_SYSTEM = """You write a short study digest for a university student.
-Use only the supplied change cards. Write at most 250 words with these sections:
-## What changed
-## Watch out for
-Include ## Needs attention only when failures are listed.
-Refer to each claim with its marker, e.g. [c3]. Never write URLs or link syntax
-other than markers. If nothing changed, say so plainly and use no markers.
+_SYSTEM = """You write a tiny study digest for a university student. They scan
+it in ten seconds; they do not read essays.
+
+Rules:
+- Use only the supplied change cards. At most 120 words TOTAL.
+- Sections, in this order, each a heading followed by short bullets:
+  ## What changed
+  ## Watch out for
+  Include ## Needs attention only when failures are listed.
+- One bullet per item. Each bullet is ONE short line: course code, then the
+  fact, then its marker once, e.g. "- SE 3352A: new slides on architectural
+  styles [c1]". Never repeat a marker.
+- No paragraphs, no "Study implication" or summary sections, no restating a
+  card's full text, no contact details unless the card is about contact info.
+- Dates and deadlines go in Watch out for, with the date if the card has one.
+- Refer to claims only by marker, e.g. [c3]. Never write URLs or link syntax
+  other than markers. If nothing changed, say so plainly and use no markers.
 """
 
-_TIMEOUT_S = 60
+_TIMEOUT_S = 90
 _MAX_CHARS = 8000
-_MAX_TOKENS = 600
+# The configured chat model reasons before answering (observed ~1600 reasoning
+# tokens on a 4-card digest). A 600 cap guillotined the answer mid-heading and
+# every digest silently degraded to the deterministic fallback. Budget for the
+# reasoning plus the short answer; the word limit lives in the prompt.
+_MAX_TOKENS = 3000
 
 
 def _prompt(cards: list[ChangeCard], report: SyncReport) -> str:

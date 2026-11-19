@@ -222,6 +222,14 @@ def render_sync_log(report: SyncReport) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _short_label(title: str, cap: int = 60) -> str:
+    """Scannable link label: mined-fact titles are whole facts, not names."""
+    label = (title or "").strip().replace("\n", " ")
+    if len(label) > cap:
+        label = label[:cap].rstrip() + "…"
+    return _md_escape(label)
+
+
 def render_digest_fallback(report: SyncReport) -> str:
     cards = build_change_cards(report)
     if not cards and not report.failures:
@@ -230,7 +238,7 @@ def render_digest_fallback(report: SyncReport) -> str:
     lines = ["## What changed", ""]
     if cards:
         for card in cards[:8]:
-            label = _md_escape(card.title)
+            label = _short_label(card.title)
             link = f"[{label}]({card.href})" if card.href else label
             lines.append(f"- **{_md_escape(card.course_code)}** — {link}")
     else:
@@ -240,9 +248,12 @@ def render_digest_fallback(report: SyncReport) -> str:
     lines += ["", "## Watch out for", ""]
     if watch:
         for card in watch[:5]:
-            label = _md_escape(card.title)
+            label = _short_label(card.title)
             link = f"[{label}]({card.href})" if card.href else label
-            lines.append(f"- {link}" + (f" — {card.detail}" if card.detail else ""))
+            detail = (card.detail or "").strip().replace("\n", " ")
+            if len(detail) > 90:
+                detail = detail[:90].rstrip() + "…"
+            lines.append(f"- {link}" + (f" — {detail}" if detail else ""))
     else:
         lines.append("- No upcoming deadlines changed.")
 
@@ -267,6 +278,10 @@ def substitute_card_links(text: str, cards: list[ChangeCard]) -> str:
         card = by_marker.get(match.group(1))
         if not card or not card.href:
             return ""
-        return f"[{_md_escape(card.title)}]({card.href})"
+        # Mined-fact cards use the whole fact as their title; rendering it as
+        # the link label turned every digest bullet into a text wall. The
+        # model's own short phrasing already carries the meaning — the link
+        # only needs a scannable label.
+        return f"[{_short_label(card.title)}]({card.href})"
 
     return re.sub(r"\[(c\d+)\]", replace, text)
