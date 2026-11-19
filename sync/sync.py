@@ -24,7 +24,7 @@ from pathlib import Path
 import httpx
 
 from sync.config import Config
-from sync.d2l import D2LClient, D2LError
+from sync.d2l import D2LClient, D2LError, D2LAuthError
 from sync.report import (  # re-exported: tests and callers import render_sync_log here
     SyncReport, build_report, render_sync_log,
 )
@@ -1423,6 +1423,16 @@ class SyncEngine:
                 print(f"  {course['code']}: {fc} files, {nc} nodes, {ac} announcements {status}{pending}")
             print()
             return 0
+        except D2LAuthError as e:
+            # Auth failures must escape the engine's blanket handler so the
+            # caller's auto-reauth can run. Record the failed row first (the
+            # retry, if it succeeds, writes its own ok row), then re-raise so
+            # trigger_sync re-authenticates — silent browser-profile login,
+            # no Duo while the persisted cookies live — and retries.
+            self.write_failure_log(run_id, str(e), trigger)
+            self.db.finish_sync(run_id, "failed", error=str(e))
+            print(f"Sync FAILED (auth): {e}", file=sys.stderr)
+            raise
         except Exception as e:
             self.write_failure_log(run_id, str(e), trigger)
             self.db.finish_sync(run_id, "failed", error=str(e))

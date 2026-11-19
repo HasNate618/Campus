@@ -907,7 +907,14 @@ def trigger_sync(course_id: int | None = None, trigger: str = "manual") -> dict:
                 store = TokenStore(cfg.token_dir, ttl=cfg.token_ttl, refresh_buffer=cfg.refresh_buffer)
                 client = D2LClient(cfg.base_url, store.load, on_auth_error=_do_auth)
                 engine = SyncEngine(cfg, db, client)
-                engine.run(code=code, trigger=trigger)
+                try:
+                    engine.run(code=code, trigger=trigger)
+                except Exception as retry_err:
+                    # If re-auth or the retry itself fails, record a failed row
+                    # instead of leaving only a log line — the UI reads the row.
+                    rid = db.start_sync(trigger)
+                    db.finish_sync(rid, "failed", error=f"after auto-reauth: {retry_err}")
+                    raise
         except Exception:
             # This used to be a bare `pass` while the route still answered
             # {"status": "started"}, so the UI showed a sync that had already

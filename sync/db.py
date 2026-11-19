@@ -27,6 +27,14 @@ class DB:
         if "body_html" not in cols:
             self.conn.execute("ALTER TABLE announcements ADD COLUMN body_html TEXT")
             self.conn.commit()
+        # sync_runs gained mining counters after the table shipped; finish_sync
+        # writes them on every run, so an un-migrated DB crashes at the finish.
+        rcols = {r[1] for r in self.conn.execute("PRAGMA table_info(sync_runs)")}
+        for col in ("events_added", "assignments_added"):
+            if col not in rcols:
+                self.conn.execute(
+                    f"ALTER TABLE sync_runs ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
+        self.conn.commit()
         # one file displayed under many topics (module-media pass)
         self.conn.execute(
             """CREATE TABLE IF NOT EXISTS file_topics (

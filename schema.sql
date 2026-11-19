@@ -307,6 +307,8 @@ CREATE TABLE IF NOT EXISTS sync_runs (
     announcements_new   INTEGER NOT NULL DEFAULT 0,
     facts_added         INTEGER NOT NULL DEFAULT 0,
     pdfs_extracted      INTEGER NOT NULL DEFAULT 0,
+    events_added        INTEGER NOT NULL DEFAULT 0,
+    assignments_added   INTEGER NOT NULL DEFAULT 0,
     log_path            TEXT,
     error               TEXT
 );
