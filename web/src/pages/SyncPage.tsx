@@ -6,12 +6,15 @@ import { fmtDateTime, fmtRelative } from '@/lib/format'
 import type { SyncRun } from '@/types'
 
 function statusChip(status: string) {
-  // The server writes 'ok' (see sync_runs.status: only 'ok' and 'failed' exist).
+  // The server writes 'ok' (see sync_runs.status: only 'ok' and 'failed' exist
+  // in this DB, but the CHECK constraint and sync.py also allow 'partial').
   // This compared against 'success', which the API never sends, so every
   // healthy run rendered RED — the dashboard said the sync was broken while it
   // was working. 'success' is kept as an alias for any older caller.
   if (status === 'ok' || status === 'success') return 'chip green'
   if (status === 'running') return 'chip amber'
+  // Some courses failed, others synced: not a clean success, not a dead sync.
+  if (status === 'partial') return 'chip amber'
   return 'chip red'
 }
 

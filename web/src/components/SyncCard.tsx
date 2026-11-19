@@ -75,10 +75,11 @@ export function SyncCard() {
 
   const chipCls =
     // 'ok' is what the server writes; 'success' never arrives, so a healthy
-    // sync used to fall through to red.
+    // sync used to fall through to red. 'partial' (some courses failed) is
+    // amber, not red — the schema and sync engine both emit it.
     lastRun?.status === 'ok' || lastRun?.status === 'success'
       ? 'chip green'
-      : lastRun?.status === 'running'
+      : lastRun?.status === 'running' || lastRun?.status === 'partial'
         ? 'chip amber'
         : 'chip red'
 
