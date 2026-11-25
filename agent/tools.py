@@ -20,6 +20,8 @@ from pathlib import Path
 
 from sync.config import Config
 from sync.db import DB
+from agent.timeutil import (fmt_local as _fmt_local, parse_harness_dt,
+                            tz_name as _tz_name)
 
 # The shell terminal_run executes in. `subprocess.run(shell=True)` uses /bin/sh,
 # which is dash on this image, so a command written with bash syntax failed in ways
@@ -73,14 +75,19 @@ def _rows_as_dicts(rows) -> list[dict]:
 
 # ── handlers ────────────────────────────────────────────────────────────
 
-def _assignment_state(d: dict) -> str:
+def _assignment_state(d: dict, cfg: Config | None = None) -> str:
     """Single intuitive state: closed (availability ended) wins, then
     submitted/graded, then overdue, else open."""
     if d.get("closed"):
         return "closed"
     if d.get("status") in ("submitted", "graded"):
         return d["status"]
-    if d.get("due_at") and d["due_at"] < datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"):
+    # Compare INSTANTS, not strings. A naive local deadline ('...T23:59') used
+    # to be compared against a UTC-now string with the same lexical shape,
+    # flipping open/overdue by the UTC offset. parse_harness_dt gives every
+    # stored shape a timezone before the comparison.
+    due = parse_harness_dt(d.get("due_at"), cfg)
+    if due is not None and due < datetime.datetime.now(datetime.timezone.utc):
         return "overdue"
     return "open"
 
@@ -153,7 +160,13 @@ def harness_list_assignments(db: DB, cfg: Config, args: dict) -> dict:
                 d["closed"] = datetime.datetime.fromisoformat(end.replace("Z", "+00:00")) < datetime.datetime.now(datetime.timezone.utc)
             except ValueError:
                 pass
-        d["state"] = _assignment_state(d)
+        # The model quotes due_at straight back to the user. Hand it the local
+        # wall time with an explicit zone instead of a raw `...Z` string, which
+        # it was rendering as the local deadline (a 5-hour error in EST).
+        if d.get("due_at"):
+            d["due_at_local"] = _fmt_local(d["due_at"], cfg)
+            d["timezone"] = _tz_name(cfg)
+        d["state"] = _assignment_state(d, cfg)
         rubrics = _loads(d.pop("rubrics_json"), [])
         if not isinstance(rubrics, list):
             rubrics = []

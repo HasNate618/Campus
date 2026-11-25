@@ -14,6 +14,14 @@ from pathlib import Path
 
 from sync.config import Config
 from sync.db import DB
+from agent.timeutil import (fmt_local, now_local, parse_harness_dt, sqlish_now,
+                            tz_name)
+
+# Keep the old private names as aliases: the rest of this module (and tests)
+# calls _tz/_now/_fmt, and they now all route through the one time helper.
+_tz = tz_name
+_now = now_local
+_fmt = fmt_local
 
 
 # ── environment / toolbelt ───────────────────────────────────────────────────
@@ -100,36 +108,6 @@ def environment_block() -> str:
     return "\n".join(lines)
 
 
-def _tz(cfg: Config | None = None) -> str:
-    """System local time when unset; empty default avoids leaking a
-    deployer-specific timezone into a fresh checkout."""
-    tz = getattr(cfg, "timezone", None)
-    if tz:
-        return tz
-    try:
-        from time import localtime, tzname
-        return tzname[localtime().tm_isdst] or "local"
-    except Exception:
-        return "local"
-
-
-def _now(cfg: Config | None = None) -> datetime.datetime:
-    try:
-        from zoneinfo import ZoneInfo
-        return datetime.datetime.now(ZoneInfo(_tz(cfg)))
-    except Exception:
-        return datetime.datetime.now().astimezone()
-
-
-def _fmt(dt: str | None) -> str:
-    if not dt:
-        return "unknown"
-    try:
-        return datetime.datetime.fromisoformat(dt.replace("Z", "+00:00")).strftime("%a %b %d, %Y %H:%M")
-    except Exception:
-        return dt
-
-
 def class_events(cfg: Config, db: DB, course_id: int | None, days: int) -> list[dict]:
     """Compute upcoming class meetings from course_sessions, anchored to term
     start dates from config. term_dates: {"2026F": {"start": "2026-09-01",
@@ -180,8 +158,13 @@ def class_events(cfg: Config, db: DB, course_id: int | None, days: int) -> list[
 
 def upcoming_events(cfg: Config, db: DB, course_id: int | None, days: int = 7) -> list[dict]:
     """Next N days: classes (computed) + assignments + exams + hand-created events."""
-    now = _now(cfg).isoformat()
-    later = (_now(cfg) + datetime.timedelta(days=days)).isoformat()
+    # The bounds must be UTC strings like the stored values. A tz-aware literal
+    # (`...-05:00`) sorts before every digit and drops most rows; a naive local
+    # datetime shifts the window by the UTC offset. sqlish_now gives the exact
+    # shape SQLite's datetime('now') writes.
+    now = sqlish_now(cfg)
+    horizon = (now_local(cfg) + datetime.timedelta(days=days)).astimezone(
+        datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     rows = db.conn.execute(
         """SELECT a.id, c.code, a.title, a.due_at, a.status, a.weight,
                   'assignment' AS kind, NULL AS room
@@ -199,13 +182,15 @@ def upcoming_events(cfg: Config, db: DB, course_id: int | None, days: int = 7) -
            WHERE ev.starts_at BETWEEN ? AND ?
              AND (? IS NULL OR ev.course_id = ?)
            ORDER BY 4""",
-        (now, later, course_id, course_id, now, later, course_id, course_id,
-         now, later, course_id, course_id),
+        (now, horizon, course_id, course_id, now, horizon, course_id, course_id,
+         now, horizon, course_id, course_id),
     )
-    events = [dict(r) | {"when": _fmt(r["due_at"] or r["starts_at"]),
+    events = [dict(r) | {"when": _fmt(r["due_at"] or r["starts_at"], cfg),
                          "ts": r["due_at"] or r["starts_at"]} for r in rows]
     events.extend(class_events(cfg, db, course_id, days))
-    events.sort(key=lambda e: e["ts"])
+    events.sort(key=lambda e: parse_harness_dt(
+        e.get("ts") or e.get("when"), cfg)
+        or dt.datetime.min.replace(tzinfo=dt.timezone.utc))
     return events
 
 
@@ -336,6 +321,11 @@ ACTIVE TERMS: {term_str}
 
 {scope}{card_text}
 CURRENT TIME: {now.strftime('%A %Y-%m-%d %H:%M %Z')} ({_tz(cfg)})
+TIMEZONE RULE: the CURRENT TIME and every "when" below are in {_tz(cfg)}.
+All harness timestamps have ALREADY been converted to that zone for you. Treat
+them as local times — do NOT shift them again, do NOT assume they are UTC, and
+do NOT convert them to another zone unless the user asks. When asked what is
+due or when something happens, quote these local values directly.
 UPCOMING (next 7 days):
 {events_str}
 """

@@ -346,7 +346,9 @@ def test_assignment_view_carries_title_due_and_status(view_cfg, view_db):
         {"kind": "assignment", "course_id": 1, "assignment_id": aid},
         course_id=1)
     assert "Assignment 3" in block
-    assert "2026-09-25 23:59" in block
+    # Rendered in the configured zone with the zone named, not the raw UTC-ish
+    # string: a `...Z` value used to be quoted as the local deadline verbatim.
+    assert "Fri Sep 25, 2026" in block or "2026-09-25" in block
     assert "open" in block
     assert "assignment" in block.lower()
 

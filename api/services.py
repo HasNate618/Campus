@@ -55,8 +55,11 @@ def _loads(raw: object, default):
         return default
 
 
+from agent.timeutil import fmt_local, now_local, sqlish_now, tz_name
+
 def _now_iso() -> str:
-    return datetime.datetime.now().isoformat()
+    """UTC in SQLite's string shape, for lexical compares with stored due dates."""
+    return sqlish_now()
 
 
 # ── courses ─────────────────────────────────────────────────────────────
@@ -730,8 +733,12 @@ def _events_sql(base: str, course_id: int | None, args: tuple) -> tuple[str, tup
 
 
 def events_next_days(days: int, course_id: int | None = None) -> list[dict]:
+    from sync.config import Config as _SyncConfig
+
+    _cfg = _SyncConfig.load()
     now = _now_iso()
-    later = (datetime.datetime.now() + datetime.timedelta(days=days)).isoformat()
+    later = (now_local(_cfg) + datetime.timedelta(days=days)).astimezone(
+        datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     q = """SELECT a.id, a.course_id, c.code AS course_code, 'assignment' AS kind,
                   a.title, a.due_at AS starts_at, NULL AS ends_at, NULL AS notes
            FROM assignments a JOIN courses c ON c.id=a.course_id
@@ -746,7 +753,16 @@ def events_next_days(days: int, course_id: int | None = None) -> list[dict]:
            WHERE ev.starts_at BETWEEN ? AND ? AND (? IS NULL OR ev.course_id=?)
            ORDER BY starts_at"""
     args = (now, later, course_id, course_id) * 3
-    return _dedupe_deadlines(_rows(q, args))
+    rows = _dedupe_deadlines(_rows(q, args))
+    # Keep `starts_at` verbatim for callers that need the raw harness value, but
+    # also give them a ready-to-display local time + zone. The API used to hand
+    # out a mix of `...Z`, date-only and naive strings with no hint, and the UI
+    # (and the agent) each guessed a different conversion.
+    for r in rows:
+        if r.get("starts_at"):
+            r["starts_at_local"] = fmt_local(r["starts_at"], _cfg)
+            r["timezone"] = tz_name(_cfg)
+    return rows
 
 
 def list_events(course_id: int | None = None,

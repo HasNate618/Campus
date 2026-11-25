@@ -16,6 +16,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from sync.config import Config
+from agent.timeutil import fmt_local, tz_name
 from sync.db import DB
 
 _HEADER = "CURRENT VIEW (what the user has open right now)"
@@ -41,7 +42,7 @@ def render_view_block(cfg: Config, db: DB, view: object,
     if kind == "content":
         lines = _content_lines(cfg, db, view, course_id)
     elif kind == "assignment":
-        lines = _assignment_lines(db, view, course_id)
+        lines = _assignment_lines(cfg, db, view, course_id)
     else:
         return ""
     if not lines:
@@ -134,7 +135,7 @@ def _readable_path(db: DB, path: str) -> str:
     return row["path"] if row else path
 
 
-def _assignment_lines(db: DB, view: dict, course_id: int) -> list[str]:
+def _assignment_lines(cfg: Config, db: DB, view: dict, course_id: int) -> list[str]:
     assignment_id = _as_int(view.get("assignment_id"))
     if assignment_id is None:
         return []
@@ -147,7 +148,9 @@ def _assignment_lines(db: DB, view: dict, course_id: int) -> list[str]:
     # extension recorded in the harness is what the model is told about.
     lines = ["kind: assignment", f"title: {row['title']}"]
     if row["due_at"]:
-        lines.append(f"due: {row['due_at']}")
+        # Raw `...Z` UTC strings led the model to quote the UTC clock time as
+        # the local deadline. Present it in the configured timezone.
+        lines.append(f"due: {fmt_local(row['due_at'], cfg)} ({tz_name(cfg)})")
     if row["status"]:
         lines.append(f"status: {row['status']}")
     return lines

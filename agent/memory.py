@@ -18,6 +18,8 @@ from __future__ import annotations
 import datetime
 from pathlib import Path
 
+from agent.timeutil import fmt_local, sqlish_now
+
 from sync.config import Config
 from sync.db import DB
 
@@ -71,13 +73,9 @@ def term_is_past(term: str, today: datetime.date | None = None) -> bool:
     return win[1] < today
 
 
-def _fmt(dt: str | None) -> str:
-    if not dt:
-        return "unknown"
-    try:
-        return datetime.datetime.fromisoformat(dt.replace("Z", "+00:00")).strftime("%b %d %Y %H:%M")
-    except Exception:
-        return dt
+def _fmt(dt: str | None, cfg: Config | None = None) -> str:
+    """Render harness timestamps in the configured timezone (UTC container)."""
+    return fmt_local(dt, cfg, "%b %d %Y %H:%M")
 
 
 def _course_dir(cfg: Config, course) -> Path:
@@ -112,7 +110,7 @@ def build_card(cfg: Config, db: DB, course_id: int,
         (course_id,)).fetchone()["n"]
     state = f"- {files_n} files ({extracted_n} extracted)"
     if last_sync:
-        state += f"; last sync {_fmt(last_sync['started_at'])} ({last_sync['status']})"
+        state += f"; last sync {_fmt(last_sync['started_at'], cfg)} ({last_sync['status']})"
     sections.append(("State", [state]))
 
     # DEADLINES — structured rows only (they beat facts by design); pinned.
@@ -125,9 +123,9 @@ def build_card(cfg: Config, db: DB, course_id: int,
     exams = db.conn.execute(
         "SELECT title, starts_at FROM exams WHERE course_id=? AND starts_at >= datetime('now') "
         "ORDER BY starts_at LIMIT 4", (course_id,)).fetchall()
-    deadline_bullets = [f"- DUE {_fmt(r['due_at'])} ({r['status']}): {r['title']}"
+    deadline_bullets = [f"- DUE {_fmt(r['due_at'], cfg)} ({r['status']}): {r['title']}"
                         for r in deadlines]
-    deadline_bullets += [f"- EXAM {_fmt(r['starts_at'])}: {r['title']}" for r in exams]
+    deadline_bullets += [f"- EXAM {_fmt(r['starts_at'], cfg)}: {r['title']}" for r in exams]
     if deadline_bullets:
         sections.append(("Deadlines", deadline_bullets))
 

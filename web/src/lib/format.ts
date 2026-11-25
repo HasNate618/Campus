@@ -1,9 +1,23 @@
 export function parseDate(s?: string | null): Date | null {
   if (!s) return null
-  // Date-only strings must parse as LOCAL time: new Date('2026-09-18')
-  // is UTC midnight, which renders as the previous day in UTC-4 (and
-  // misplaces calendar columns + isPast). Noon is DST-safe.
-  const t = s.includes('T') ? s.replace(' ', 'T') : `${s}T12:00`
+  // Three shapes come back from the harness:
+  //   '2026-12-07T04:59:59.000Z'  UTC, keep the Z (correct instant)
+  //   '2026-11-19 10:00:51'       SQLite datetime('now') — UTC, NO marker.
+  //   '2026-12-01'                date-only, a local calendar day from the LMS.
+  // A space-separated naive string is NOT valid JS Date input, so a sync-run
+  // timestamp rendered as "Invalid Date" in the dashboard. Convert it to ISO
+  // with an explicit Z before parsing.
+  let t: string
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s)) {
+    t = `${s.replace(' ', 'T')}Z`
+  } else if (s.includes('T')) {
+    t = s.replace(' ', 'T')
+  } else {
+    // Date-only strings must parse as LOCAL time: new Date('2026-09-18')
+    // is UTC midnight, which renders as the previous day in UTC-5 (and
+    // misplaces calendar columns + isPast). Noon is DST-safe.
+    t = `${s}T12:00`
+  }
   const d = new Date(t)
   return Number.isNaN(d.getTime()) ? null : d
 }
