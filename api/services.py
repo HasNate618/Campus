@@ -752,7 +752,22 @@ def events_next_days(days: int, course_id: int | None = None) -> list[dict]:
            FROM events ev LEFT JOIN courses c ON c.id=ev.course_id
            WHERE ev.starts_at BETWEEN ? AND ? AND (? IS NULL OR ev.course_id=?)
            ORDER BY starts_at"""
-    args = (now, later, course_id, course_id) * 3
+    # Compare the DATE PREFIX, not the full mixed-format string. SQLite's
+    # datetime('now') writes `YYYY-MM-DD HH:MM:SS` while D2L ISO values use
+    # `YYYY-MM-DDTHH:MM...Z`; 'T' (0x54) sorts after space (0x20), so a
+    # space-separated bound excluded ISO events on the boundary day and a
+    # `Z`-suffixed value could sort outside entirely. substr(...,1,10) gives a
+    # consistent YYYY-MM-DD shape for all three stored forms.
+    q = q.replace("a.due_at BETWEEN ? AND ?", "substr(a.due_at,1,10) BETWEEN ? AND ?")
+    q = q.replace("e.starts_at BETWEEN ? AND ?", "substr(e.starts_at,1,10) BETWEEN ? AND ?")
+    q = q.replace("ev.starts_at BETWEEN ? AND ?", "substr(ev.starts_at,1,10) BETWEEN ? AND ?")
+    now_day = now[:10]
+    later_day = later[:10]
+
+    def bound(value: str) -> str:
+        return value[:10] if isinstance(value, str) else value
+
+    args = tuple(bound(x) for x in (now_day, later_day, course_id, course_id) * 3)
     rows = _dedupe_deadlines(_rows(q, args))
     # Keep `starts_at` verbatim for callers that need the raw harness value, but
     # also give them a ready-to-display local time + zone. The API used to hand
