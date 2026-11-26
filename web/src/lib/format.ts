@@ -40,6 +40,29 @@ export function fmtTime(s?: string | null): string {
   return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
 }
 
+/**
+ * Format a harness timestamp in an EXPLICIT IANA zone.
+ *
+ * Sync runs are stored as UTC (`2026-11-26 10:00:39`) but the configured slot
+ * is 05:00 America/Toronto. Using the DEVICE zone meant a laptop in Toronto
+ * showed 5am while a phone set to UTC showed 10am — the same run, two times.
+ * The server publishes its configured zone at /api/sync/status.auto_sync.timezone;
+ * pass it here so every device agrees.
+ */
+export function fmtDateTimeInZone(
+  s: string | null | undefined,
+  timeZone?: string | null,
+): string {
+  const d = parseDate(s)
+  if (!d) return '—'
+  const opts: Intl.DateTimeFormatOptions = {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  }
+  if (timeZone) opts.timeZone = timeZone
+  // en-CA keeps the 'Nov 26, 5:00 a.m.' shape stable across browser locales.
+  return d.toLocaleString('en-CA', opts)
+}
+
 export function fmtRelative(s?: string | null): string {
   const d = parseDate(s)
   if (!d) return '—'

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, Loader2, Play, RefreshCw } from 'lucide-react'
 import { api } from '@/api/client'
 import { ZenMarkdown } from '@/lib/ZenMarkdown'
-import { fmtDateTime, fmtRelative } from '@/lib/format'
+import { fmtDateTimeInZone } from '@/lib/format'
 import type { SyncRun } from '@/types'
 
 function statusChip(status: string) {
@@ -173,7 +173,7 @@ export function SyncPage() {
           <div className="sync-head" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <div className="row-main">
               <div className="row-title">
-                {lastRun ? `Last run ${fmtRelative(lastRun.started_at)}` : 'Never synced'}
+                {lastRun ? `Last run ${fmtDateTimeInZone(lastRun.started_at, autoSync?.timezone)}` : 'Never synced'}
               </div>
               <div className="row-sub">
                 {lastRun
@@ -220,7 +220,7 @@ export function SyncPage() {
               >
                 {openRun === r.id ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 <div className="row-main">
-                  <div className="row-title">{fmtDateTime(r.started_at)}</div>
+                  <div className="row-title">{fmtDateTimeInZone(r.started_at, autoSync?.timezone)}</div>
                   <div className="row-sub">
                     {r.trigger} · {r.files_new}+{r.files_changed}~ files · {r.announcements_new} announcements
                     {r.error ? ` · ${r.error}` : ''}
