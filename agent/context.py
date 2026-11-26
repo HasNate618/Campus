@@ -165,26 +165,33 @@ def upcoming_events(cfg: Config, db: DB, course_id: int | None, days: int = 7) -
     now = sqlish_now(cfg)
     horizon = (now_local(cfg) + datetime.timedelta(days=days)).astimezone(
         datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    rows = db.conn.execute(
-        """SELECT a.id, c.code, a.title, a.due_at, a.status, a.weight,
+    # Compare the date prefix, not the raw string. Stored values mix
+    # `YYYY-MM-DD HH:MM:SS` (SQLite UTC) and `YYYY-MM-DDTHH:MM...Z` (D2L); 'T'
+    # sorts after a space, so an ISO deadline on the horizon day was silently
+    # missing from the agent's view of what's due. The API's 7-day window uses
+    # the same rule — keep them consistent.
+    q = """SELECT a.id, c.code, a.title, a.due_at, a.status, a.weight,
                   'assignment' AS kind, NULL AS room
            FROM assignments a JOIN courses c ON c.id = a.course_id
-           WHERE a.due_at IS NOT NULL AND a.due_at BETWEEN ? AND ?
+           WHERE a.due_at IS NOT NULL AND substr(a.due_at,1,10) BETWEEN ? AND ?
              AND (? IS NULL OR a.course_id = ?)
            UNION ALL
            SELECT e.id, c.code, e.title, e.starts_at, NULL, e.weight, 'exam' AS kind, NULL AS room
            FROM exams e JOIN courses c ON c.id = e.course_id
-           WHERE e.starts_at IS NOT NULL AND e.starts_at BETWEEN ? AND ?
+           WHERE e.starts_at IS NOT NULL AND substr(e.starts_at,1,10) BETWEEN ? AND ?
              AND (? IS NULL OR e.course_id = ?)
            UNION ALL
            SELECT ev.id, c.code, ev.title, ev.starts_at, NULL, NULL, ev.kind, NULL AS room
            FROM events ev LEFT JOIN courses c ON c.id = ev.course_id
-           WHERE ev.starts_at BETWEEN ? AND ?
+           WHERE substr(ev.starts_at,1,10) BETWEEN ? AND ?
              AND (? IS NULL OR ev.course_id = ?)
-           ORDER BY 4""",
-        (now, horizon, course_id, course_id, now, horizon, course_id, course_id,
-         now, horizon, course_id, course_id),
-    )
+           ORDER BY 4"""
+    bound = lambda v: v[:10] if isinstance(v, str) else v
+    args = tuple(bound(x) for x in
+                 (now, horizon, course_id, course_id,
+                  now, horizon, course_id, course_id,
+                  now, horizon, course_id, course_id))
+    rows = db.conn.execute(q, args).fetchall()
     events = [dict(r) | {"when": _fmt(r["due_at"] or r["starts_at"], cfg),
                          "ts": r["due_at"] or r["starts_at"]} for r in rows]
     events.extend(class_events(cfg, db, course_id, days))
